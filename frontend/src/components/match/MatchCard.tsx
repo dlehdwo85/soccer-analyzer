@@ -1,5 +1,6 @@
+'use client'
 import Link from 'next/link'
-import { Calendar, MapPin, ChevronRight } from 'lucide-react'
+import { Calendar, ChevronRight } from 'lucide-react'
 import { Match } from '@/lib/types'
 import StatusBadge from '@/components/ui/StatusBadge'
 import { fmtDate } from '@/lib/utils'
