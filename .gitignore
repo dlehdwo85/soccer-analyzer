@@ -1,0 +1,48 @@
+# ── Python / 백엔드 ───────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+env/
+.venv/
+*.env
+!.env.example
+*.db
+*.sqlite3
+uploads/
+
+# ── Node / 프론트엔드 ─────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+.vercel/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ── 환경변수 (절대 올리면 안 됨) ─────────────────────────────────────────
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ── 운영체제 / 에디터 ─────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── 영상 파일 (용량이 커서 GitHub에 올리지 않음) ─────────────────────────
+*.mp4
+*.mov
+*.avi
+*.mkv

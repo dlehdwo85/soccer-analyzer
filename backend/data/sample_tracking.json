@@ -1,0 +1,182 @@
+{
+  "description": "샘플 경기 분석 데이터 — 봄리그 6라운드",
+  "match": {
+    "title": "2025 봄리그 6라운드",
+    "date": "2025-04-12",
+    "field_type": "soccer",
+    "home_team_name": "붉은 독수리",
+    "away_team_name": "파란 번개",
+    "home_team_color": "#ef4444",
+    "away_team_color": "#3b82f6"
+  },
+  "players": [
+    {
+      "track_id": "track_1",
+      "team_side": "home",
+      "total_distance_m": 11240,
+      "avg_position_x": 0.72,
+      "avg_position_y": 0.38,
+      "active_area_score": 78.5,
+      "first_half_distance_m": 6100,
+      "second_half_distance_m": 5140,
+      "style_badge": "우측형",
+      "comment": "우측 공간 활용이 두드러졌습니다. 전후반 균형 잡힌 활동량을 보였습니다."
+    },
+    {
+      "track_id": "track_2",
+      "team_side": "home",
+      "total_distance_m": 10580,
+      "avg_position_x": 0.50,
+      "avg_position_y": 0.45,
+      "active_area_score": 82.1,
+      "first_half_distance_m": 5800,
+      "second_half_distance_m": 4780,
+      "style_badge": "중앙형",
+      "comment": "중앙 구역 중심으로 활동했습니다. 후반 활동량이 다소 줄었습니다. 체력 훈련을 권장합니다."
+    },
+    {
+      "track_id": "track_3",
+      "team_side": "home",
+      "total_distance_m": 9870,
+      "avg_position_x": 0.28,
+      "avg_position_y": 0.40,
+      "active_area_score": 71.3,
+      "first_half_distance_m": 5200,
+      "second_half_distance_m": 4670,
+      "style_badge": "좌측형",
+      "comment": "측면 왼쪽 활동 비중이 높았습니다. 안정적인 이동거리를 기록했습니다."
+    },
+    {
+      "track_id": "track_4",
+      "team_side": "home",
+      "total_distance_m": 8920,
+      "avg_position_x": 0.50,
+      "avg_position_y": 0.68,
+      "active_area_score": 62.0,
+      "first_half_distance_m": 4600,
+      "second_half_distance_m": 4320,
+      "style_badge": "수비형",
+      "comment": "수비 지역 커버에 집중했습니다. 전후반 균등한 체력 유지력이 돋보였습니다."
+    },
+    {
+      "track_id": "track_5",
+      "team_side": "home",
+      "total_distance_m": 9450,
+      "avg_position_x": 0.55,
+      "avg_position_y": 0.28,
+      "active_area_score": 75.8,
+      "first_half_distance_m": 5100,
+      "second_half_distance_m": 4350,
+      "style_badge": "공격형",
+      "comment": "공격적인 전방 위치를 유지했습니다. 안정적인 이동거리를 기록했습니다."
+    },
+    {
+      "track_id": "track_6",
+      "team_side": "home",
+      "total_distance_m": 7830,
+      "avg_position_x": 0.48,
+      "avg_position_y": 0.72,
+      "active_area_score": 55.2,
+      "first_half_distance_m": 4100,
+      "second_half_distance_m": 3730,
+      "style_badge": "수비형",
+      "comment": "수비 지역 커버에 집중했습니다. 이동거리가 다소 적었습니다. 적극적인 움직임을 권장합니다."
+    },
+    {
+      "track_id": "track_7",
+      "team_side": "home",
+      "total_distance_m": 10120,
+      "avg_position_x": 0.60,
+      "avg_position_y": 0.55,
+      "active_area_score": 68.9,
+      "first_half_distance_m": 5500,
+      "second_half_distance_m": 4620,
+      "style_badge": "활동량형",
+      "comment": "경기 전반에 걸쳐 높은 활동량을 보였습니다. 중앙 구역 중심으로 활동했습니다."
+    },
+    {
+      "track_id": "track_8",
+      "team_side": "away",
+      "total_distance_m": 10890,
+      "avg_position_x": 0.30,
+      "avg_position_y": 0.42,
+      "active_area_score": 79.4,
+      "first_half_distance_m": 5900,
+      "second_half_distance_m": 4990,
+      "style_badge": "좌측형",
+      "comment": "측면 왼쪽 활동 비중이 높았습니다. 경기 전반에 걸쳐 높은 활동량을 보였습니다."
+    },
+    {
+      "track_id": "track_9",
+      "team_side": "away",
+      "total_distance_m": 9640,
+      "avg_position_x": 0.50,
+      "avg_position_y": 0.50,
+      "active_area_score": 84.2,
+      "first_half_distance_m": 5300,
+      "second_half_distance_m": 4340,
+      "style_badge": "넓은커버",
+      "comment": "넓은 커버 범위로 팀에 기여했습니다. 중앙 구역 중심으로 활동했습니다."
+    },
+    {
+      "track_id": "track_10",
+      "team_side": "away",
+      "total_distance_m": 11050,
+      "avg_position_x": 0.68,
+      "avg_position_y": 0.35,
+      "active_area_score": 77.6,
+      "first_half_distance_m": 6000,
+      "second_half_distance_m": 5050,
+      "style_badge": "우측형",
+      "comment": "측면 오른쪽 활동 비중이 높았습니다. 공격적인 전방 위치를 유지했습니다."
+    },
+    {
+      "track_id": "track_11",
+      "team_side": "away",
+      "total_distance_m": 8450,
+      "avg_position_x": 0.52,
+      "avg_position_y": 0.65,
+      "active_area_score": 59.8,
+      "first_half_distance_m": 4400,
+      "second_half_distance_m": 4050,
+      "style_badge": "수비형",
+      "comment": "수비 지역 커버에 집중했습니다. 전후반 균등한 체력 유지력이 돋보였습니다."
+    },
+    {
+      "track_id": "track_12",
+      "team_side": "away",
+      "total_distance_m": 9230,
+      "avg_position_x": 0.45,
+      "avg_position_y": 0.48,
+      "active_area_score": 70.1,
+      "first_half_distance_m": 4900,
+      "second_half_distance_m": 4330,
+      "style_badge": "중앙형",
+      "comment": "중앙 구역 중심으로 활동했습니다. 안정적인 이동거리를 기록했습니다."
+    },
+    {
+      "track_id": "track_13",
+      "team_side": "away",
+      "total_distance_m": 7650,
+      "avg_position_x": 0.48,
+      "avg_position_y": 0.75,
+      "active_area_score": 52.3,
+      "first_half_distance_m": 3900,
+      "second_half_distance_m": 3750,
+      "style_badge": "수비형",
+      "comment": "수비 지역 커버에 집중했습니다. 이동거리가 다소 적었습니다."
+    },
+    {
+      "track_id": "track_14",
+      "team_side": "away",
+      "total_distance_m": 10340,
+      "avg_position_x": 0.55,
+      "avg_position_y": 0.40,
+      "active_area_score": 73.5,
+      "first_half_distance_m": 5600,
+      "second_half_distance_m": 4740,
+      "style_badge": "활동량형",
+      "comment": "경기 전반에 걸쳐 높은 활동량을 보였습니다. 중앙 구역 중심으로 활동했습니다."
+    }
+  ]
+}
