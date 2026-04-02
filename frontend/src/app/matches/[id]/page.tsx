@@ -2,9 +2,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Upload, Play, FlaskConical, CheckCircle, XCircle, Loader2 } from 'lucide-react'
+import { ArrowLeft, Upload, Play, FlaskConical, CheckCircle, Loader2 } from 'lucide-react'
 import { Match } from '@/lib/types'
 import { api } from '@/lib/api'
+import { uploadVideoToSupabase } from '@/lib/supabase'
 import StatusBadge from '@/components/ui/StatusBadge'
 import PageHeader from '@/components/layout/PageHeader'
 import { fmtDate } from '@/lib/utils'
@@ -18,6 +19,7 @@ export default function MatchDetailPage() {
   const [match, setMatch] = useState<Match | null>(null)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const [analyzing, setAnalyzing] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -34,7 +36,7 @@ export default function MatchDetailPage() {
 
   useEffect(() => { load() }, [matchId])
 
-  // 상태 폴링 (분석 중일 때)
+  // 분석 중 폴링
   useEffect(() => {
     if (match?.status !== 'analyzing') return
     const timer = setInterval(async () => {
@@ -44,40 +46,70 @@ export default function MatchDetailPage() {
         if (m.status === 'done' || m.status === 'failed') {
           clearInterval(timer)
           if (m.status === 'done') {
-            toast.success('분석이 완료되었습니다!')
+            toast.success('분석이 완료됐습니다!')
             router.push(`/matches/${matchId}/results`)
+          } else {
+            toast.error('분석에 실패했습니다')
           }
         }
       } catch { clearInterval(timer) }
-    }, 2000)
+    }, 3000)
     return () => clearInterval(timer)
   }, [match?.status, matchId, router])
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+
     const ext = file.name.split('.').pop()?.toLowerCase()
     if (!['mp4', 'mov'].includes(ext ?? '')) {
       toast.error('MP4, MOV 파일만 지원합니다')
       return
     }
+
     setUploading(true)
+    setUploadProgress(0)
+
     try {
-      await api.uploadVideo(matchId, file)
+      // Supabase에 직접 업로드 (대용량 가능)
+      toast.info('영상 업로드 중... 파일 크기에 따라 수 분이 걸릴 수 있습니다')
+
+      const videoUrl = await uploadVideoToSupabase(matchId, file)
+
+      // Railway에 URL 저장
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/matches/${matchId}/set-video-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ video_url: videoUrl, filename: file.name }),
+      })
+
       toast.success('영상 업로드 완료!')
       await load()
     } catch (err: any) {
-      toast.error(err.message ?? '업로드 실패')
+      // Supabase 실패 시 Railway로 직접 업로드 시도 (소용량)
+      try {
+        toast.info('직접 업로드 시도 중...')
+        await api.uploadVideo(matchId, file)
+        toast.success('영상 업로드 완료!')
+        await load()
+      } catch (err2: any) {
+        toast.error('업로드 실패: ' + (err2.message ?? '파일이 너무 크거나 서버 오류'))
+      }
     } finally {
       setUploading(false)
+      setUploadProgress(0)
     }
   }
 
   const handleAnalyze = async (useSample: boolean) => {
     setAnalyzing(true)
     try {
-      await api.analyze(matchId, useSample)
-      toast.success(useSample ? '샘플 분석을 시작합니다...' : '분석을 시작합니다...')
+      const res = await api.analyze(matchId, useSample)
+      toast.success(
+        res.runpod_enabled && !useSample
+          ? 'GPU 분석 서버 시작 중... (약 10~20분 소요)'
+          : '샘플 분석 시작!'
+      )
       await load()
     } catch (err: any) {
       toast.error(err.message ?? '분석 시작 실패')
@@ -89,7 +121,7 @@ export default function MatchDetailPage() {
   if (loading) return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       <div className="space-y-4">
-        {[1, 2, 3].map(i => <div key={i} className="card h-24 animate-pulse bg-gray-100" />)}
+        {[1,2,3].map(i => <div key={i} className="card h-24 animate-pulse bg-gray-100"/>)}
       </div>
     </div>
   )
@@ -100,7 +132,7 @@ export default function MatchDetailPage() {
     </div>
   )
 
-  const canAnalyze = match.status === 'uploaded' || match.status === 'created' || match.status === 'failed'
+  const canAnalyze = ['created','uploaded','failed'].includes(match.status)
   const isDone = match.status === 'done'
   const isAnalyzing = match.status === 'analyzing'
 
@@ -111,41 +143,36 @@ export default function MatchDetailPage() {
         subtitle={fmtDate(match.created_at)}
         actions={
           <div className="flex gap-2">
-            <Link href="/" className="btn-secondary"><ArrowLeft className="w-4 h-4" />목록</Link>
+            <Link href="/" className="btn-secondary"><ArrowLeft className="w-4 h-4"/>목록</Link>
             {isDone && (
               <Link href={`/matches/${matchId}/results`} className="btn-primary">
-                <CheckCircle className="w-4 h-4" />결과 보기
+                <CheckCircle className="w-4 h-4"/>결과 보기
               </Link>
             )}
           </div>
         }
       />
 
-      {/* 경기 정보 카드 */}
+      {/* 경기 정보 */}
       <div className="card p-5 mb-4">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-semibold text-gray-900">경기 정보</h2>
-          <StatusBadge status={match.status} />
+          <StatusBadge status={match.status}/>
         </div>
         <div className="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <p className="text-gray-400 text-xs mb-1">종목</p>
-            <p className="font-medium">{match.field_type === 'soccer' ? '⚽ 축구' : '🏟 풋살'}</p>
-          </div>
-          <div>
-            <p className="text-gray-400 text-xs mb-1">날짜</p>
-            <p className="font-medium">{match.date}</p>
-          </div>
+          <div><p className="text-gray-400 text-xs mb-1">종목</p>
+            <p className="font-medium">{match.field_type === 'soccer' ? '⚽ 축구' : '🏟 풋살'}</p></div>
+          <div><p className="text-gray-400 text-xs mb-1">날짜</p>
+            <p className="font-medium">{match.date}</p></div>
         </div>
-        {/* 팀 */}
         <div className="mt-4 flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded-full border" style={{ background: match.home_team_color }} />
+            <div className="w-5 h-5 rounded-full border" style={{background: match.home_team_color}}/>
             <span className="font-medium text-sm">{match.home_team_name}</span>
           </div>
           <span className="text-gray-400 font-bold text-xs">VS</span>
           <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded-full border" style={{ background: match.away_team_color }} />
+            <div className="w-5 h-5 rounded-full border" style={{background: match.away_team_color}}/>
             <span className="font-medium text-sm">{match.away_team_name}</span>
           </div>
         </div>
@@ -153,10 +180,11 @@ export default function MatchDetailPage() {
 
       {/* 영상 업로드 */}
       <div className="card p-5 mb-4">
-        <h2 className="font-semibold text-gray-900 mb-3">영상 업로드</h2>
+        <h2 className="font-semibold text-gray-900 mb-1">영상 업로드</h2>
+        <p className="text-xs text-gray-500 mb-3">MP4, MOV 지원 · 대용량 파일 가능 (Supabase Storage 사용)</p>
         {match.video_filename ? (
           <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-xl">
-            <CheckCircle className="w-5 h-5 text-green-600 shrink-0" />
+            <CheckCircle className="w-5 h-5 text-green-600 shrink-0"/>
             <div>
               <p className="text-sm font-medium text-green-800">업로드 완료</p>
               <p className="text-xs text-green-600">{match.video_filename}</p>
@@ -164,15 +192,27 @@ export default function MatchDetailPage() {
           </div>
         ) : (
           <div
-            className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-green-400 transition-colors cursor-pointer"
-            onClick={() => fileRef.current?.click()}
+            className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer
+              ${uploading ? 'border-blue-300 bg-blue-50' : 'border-gray-300 hover:border-green-400'}`}
+            onClick={() => !uploading && fileRef.current?.click()}
           >
-            <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-            <p className="font-medium text-gray-700 mb-1">
-              {uploading ? '업로드 중...' : '영상 파일을 클릭해서 선택'}
-            </p>
-            <p className="text-xs text-gray-400">MP4, MOV 지원 · 최대 2GB</p>
-            <input ref={fileRef} type="file" accept=".mp4,.mov" className="hidden" onChange={handleUpload} disabled={uploading} />
+            {uploading ? (
+              <>
+                <Loader2 className="w-10 h-10 text-blue-500 mx-auto mb-3 animate-spin"/>
+                <p className="font-medium text-blue-700 mb-1">업로드 중...</p>
+                <p className="text-xs text-blue-500">큰 파일은 수 분이 걸릴 수 있습니다</p>
+              </>
+            ) : (
+              <>
+                <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3"/>
+                <p className="font-medium text-gray-700 mb-1">영상 파일을 클릭해서 선택</p>
+                <p className="text-xs text-gray-400">MP4, MOV · 대용량 파일도 가능</p>
+              </>
+            )}
+            <input
+              ref={fileRef} type="file" accept=".mp4,.mov"
+              className="hidden" onChange={handleUpload} disabled={uploading}
+            />
           </div>
         )}
       </div>
@@ -184,15 +224,15 @@ export default function MatchDetailPage() {
 
         {isAnalyzing ? (
           <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-            <Loader2 className="w-5 h-5 text-blue-600 animate-spin shrink-0" />
+            <Loader2 className="w-5 h-5 text-blue-600 animate-spin shrink-0"/>
             <div>
               <p className="font-medium text-blue-800 text-sm">분석 진행 중...</p>
-              <p className="text-xs text-blue-600">완료되면 자동으로 결과 페이지로 이동합니다</p>
+              <p className="text-xs text-blue-600">GPU 서버 분석 중 (약 10~20분) · 완료 시 자동 이동</p>
             </div>
           </div>
         ) : isDone ? (
           <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-200 rounded-xl">
-            <CheckCircle className="w-5 h-5 text-green-600 shrink-0" />
+            <CheckCircle className="w-5 h-5 text-green-600 shrink-0"/>
             <div className="flex-1">
               <p className="font-medium text-green-800 text-sm">분석 완료!</p>
               <p className="text-xs text-green-600">결과 페이지에서 상세 분석을 확인하세요.</p>
@@ -208,11 +248,11 @@ export default function MatchDetailPage() {
               className="w-full flex items-center gap-3 p-4 border-2 border-green-500 rounded-xl hover:bg-green-50 transition-colors text-left disabled:opacity-50"
             >
               <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center shrink-0">
-                <FlaskConical className="w-5 h-5 text-green-600" />
+                <FlaskConical className="w-5 h-5 text-green-600"/>
               </div>
               <div>
                 <p className="font-semibold text-green-700">샘플 경기 데이터로 분석</p>
-                <p className="text-xs text-gray-500">영상 없이 즉시 실행 · 데모 결과 확인 가능</p>
+                <p className="text-xs text-gray-500">영상 없이 즉시 실행 · 약 5초 소요</p>
               </div>
               <span className="ml-auto text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">추천</span>
             </button>
@@ -224,14 +264,19 @@ export default function MatchDetailPage() {
               className="w-full flex items-center gap-3 p-4 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors text-left disabled:opacity-50"
             >
               <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center shrink-0">
-                <Play className="w-5 h-5 text-gray-600" />
+                <Play className="w-5 h-5 text-gray-600"/>
               </div>
               <div>
-                <p className="font-semibold text-gray-700">실제 영상으로 분석</p>
+                <p className="font-semibold text-gray-700">실제 영상으로 GPU 분석</p>
                 <p className="text-xs text-gray-500">
-                  {match.video_filename ? '업로드된 영상을 분석합니다' : '먼저 영상을 업로드해주세요'}
+                  {match.video_filename
+                    ? 'YOLO AI가 실제 선수를 감지합니다 · 약 10~20분'
+                    : '먼저 영상을 업로드해주세요'}
                 </p>
               </div>
+              {match.video_filename && (
+                <span className="ml-auto text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full shrink-0">GPU</span>
+              )}
             </button>
           </div>
         )}

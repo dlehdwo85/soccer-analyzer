@@ -138,3 +138,21 @@ def get_player_detail(match_id: int, track_id: str, db: Session = Depends(get_db
     result = PlayerOut.model_validate(p).model_dump()
     result["frames"] = [FramePointOut.model_validate(f).model_dump() for f in frames]
     return result
+
+
+# ── POST /api/matches/{id}/set-video-url ──────────────────────────────────
+from pydantic import BaseModel as PydanticBase
+
+class VideoUrlBody(PydanticBase):
+    video_url: str
+    filename: str
+
+@router.post("/{match_id}/set-video-url")
+def set_video_url(match_id: int, body: VideoUrlBody, db: Session = Depends(get_db)):
+    m = db.query(Match).filter(Match.id == match_id).first()
+    if not m: raise HTTPException(404, "Match not found")
+    m.video_url = body.video_url
+    m.video_filename = body.filename
+    m.status = "uploaded"
+    db.commit()
+    return {"message": "영상 URL 저장 완료", "video_url": body.video_url}
