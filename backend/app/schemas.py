@@ -1,9 +1,10 @@
 from __future__ import annotations
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from pydantic import BaseModel, ConfigDict
 
 
+# ── Match ──────────────────────────────────────────────────────────────────
 class MatchCreate(BaseModel):
     title: str
     date: Optional[str] = None
@@ -12,7 +13,6 @@ class MatchCreate(BaseModel):
     away_team_name: str = "원정팀"
     home_team_color: str = "#ef4444"
     away_team_color: str = "#3b82f6"
-    referee_color: str = "#facc15"
 
 
 class MatchOut(BaseModel):
@@ -25,12 +25,12 @@ class MatchOut(BaseModel):
     away_team_name: str
     home_team_color: str
     away_team_color: str
-    referee_color: str
     video_filename: Optional[str]
     status: str
     created_at: datetime
 
 
+# ── Player ─────────────────────────────────────────────────────────────────
 class PlayerOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -45,15 +45,9 @@ class PlayerOut(BaseModel):
     second_half_distance_m: float
     comment: str
     style_badge: str
-    fatigue_index: float
-    press_count: int
-    zone_left_pct: float
-    zone_center_pct: float
-    zone_right_pct: float
-    role_type: str
-    sprint_count: int
 
 
+# ── FramePoint ────────────────────────────────────────────────────────────
 class FramePointOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     frame_index: int
@@ -66,23 +60,7 @@ class PlayerDetailOut(PlayerOut):
     frames: List[FramePointOut] = []
 
 
-class MatchAnalyticsOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    home_formation: str
-    away_formation: str
-    home_zone_map: str
-    away_zone_map: str
-    home_centroid_timeline: str
-    away_centroid_timeline: str
-    home_fatigue_timeline: str
-    away_fatigue_timeline: str
-    home_total_distance_m: float
-    away_total_distance_m: float
-    home_avg_press_dist: float
-    away_avg_press_dist: float
-    match_summary_text: str
-
-
+# ── Summary ───────────────────────────────────────────────────────────────
 class MatchSummaryOut(BaseModel):
     match: MatchOut
     players: List[PlayerOut]
@@ -91,8 +69,8 @@ class MatchSummaryOut(BaseModel):
     away_avg_x: float
     away_avg_y: float
     total_distance_km: float
-    analytics: Optional[MatchAnalyticsOut] = None
 
 
+# ── Analyze ───────────────────────────────────────────────────────────────
 class AnalyzeRequest(BaseModel):
     use_sample: bool = False
