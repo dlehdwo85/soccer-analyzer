@@ -18,3 +18,6 @@ pydantic-settings==2.3.0
 numpy==1.26.4
 opencv-python-headless==4.9.0.80
 python-dateutil==2.9.0
+
+# Cloudflare R2 (S3 호환)
+boto3==1.34.69

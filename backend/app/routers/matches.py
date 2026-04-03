@@ -156,3 +156,19 @@ def set_video_url(match_id: int, body: VideoUrlBody, db: Session = Depends(get_d
     m.status = "uploaded"
     db.commit()
     return {"message": "영상 URL 저장 완료", "video_url": body.video_url}
+
+
+# ── GET /api/matches/{id}/upload-url ──────────────────────────────────────
+@router.get("/{match_id}/upload-url")
+def get_upload_url(match_id: int, filename: str, db: Session = Depends(get_db)):
+    """프론트엔드에서 R2에 직접 업로드할 수 있는 Presigned URL 반환."""
+    m = db.query(Match).filter(Match.id == match_id).first()
+    if not m: raise HTTPException(404, "Match not found")
+
+    from app.services.storage_service import get_presigned_upload_url
+    result = get_presigned_upload_url(match_id, filename)
+
+    if not result:
+        raise HTTPException(500, "업로드 URL 생성 실패. R2 환경변수를 확인하세요.")
+
+    return result
