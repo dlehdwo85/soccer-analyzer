@@ -28,6 +28,7 @@ class MatchOut(BaseModel):
     referee_color: str
     video_filename: Optional[str]
     status: str
+    data_source: str = "sample"
     created_at: datetime
 
 
@@ -96,3 +97,56 @@ class MatchSummaryOut(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     use_sample: bool = False
+
+
+# ── GPS 관련 스키마 ────────────────────────────────────────────────────────
+
+class GpsPlayerPreview(BaseModel):
+    player_id:     str
+    player_name:   str
+    jersey_number: int
+    team:          str
+    point_count:   int
+    time_range_sec: float = 0.0
+
+
+class GpsPreviewOut(BaseModel):
+    total_points:  int
+    total_players: int
+    duration_sec:  float
+    teams:         List[str]
+    lat_range:     List[float] = []
+    lng_range:     List[float] = []
+    players:       List[GpsPlayerPreview]
+
+
+class GpsUploadResult(BaseModel):
+    message:       str
+    total_points:  int
+    total_players: int
+    duration_sec:  float
+    preview:       GpsPreviewOut
+
+
+# ── 선수 프로필 스키마 ─────────────────────────────────────────────────────
+
+class PlayerProfileOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id:              int
+    jersey_number:   int
+    player_name:     str
+    team_name:       str
+    total_matches:   int
+    total_distance_m: float
+    total_sprints:   int
+    avg_fatigue:     float
+
+
+class PlayerMatchHistoryItem(BaseModel):
+    match_id:        int
+    match_title:     str
+    match_date:      Optional[str]
+    total_distance_m: float
+    sprint_count:    int
+    fatigue_index:   float
+    data_source:     str

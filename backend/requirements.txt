@@ -21,3 +21,6 @@ python-dateutil==2.9.0
 
 # Cloudflare R2 (S3 호환)
 boto3==1.34.69
+
+# GPS 데이터 처리
+gpxpy==1.6.2

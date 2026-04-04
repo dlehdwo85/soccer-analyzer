@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Activity, PlusCircle } from 'lucide-react'
+import { Activity, PlusCircle, Users } from 'lucide-react'
 
 export default function Navbar() {
   const path = usePathname()
@@ -15,6 +15,9 @@ export default function Navbar() {
         <nav className="flex items-center gap-3">
           <Link href="/" className={`text-sm font-medium transition-colors ${path === '/' ? 'text-green-700' : 'text-gray-600 hover:text-gray-900'}`}>
             경기 목록
+          </Link>
+          <Link href="/players" className={`flex items-center gap-1 text-sm font-medium transition-colors ${path.startsWith('/players') ? 'text-green-700' : 'text-gray-600 hover:text-gray-900'}`}>
+            <Users className="w-4 h-4"/>선수 프로필
           </Link>
           <Link href="/matches/new" className="btn-primary text-sm">
             <PlusCircle className="w-4 h-4" />

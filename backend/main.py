@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from app.database import create_tables
 from app.routers import matches as matches_router
+from app.routers.matches import players_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -15,9 +16,32 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     logger.info("Starting up — creating DB tables...")
     create_tables()
+    _run_safe_migrations()
     logger.info("DB ready.")
     yield
     logger.info("Shutdown.")
+
+
+def _run_safe_migrations():
+    """앱 시작 시 안전하게 새 컬럼을 추가 (이미 있으면 무시)."""
+    from app.database import engine
+    from sqlalchemy import text
+    try:
+        with engine.begin() as conn:
+            if engine.dialect.name == "postgresql":
+                conn.execute(text(
+                    "ALTER TABLE matches ADD COLUMN IF NOT EXISTS data_source VARCHAR(20) DEFAULT 'sample'"
+                ))
+            else:
+                try:
+                    conn.execute(text(
+                        "ALTER TABLE matches ADD COLUMN data_source VARCHAR(20) DEFAULT 'sample'"
+                    ))
+                except Exception:
+                    pass  # 이미 존재
+        logger.info("마이그레이션 완료")
+    except Exception as e:
+        logger.warning(f"마이그레이션 스킵 (무시 가능): {e}")
 
 
 app = FastAPI(
@@ -53,6 +77,7 @@ app.add_middleware(
 )
 
 app.include_router(matches_router.router)
+app.include_router(players_router)
 
 
 @app.get("/api/health", tags=["system"])

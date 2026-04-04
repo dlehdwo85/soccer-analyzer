@@ -19,11 +19,14 @@ class Match(Base):
     video_filename    = Column(String(512), nullable=True)
     video_url         = Column(String(1024), nullable=True)  # Supabase URL 또는 YouTube URL
     status            = Column(String(20), default="created")
+    # 분석 데이터 소스: video | gps | sample
+    data_source       = Column(String(20), default="sample")
     created_at        = Column(DateTime, default=datetime.utcnow)
 
     players         = relationship("PlayerTrackSummary", back_populates="match", cascade="all, delete-orphan")
     frames          = relationship("FrameTracking", back_populates="match", cascade="all, delete-orphan")
     match_analytics = relationship("MatchAnalytics", back_populates="match", uselist=False, cascade="all, delete-orphan")
+    gps_tracks      = relationship("GpsTrackPoint", back_populates="match", cascade="all, delete-orphan")
 
 
 class PlayerTrackSummary(Base):
@@ -69,6 +72,42 @@ class FrameTracking(Base):
     bbox_h       = Column(Float, default=0.0)
 
     match = relationship("Match", back_populates="frames")
+
+
+class GpsTrackPoint(Base):
+    """GPS 원본 좌표 포인트 저장 (파일 재분석 / 원본 보존용)."""
+    __tablename__ = "gps_track_points"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    match_id       = Column(Integer, ForeignKey("matches.id"), nullable=False, index=True)
+    player_id      = Column(String(50), nullable=False, index=True)
+    player_name    = Column(String(100), default="")
+    jersey_number  = Column(Integer, default=0)
+    team_side      = Column(String(10), default="home")
+    timestamp_ms   = Column(Integer, nullable=False)
+    lat            = Column(Float, nullable=False)
+    lng            = Column(Float, nullable=False)
+    speed_mps      = Column(Float, default=0.0)
+    norm_x         = Column(Float, default=0.5)   # 정규화 x (0~1)
+    norm_y         = Column(Float, default=0.5)   # 정규화 y (0~1)
+
+    match = relationship("Match", back_populates="gps_tracks")
+
+
+class PlayerProfile(Base):
+    """등번호 기반 선수 프로필 — 여러 경기 누적 통계."""
+    __tablename__ = "player_profiles"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    jersey_number  = Column(Integer, nullable=False, index=True)
+    player_name    = Column(String(100), nullable=False)
+    team_name      = Column(String(100), default="")
+    total_matches  = Column(Integer, default=0)
+    total_distance_m = Column(Float, default=0.0)
+    total_sprints  = Column(Integer, default=0)
+    avg_fatigue    = Column(Float, default=0.0)
+    created_at     = Column(DateTime, default=datetime.utcnow)
+    updated_at     = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class MatchAnalytics(Base):

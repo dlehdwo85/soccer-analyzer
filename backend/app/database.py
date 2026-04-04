@@ -30,5 +30,6 @@ def get_db():
 
 
 def create_tables():
-    from app.models import Match, PlayerTrackSummary, FrameTracking  # noqa
+    from app.models import Match, PlayerTrackSummary, FrameTracking, MatchAnalytics  # noqa
+    from app.models import GpsTrackPoint, PlayerProfile  # noqa — GPS 신규 테이블
     Base.metadata.create_all(bind=engine)

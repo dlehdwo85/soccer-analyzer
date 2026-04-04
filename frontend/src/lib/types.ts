@@ -1,6 +1,7 @@
 export type MatchStatus = 'created' | 'uploaded' | 'analyzing' | 'done' | 'failed'
 export type FieldType = 'soccer' | 'futsal'
 export type TeamSide = 'home' | 'away'
+export type DataSource = 'video' | 'gps' | 'sample'
 
 export interface Match {
   id: number
@@ -14,7 +15,58 @@ export interface Match {
   referee_color: string
   video_filename: string | null
   status: MatchStatus
+  data_source: DataSource
   created_at: string
+}
+
+// ── GPS 관련 타입 ────────────────────────────────────────────────
+export interface GpsPlayerPreview {
+  player_id: string
+  player_name: string
+  jersey_number: number
+  team: string
+  point_count: number
+  time_range_sec: number
+}
+
+export interface GpsPreview {
+  total_points: number
+  total_players: number
+  duration_sec: number
+  teams: string[]
+  lat_range: number[]
+  lng_range: number[]
+  players: GpsPlayerPreview[]
+}
+
+export interface GpsUploadResult {
+  message: string
+  total_points: number
+  total_players: number
+  duration_sec: number
+  preview: GpsPreview
+}
+
+// ── 선수 프로필 타입 ─────────────────────────────────────────────
+export interface PlayerProfile {
+  id: number
+  jersey_number: number
+  player_name: string
+  team_name: string
+  total_matches: number
+  total_distance_m: number
+  total_sprints: number
+  avg_fatigue: number
+}
+
+export interface PlayerMatchHistory {
+  match_id: number
+  match_title: string
+  match_date: string | null
+  total_distance_m: number
+  sprint_count: number
+  fatigue_index: number
+  data_source: DataSource
 }
 
 export interface PlayerTrackSummary {

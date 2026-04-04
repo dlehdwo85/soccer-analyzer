@@ -1,4 +1,7 @@
-import { Match, MatchSummary, PlayerDetail, PlayerTrackSummary } from './types'
+import {
+  Match, MatchSummary, PlayerDetail, PlayerTrackSummary,
+  GpsPreview, GpsUploadResult, PlayerProfile, PlayerMatchHistory,
+} from './types'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
 
@@ -39,4 +42,38 @@ export const api = {
   getPlayerDetail: (matchId: number, trackId: string) =>
     req<PlayerDetail>(`/api/matches/${matchId}/players/${trackId}`),
   health: () => req<{ status: string }>('/api/health'),
+
+  // ── GPS ─────────────────────────────────────────────────────────
+  gpsPreview: async (matchId: number, file: File): Promise<GpsPreview> => {
+    const form = new FormData()
+    form.append('file', file)
+    const res = await fetch(`${BASE}/api/matches/${matchId}/gps-preview`, {
+      method: 'POST',
+      body: form,
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail ?? 'GPS 미리보기 실패')
+    }
+    return res.json()
+  },
+
+  uploadGps: async (matchId: number, file: File): Promise<GpsUploadResult> => {
+    const form = new FormData()
+    form.append('file', file)
+    const res = await fetch(`${BASE}/api/matches/${matchId}/upload-gps`, {
+      method: 'POST',
+      body: form,
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail ?? 'GPS 업로드 실패')
+    }
+    return res.json()
+  },
+
+  // ── 선수 프로필 ──────────────────────────────────────────────────
+  getPlayerProfiles: () => req<PlayerProfile[]>('/api/players'),
+  getPlayerProfile: (jersey: number) => req<PlayerProfile>(`/api/players/${jersey}`),
+  getPlayerHistory: (jersey: number) => req<PlayerMatchHistory[]>(`/api/players/${jersey}/history`),
 }
