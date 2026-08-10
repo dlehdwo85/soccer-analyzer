@@ -28,6 +28,19 @@ mureop/
 └── docs/MASTER_PLAN.md   # MUREOP Brand Website Master Plan (전략 문서, 30개 항목)
 ```
 
+## 배포 (Vercel)
+
+Vercel 프로젝트 루트가 `frontend/`이므로, 사이트 파일을 `frontend/public/`에 복사해 배포합니다.
+`frontend/next.config.js`의 rewrite가 `/`를 무렵 홈(`index.html`)으로 연결합니다.
+이 폴더(`mureop/`)가 원본이며, 수정 후에는 아래 명령으로 동기화하십시오.
+
+```bash
+cp mureop/*.html mureop/favicon.svg frontend/public/
+cp -r mureop/css mureop/js frontend/public/
+```
+
+기존 사커 분석가 앱은 삭제하지 않았으며 `/matches`, `/players` 경로에 남아 있습니다.
+
 ## 알아둘 것
 
 - **"확인 필요" 마커**: 브랜드 기획서에 없는 사실(성분, 사용 기간, 배송 정책, 사업자 정보 등)은
