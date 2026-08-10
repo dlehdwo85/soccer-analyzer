@@ -46,3 +46,6 @@ Thumbs.db
 *.mov
 *.avi
 *.mkv
+
+# Next.js auto-generated
+next-env.d.ts
