@@ -6,10 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "check:next": "node scripts/assert-supported-next.js",
+    "test:check-next": "node scripts/assert-supported-next.test.js"
   },
   "dependencies": {
-    "next": "14.2.3",
+    "next": "15.5.24",
     "react": "^18",
     "react-dom": "^18",
     "typescript": "^5",
