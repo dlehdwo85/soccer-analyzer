@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "check:next": "node scripts/assert-supported-next.js"
+    "check:next": "node scripts/assert-supported-next.js",
+    "test:check-next": "node scripts/assert-supported-next.test.js"
   },
   "dependencies": {
     "next": "15.5.24",

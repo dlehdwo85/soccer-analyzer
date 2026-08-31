@@ -24,6 +24,8 @@ jobs:
         run: npm ci
       - name: Guard - supported Next.js line
         run: npm run check:next
+      - name: Guard regression test (15.5.23 거부 / 15.5.24 허용)
+        run: npm run test:check-next
       - name: Audit (high+, prod deps)
         # next@15.x가 내부에 고정한 빌드타임 postcss 사본(GHSA-qx2v-qp2m-jg93 계열)은
         # next@16 메이저에서만 해소되므로, 여기서는 회귀 감지용으로 결과만 출력한다.
