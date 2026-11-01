@@ -1,544 +1,476 @@
 'use client'
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  ArrowLeft, Upload, Play, FlaskConical, CheckCircle, Loader2,
-  MapPin, FileText, Eye, Zap, Clock, Users,
+  AlertTriangle, ArrowLeft, BarChart3, CheckCircle, ChevronDown, Clock, Cpu, FileText, FlaskConical, Loader2,
+  MapPin, Pencil, Play, Ruler, Trash2, Upload, Users,
 } from 'lucide-react'
-import { Match, GpsPreview } from '@/lib/types'
-import { api } from '@/lib/api'
-import StatusBadge from '@/components/ui/StatusBadge'
-import PageHeader from '@/components/layout/PageHeader'
-import { fmtDate } from '@/lib/utils'
 import { toast } from 'sonner'
+import { api } from '@/lib/api'
+import { AnalysisStatus, GpsPreview, Health, Match } from '@/lib/types'
+import { cn, fmtDate, SOURCE_LABEL } from '@/lib/utils'
+import StatusBadge from '@/components/ui/StatusBadge'
+import MatchForm from '@/components/match/MatchForm'
+import CalibrationTool from '@/components/match/CalibrationTool'
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
-
-type AnalysisTab = 'video' | 'gps'
+type Tab = 'video' | 'gps'
 
 export default function MatchDetailPage() {
   const { id } = useParams<{ id: string }>()
   const matchId = Number(id)
   const router = useRouter()
-
   const [match, setMatch] = useState<Match | null>(null)
+  const [health, setHealth] = useState<Health | null>(null)
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<AnalysisTab>('video')
-
-  // 영상 업로드 상태
-  const [uploading, setUploading] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState(0)
-  const [analyzing, setAnalyzing] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
-
-  // GPS 상태
-  const [gpsFile, setGpsFile] = useState<File | null>(null)
-  const [gpsPreview, setGpsPreview] = useState<GpsPreview | null>(null)
-  const [gpsPreviewing, setGpsPreviewing] = useState(false)
-  const [gpsUploading, setGpsUploading] = useState(false)
-  const gpsDragRef = useRef<HTMLDivElement>(null)
-  const gpsFileRef = useRef<HTMLInputElement>(null)
+  const [editing, setEditing] = useState(false)
+  const [tab, setTab] = useState<Tab>('video')
 
   const load = useCallback(async () => {
     try {
-      const m = await api.getMatch(matchId)
-      setMatch(m)
+      setMatch(await api.getMatch(matchId))
     } catch {
-      toast.error('경기 정보를 불러올 수 없습니다')
+      setMatch(null)
     } finally {
       setLoading(false)
     }
   }, [matchId])
 
-  useEffect(() => { load() }, [load])
-
-  // 분석 중 폴링
   useEffect(() => {
-    if (match?.status !== 'analyzing') return
-    const timer = setInterval(async () => {
-      try {
-        const m = await api.getMatch(matchId)
-        setMatch(m)
-        if (m.status === 'done') {
-          clearInterval(timer)
-          toast.success('분석 완료!')
-          router.push(`/matches/${matchId}/results`)
-        } else if (m.status === 'failed') {
-          clearInterval(timer)
-          toast.error('분석 실패')
-        }
-      } catch { clearInterval(timer) }
-    }, 3000)
-    return () => clearInterval(timer)
-  }, [match?.status, matchId, router])
+    load()
+    api.health().then(setHealth).catch(() => setHealth(null))
+  }, [load])
 
-  // ── 영상 업로드 ────────────────────────────────────────────────
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  useEffect(() => {
+    if (match?.data_source === 'gps' && match.analysis_version) setTab('gps')
+  }, [match?.data_source, match?.analysis_version])
 
-    const ext = file.name.split('.').pop()?.toLowerCase()
-    if (!['mp4', 'mov'].includes(ext ?? '')) {
-      toast.error('MP4, MOV 파일만 지원합니다')
-      return
-    }
-
-    setUploading(true)
-    setUploadProgress(0)
-
+  const remove = async () => {
+    if (!match || !confirm(`'${match.title}' 경기와 분석 결과를 삭제할까요? 되돌릴 수 없습니다.`)) return
     try {
-      toast.info('업로드 준비 중...')
-      const res = await fetch(
-        `${BASE}/api/matches/${matchId}/upload-url?filename=${encodeURIComponent(file.name)}`
-      )
-      if (!res.ok) throw new Error('업로드 URL 발급 실패')
-      const { upload_url, public_url } = await res.json()
-
-      toast.info(`업로드 중... (${(file.size / 1024 / 1024).toFixed(0)}MB)`)
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest()
-        xhr.upload.addEventListener('progress', (e) => {
-          if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100))
-        })
-        xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 300) resolve()
-          else reject(new Error(`업로드 실패: ${xhr.status}`))
-        })
-        xhr.addEventListener('error', () => reject(new Error('네트워크 오류')))
-        xhr.open('PUT', upload_url)
-        xhr.setRequestHeader('Content-Type', 'video/mp4')
-        xhr.send(file)
-      })
-
-      await fetch(`${BASE}/api/matches/${matchId}/set-video-url`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ video_url: public_url, filename: file.name }),
-      })
-
-      toast.success('영상 업로드 완료!')
-      await load()
-    } catch (err: any) {
-      toast.error('업로드 실패: ' + (err.message ?? '다시 시도해주세요'))
-    } finally {
-      setUploading(false)
-      setUploadProgress(0)
+      await api.deleteMatch(matchId)
+      toast.success('삭제했습니다')
+      router.push('/')
+    } catch (e) {
+      toast.error((e as Error).message)
     }
   }
 
-  const handleAnalyze = async (useSample: boolean) => {
-    setAnalyzing(true)
-    try {
-      const res = await api.analyze(matchId, useSample)
-      toast.success(
-        !useSample && (res as any).runpod_enabled
-          ? 'GPU 분석 서버 시작 중... (약 10~20분)'
-          : '샘플 분석 시작!'
-      )
-      await load()
-    } catch (err: any) {
-      toast.error(err.message ?? '분석 시작 실패')
-    } finally {
-      setAnalyzing(false)
-    }
-  }
-
-  // ── GPS 파일 처리 ──────────────────────────────────────────────
-  const handleGpsFileSelect = async (file: File) => {
-    const ext = file.name.split('.').pop()?.toLowerCase()
-    if (!['csv', 'json', 'gpx'].includes(ext ?? '')) {
-      toast.error('CSV, JSON, GPX 파일만 지원합니다')
-      return
-    }
-    setGpsFile(file)
-    setGpsPreview(null)
-    setGpsPreviewing(true)
-    try {
-      const preview = await api.gpsPreview(matchId, file)
-      setGpsPreview(preview)
-    } catch (err: any) {
-      toast.error('파일 파싱 실패: ' + (err.message ?? '형식을 확인해주세요'))
-      setGpsFile(null)
-    } finally {
-      setGpsPreviewing(false)
-    }
-  }
-
-  const handleGpsInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) handleGpsFileSelect(file)
-  }
-
-  const handleGpsDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.stopPropagation()
-    gpsDragRef.current?.classList.remove('border-green-400', 'bg-green-50')
-    const file = e.dataTransfer.files?.[0]
-    if (file) handleGpsFileSelect(file)
-  }
-
-  const handleGpsDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    gpsDragRef.current?.classList.add('border-green-400', 'bg-green-50')
-  }
-
-  const handleGpsDragLeave = () => {
-    gpsDragRef.current?.classList.remove('border-green-400', 'bg-green-50')
-  }
-
-  const handleGpsAnalyze = async () => {
-    if (!gpsFile) return
-    setGpsUploading(true)
-    try {
-      const result = await api.uploadGps(matchId, gpsFile)
-      toast.success(`GPS 분석 완료! ${result.total_players}명 · ${(result.total_points).toLocaleString()}포인트`)
-      await load()
-      router.push(`/matches/${matchId}/results`)
-    } catch (err: any) {
-      toast.error('GPS 분석 실패: ' + (err.message ?? '다시 시도해주세요'))
-    } finally {
-      setGpsUploading(false)
-    }
-  }
-
-  // ── 렌더링 ────────────────────────────────────────────────────
   if (loading) return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      {[1,2,3].map(i => <div key={i} className="card h-24 animate-pulse bg-gray-100 mb-4"/>)}
+    <div className="max-w-3xl mx-auto px-4 py-8 space-y-4">
+      {[1, 2, 3].map(i => <div key={i} className="card h-24 animate-pulse bg-gray-100" />)}
     </div>
   )
-
   if (!match) return (
-    <div className="max-w-3xl mx-auto px-4 py-8 text-center text-gray-500">
+    <div className="max-w-3xl mx-auto px-4 py-16 text-center text-gray-500">
       경기를 찾을 수 없습니다. <Link href="/" className="text-green-600 underline">목록으로</Link>
     </div>
   )
 
-  const isDone      = match.status === 'done'
-  const isAnalyzing = match.status === 'analyzing'
+  const hasResult = match.analysis_version === 2
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
-      <PageHeader
-        title={match.title}
-        subtitle={fmtDate(match.created_at)}
-        actions={
-          <div className="flex gap-2">
-            <Link href="/" className="btn-secondary"><ArrowLeft className="w-4 h-4"/>목록</Link>
-            {isDone && (
-              <Link href={`/matches/${matchId}/results`} className="btn-primary">
-                <CheckCircle className="w-4 h-4"/>결과 보기
-              </Link>
-            )}
-          </div>
-        }
-      />
-
-      {/* 경기 정보 */}
-      <div className="card p-5 mb-4">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold text-gray-900">경기 정보</h2>
-          <StatusBadge status={match.status}/>
+      <div className="flex flex-wrap items-start gap-3 mb-6">
+        <Link href="/" className="btn-secondary !px-2.5" aria-label="목록"><ArrowLeft className="w-4 h-4" /></Link>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-2xl font-bold text-gray-900 truncate">{match.title}</h1>
+          <p className="text-sm text-gray-500">{match.date || fmtDate(match.created_at)}</p>
         </div>
-        <div className="grid grid-cols-2 gap-4 text-sm mb-4">
-          <div><p className="text-gray-400 text-xs mb-1">종목</p>
-            <p className="font-medium">{match.field_type === 'soccer' ? '⚽ 축구' : '🏟 풋살'}</p></div>
-          <div><p className="text-gray-400 text-xs mb-1">날짜</p>
-            <p className="font-medium">{match.date}</p></div>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded-full border" style={{background: match.home_team_color}}/>
-            <span className="font-medium text-sm">{match.home_team_name}</span>
-          </div>
-          <span className="text-gray-400 font-bold text-xs">VS</span>
-          <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded-full border" style={{background: match.away_team_color}}/>
-            <span className="font-medium text-sm">{match.away_team_name}</span>
-          </div>
-        </div>
+        {hasResult && match.status !== 'analyzing' && (
+          <Link href={`/matches/${matchId}/results`} className="btn-primary"><BarChart3 className="w-4 h-4" />결과 보기</Link>
+        )}
       </div>
 
-      {/* 분석 방식 탭 */}
-      <div className="card p-1 mb-4 flex gap-1 bg-gray-100">
-        <button
-          onClick={() => setTab('video')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all
-            ${tab === 'video' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
-        >
-          <Play className="w-4 h-4"/>영상 분석
-        </button>
-        <button
-          onClick={() => setTab('gps')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all
-            ${tab === 'gps' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
-        >
-          <MapPin className="w-4 h-4"/>GPS 데이터
-          <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">NEW</span>
-        </button>
-      </div>
-
-      {/* ── 영상 분석 탭 ── */}
-      {tab === 'video' && (
-        <>
-          {/* 영상 업로드 */}
-          <div className="card p-5 mb-4">
-            <h2 className="font-semibold text-gray-900 mb-1">영상 업로드</h2>
-            <p className="text-xs text-gray-500 mb-3">
-              MP4, MOV 지원 · <span className="text-green-600 font-medium">파일 크기 제한 없음</span> (Cloudflare R2 직접 업로드)
-            </p>
-
-            {match.video_filename ? (
-              <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-xl">
-                <CheckCircle className="w-5 h-5 text-green-600 shrink-0"/>
-                <div>
-                  <p className="text-sm font-medium text-green-800">업로드 완료</p>
-                  <p className="text-xs text-green-600">{match.video_filename}</p>
-                </div>
-              </div>
-            ) : (
-              <div
-                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors
-                  ${uploading ? 'border-blue-300 bg-blue-50 cursor-wait' : 'border-gray-300 hover:border-green-400 cursor-pointer'}`}
-                onClick={() => !uploading && fileRef.current?.click()}
-              >
-                {uploading ? (
-                  <>
-                    <Loader2 className="w-10 h-10 text-blue-500 mx-auto mb-3 animate-spin"/>
-                    <p className="font-medium text-blue-700 mb-2">업로드 중...</p>
-                    {uploadProgress > 0 && (
-                      <>
-                        <div className="w-full bg-blue-100 rounded-full h-2 mb-2">
-                          <div className="bg-blue-500 h-2 rounded-full transition-all" style={{width: `${uploadProgress}%`}}/>
-                        </div>
-                        <p className="text-sm font-bold text-blue-700">{uploadProgress}%</p>
-                      </>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3"/>
-                    <p className="font-medium text-gray-700 mb-1">영상 파일을 클릭해서 선택</p>
-                    <p className="text-xs text-gray-400">MP4, MOV · 1GB 이상도 가능</p>
-                  </>
-                )}
-                <input ref={fileRef} type="file" accept=".mp4,.mov" className="hidden" onChange={handleUpload} disabled={uploading}/>
-              </div>
-            )}
+      {editing ? (
+        <div className="mb-4">
+          <MatchForm initial={match} submitLabel="변경 저장" onCancel={() => setEditing(false)}
+            onSubmit={async v => {
+              try {
+                setMatch(await api.updateMatch(matchId, v))
+                setEditing(false)
+                toast.success('저장했습니다. 다시 분석하면 반영됩니다.')
+              } catch (e) {
+                toast.error((e as Error).message)
+              }
+            }} />
+        </div>
+      ) : (
+        <div className="card p-5 mb-4">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-gray-900">경기 설정</h2>
+            <div className="flex items-center gap-2">
+              <StatusBadge status={match.status} />
+              <button onClick={() => setEditing(true)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500" aria-label="설정 수정">
+                <Pencil className="w-4 h-4" />
+              </button>
+              <button onClick={remove} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600" aria-label="경기 삭제">
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
           </div>
-
-          {/* 분석 시작 */}
-          <div className="card p-5">
-            <h2 className="font-semibold text-gray-900 mb-1">분석 시작</h2>
-            <p className="text-xs text-gray-500 mb-4">영상 없이도 샘플 데이터로 즉시 분석 결과를 확인할 수 있습니다.</p>
-
-            {isAnalyzing ? (
-              <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-                <Loader2 className="w-5 h-5 text-blue-600 animate-spin shrink-0"/>
-                <div>
-                  <p className="font-medium text-blue-800 text-sm">분석 진행 중...</p>
-                  <p className="text-xs text-blue-600">GPU 서버 분석 중 · 완료 시 자동 이동</p>
-                </div>
-              </div>
-            ) : isDone ? (
-              <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-200 rounded-xl">
-                <CheckCircle className="w-5 h-5 text-green-600 shrink-0"/>
-                <div className="flex-1">
-                  <p className="font-medium text-green-800 text-sm">분석 완료!</p>
-                </div>
-                <Link href={`/matches/${matchId}/results`} className="btn-primary text-xs">결과 보기</Link>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <button onClick={() => handleAnalyze(true)} disabled={analyzing}
-                  className="w-full flex items-center gap-3 p-4 border-2 border-green-500 rounded-xl hover:bg-green-50 transition-colors text-left disabled:opacity-50">
-                  <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center shrink-0">
-                    <FlaskConical className="w-5 h-5 text-green-600"/>
-                  </div>
-                  <div>
-                    <p className="font-semibold text-green-700">샘플 경기 데이터로 분석</p>
-                    <p className="text-xs text-gray-500">영상 없이 즉시 실행 · 약 5초</p>
-                  </div>
-                  <span className="ml-auto text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">추천</span>
-                </button>
-
-                <button onClick={() => handleAnalyze(false)} disabled={analyzing || !match.video_filename}
-                  className="w-full flex items-center gap-3 p-4 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors text-left disabled:opacity-50">
-                  <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center shrink-0">
-                    <Play className="w-5 h-5 text-gray-600"/>
-                  </div>
-                  <div>
-                    <p className="font-semibold text-gray-700">실제 영상으로 GPU 분석</p>
-                    <p className="text-xs text-gray-500">
-                      {match.video_filename ? 'YOLO AI 선수 감지 · 약 10~20분' : '먼저 영상을 업로드해주세요'}
+          <div className="grid sm:grid-cols-2 gap-3">
+            {(['home', 'away'] as const).map(side => {
+              const name = side === 'home' ? match.home_team_name : match.away_team_name
+              const color = side === 'home' ? match.home_team_color : match.away_team_color
+              const gk = side === 'home' ? match.home_gk_color : match.away_gk_color
+              return (
+                <div key={side} className="flex items-center gap-3 rounded-xl bg-gray-50 p-3">
+                  <span className="w-8 h-8 rounded-full border-2 border-white shadow" style={{ background: color }} />
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-900 truncate">{name}</p>
+                    <p className="text-xs text-gray-500 flex items-center gap-1">
+                      GK {gk ? <span className="w-3 h-3 rounded-full border border-gray-300 inline-block" style={{ background: gk }} /> : '자동'}
                     </p>
                   </div>
-                  {match.video_filename && (
-                    <span className="ml-auto text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full shrink-0">GPU</span>
-                  )}
-                </button>
-              </div>
-            )}
+                </div>
+              )
+            })}
           </div>
-        </>
-      )}
-
-      {/* ── GPS 데이터 탭 ── */}
-      {tab === 'gps' && (
-        <div className="space-y-4">
-          {/* 지원 포맷 안내 */}
-          <div className="card p-4">
-            <h2 className="font-semibold text-gray-900 mb-2">GPS 파일 업로드</h2>
-            <div className="grid grid-cols-3 gap-2 mb-3">
-              {[
-                { label: 'CSV', desc: '커스텀 트래킹', color: 'blue' },
-                { label: 'JSON', desc: '앱 데이터', color: 'purple' },
-                { label: 'GPX', desc: '가민·폴라·수토', color: 'orange' },
-              ].map(({ label, desc, color }) => (
-                <div key={label} className={`text-center p-2 rounded-lg bg-${color}-50 border border-${color}-100`}>
-                  <p className={`font-bold text-${color}-700 text-sm`}>{label}</p>
-                  <p className="text-xs text-gray-500">{desc}</p>
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-gray-400">
-              CSV 필수 컬럼: <code className="bg-gray-100 px-1 rounded">timestamp_ms, player_id, lat, lng, team</code>
-            </p>
-          </div>
-
-          {/* 드래그앤드롭 영역 */}
-          {!gpsFile ? (
-            <div
-              ref={gpsDragRef}
-              onDrop={handleGpsDrop}
-              onDragOver={handleGpsDragOver}
-              onDragLeave={handleGpsDragLeave}
-              onClick={() => gpsFileRef.current?.click()}
-              className="card border-2 border-dashed border-gray-300 p-10 text-center cursor-pointer hover:border-green-400 hover:bg-green-50 transition-all"
-            >
-              {gpsPreviewing ? (
-                <>
-                  <Loader2 className="w-10 h-10 text-green-500 mx-auto mb-3 animate-spin"/>
-                  <p className="font-medium text-green-700">파일 분석 중...</p>
-                </>
-              ) : (
-                <>
-                  <MapPin className="w-10 h-10 text-gray-400 mx-auto mb-3"/>
-                  <p className="font-medium text-gray-700 mb-1">GPS 파일을 드래그하거나 클릭해서 선택</p>
-                  <p className="text-xs text-gray-400">CSV · JSON · GPX · 최대 50MB</p>
-                </>
-              )}
-              <input
-                ref={gpsFileRef}
-                type="file"
-                accept=".csv,.json,.gpx"
-                className="hidden"
-                onChange={handleGpsInputChange}
-              />
-            </div>
-          ) : (
-            <>
-              {/* 파일 미리보기 */}
-              {gpsPreview && (
-                <div className="card p-5">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                      <FileText className="w-5 h-5 text-green-600"/>
-                      <div>
-                        <p className="font-semibold text-gray-900 text-sm">{gpsFile.name}</p>
-                        <p className="text-xs text-gray-500">{(gpsFile.size / 1024).toFixed(1)} KB</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => { setGpsFile(null); setGpsPreview(null) }}
-                      className="text-xs text-gray-400 hover:text-red-500 transition-colors"
-                    >
-                      파일 변경
-                    </button>
-                  </div>
-
-                  {/* 통계 요약 */}
-                  <div className="grid grid-cols-3 gap-3 mb-4">
-                    <div className="text-center p-3 bg-blue-50 rounded-xl">
-                      <Users className="w-4 h-4 text-blue-600 mx-auto mb-1"/>
-                      <p className="text-lg font-bold text-blue-700">{gpsPreview.total_players}</p>
-                      <p className="text-xs text-gray-500">선수</p>
-                    </div>
-                    <div className="text-center p-3 bg-green-50 rounded-xl">
-                      <Zap className="w-4 h-4 text-green-600 mx-auto mb-1"/>
-                      <p className="text-lg font-bold text-green-700">{gpsPreview.total_points.toLocaleString()}</p>
-                      <p className="text-xs text-gray-500">포인트</p>
-                    </div>
-                    <div className="text-center p-3 bg-orange-50 rounded-xl">
-                      <Clock className="w-4 h-4 text-orange-600 mx-auto mb-1"/>
-                      <p className="text-lg font-bold text-orange-700">
-                        {Math.floor(gpsPreview.duration_sec / 60)}분
-                      </p>
-                      <p className="text-xs text-gray-500">경기시간</p>
-                    </div>
-                  </div>
-
-                  {/* 선수 목록 */}
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">선수 목록</p>
-                    <div className="max-h-48 overflow-y-auto space-y-1.5">
-                      {gpsPreview.players.map((p) => (
-                        <div key={p.player_id} className="flex items-center gap-3 p-2.5 bg-gray-50 rounded-lg">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0
-                            ${p.team === 'home' ? 'bg-blue-500' : 'bg-red-500'}`}>
-                            {p.jersey_number || '?'}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-800 truncate">{p.player_name}</p>
-                            <p className="text-xs text-gray-400">
-                              {p.team === 'home' ? '홈팀' : '원정팀'} · {p.point_count.toLocaleString()}포인트
-                            </p>
-                          </div>
-                          <span className="text-xs text-gray-400">{Math.floor(p.time_range_sec / 60)}분</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 분석 실행 버튼 */}
-              {isDone ? (
-                <div className="card p-4 flex items-center gap-3 bg-green-50 border border-green-200">
-                  <CheckCircle className="w-5 h-5 text-green-600 shrink-0"/>
-                  <div className="flex-1">
-                    <p className="font-medium text-green-800 text-sm">분석 완료!</p>
-                    <p className="text-xs text-green-600">데이터 소스: {match.data_source?.toUpperCase()}</p>
-                  </div>
-                  <Link href={`/matches/${matchId}/results`} className="btn-primary text-xs">결과 보기</Link>
-                </div>
-              ) : (
-                <button
-                  onClick={handleGpsAnalyze}
-                  disabled={gpsUploading || !gpsPreview}
-                  className="w-full flex items-center justify-center gap-3 p-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold transition-colors disabled:opacity-50"
-                >
-                  {gpsUploading ? (
-                    <><Loader2 className="w-5 h-5 animate-spin"/>GPS 분석 중...</>
-                  ) : (
-                    <><Eye className="w-5 h-5"/>GPS 데이터로 분석 시작</>
-                  )}
-                </button>
-              )}
-            </>
-          )}
-
-          {/* CSV 포맷 예시 */}
-          <div className="card p-4">
-            <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">CSV 포맷 예시</p>
-            <pre className="text-xs bg-gray-50 p-3 rounded-lg overflow-x-auto text-gray-600 leading-relaxed">{`timestamp_ms,player_id,player_name,jersey_number,lat,lng,speed_mps,team
-0,1,김민준,10,37.5665,126.9780,0.0,home
-500,1,김민준,10,37.5666,126.9781,2.3,home
-1000,2,이현우,7,37.5668,126.9785,3.1,away`}</pre>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs text-gray-500">
+            <span>{match.field_type === 'soccer' ? '축구' : '풋살'}</span>
+            <span className="flex items-center gap-1">심판
+              {match.referee_color ? <span className="w-3 h-3 rounded-full border border-gray-300 inline-block" style={{ background: match.referee_color }} /> : ' 없음'}
+            </span>
+            <span>전반 홈 공격: {match.home_attacks === 'auto' ? '자동' : match.home_attacks === 'right' ? '→ 오른쪽' : '← 왼쪽'}</span>
+            <span>경기장 보정: {match.calibrated ? '있음' : '없음'}</span>
           </div>
         </div>
       )}
+
+      <div className="card p-1 mb-4 flex gap-1 bg-gray-100">
+        {([['video', '영상 분석', Play], ['gps', 'GPS 데이터', MapPin]] as const).map(([k, label, Icon]) => (
+          <button key={k} onClick={() => setTab(k)}
+            className={cn('flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all',
+              tab === k ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700')}>
+            <Icon className="w-4 h-4" />{label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'video' ? (
+        <VideoTab match={match} health={health} onMatch={setMatch} reload={load} />
+      ) : (
+        <GpsTab match={match} reload={load} />
+      )}
+    </div>
+  )
+}
+
+// ── 영상 분석 ──────────────────────────────────────────────────────────────
+
+function VideoTab({ match, health, onMatch, reload }:
+  { match: Match; health: Health | null; onMatch: (m: Match) => void; reload: () => Promise<void> }) {
+  const router = useRouter()
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [uploadPct, setUploadPct] = useState<number | null>(null)
+  const [calOpen, setCalOpen] = useState(false)
+  const [partial, setPartial] = useState(false)
+  const [startMin, setStartMin] = useState('0')
+  const [lenMin, setLenMin] = useState('10')
+  const [status, setStatus] = useState<AnalysisStatus | null>(null)
+  const [starting, setStarting] = useState(false)
+  const src = api.videoSrc(match)
+  const analyzing = match.status === 'analyzing'
+  const engineReady = !!health && (health.engines.runpod || health.engines.local)
+
+  useEffect(() => {
+    if (!analyzing) { setStatus(null); return }
+    let alive = true
+    const tick = async () => {
+      try {
+        const st = await api.getStatus(match.id)
+        if (!alive) return
+        setStatus(st)
+        if (st.status === 'done') {
+          toast.success('분석이 끝났습니다')
+          router.push(`/matches/${match.id}/results`)
+        } else if (st.status !== 'analyzing') {
+          await reload()
+        }
+      } catch { /* 일시적 네트워크 오류는 다음 주기에 재시도 */ }
+    }
+    tick()
+    const timer = setInterval(tick, 2000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [analyzing, match.id, reload, router])
+
+  const upload = async (file: File) => {
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+    if (!['mp4', 'mov', 'm4v', 'mkv', 'avi'].includes(ext)) {
+      toast.error('MP4, MOV, M4V, MKV, AVI 영상만 올릴 수 있습니다')
+      return
+    }
+    setUploadPct(0)
+    try {
+      await api.uploadVideo(match.id, file, setUploadPct)
+      toast.success('영상을 올렸습니다')
+      await reload()
+    } catch (e) {
+      toast.error(`업로드 실패: ${(e as Error).message}`)
+    } finally {
+      setUploadPct(null)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  const start = async (mode: 'video' | 'sample') => {
+    setStarting(true)
+    try {
+      const body = partial
+        ? { mode, start_seconds: Math.max(0, Number(startMin) || 0) * 60, max_seconds: Math.max(1, Number(lenMin) || 10) * 60 }
+        : { mode }
+      await api.analyze(match.id, body)
+      await reload()
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* 1. 영상 */}
+      <section className="card p-5">
+        <h2 className="font-semibold text-gray-900 mb-1">1. 경기 영상</h2>
+        <p className="text-xs text-gray-500 mb-3">
+          경기장 전체가 보이는 높은 곳에서 고정 카메라로 찍은 영상이 가장 정확합니다. 카메라가 움직이면 거리·위치 정확도가 떨어집니다.
+        </p>
+        {uploadPct !== null ? (
+          <div className="p-5 rounded-xl bg-blue-50 border border-blue-200">
+            <p className="text-sm font-medium text-blue-800 mb-2 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />업로드 중 {uploadPct}%</p>
+            <div className="w-full bg-blue-100 rounded-full h-2"><div className="bg-blue-500 h-2 rounded-full transition-all" style={{ width: `${uploadPct}%` }} /></div>
+          </div>
+        ) : match.video_url ? (
+          <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-xl">
+            <CheckCircle className="w-5 h-5 text-green-600 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-green-800">영상 준비됨</p>
+              <p className="text-xs text-green-700 truncate">{match.video_filename}</p>
+            </div>
+            <button className="btn-secondary !py-1.5 text-xs" onClick={() => fileRef.current?.click()} disabled={analyzing}>교체</button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => fileRef.current?.click()}
+            className="w-full border-2 border-dashed border-gray-300 hover:border-green-400 hover:bg-green-50/50 rounded-xl p-8 text-center transition-colors">
+            <Upload className="w-9 h-9 text-gray-400 mx-auto mb-2" />
+            <p className="font-medium text-gray-700">영상 파일 선택</p>
+            <p className="text-xs text-gray-400 mt-1">MP4 · MOV · M4V · MKV · AVI {health?.r2 ? '· 대용량은 저장소로 바로 올라갑니다' : ''}</p>
+          </button>
+        )}
+        <input ref={fileRef} type="file" accept="video/*,.mp4,.mov,.m4v,.mkv,.avi" className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) upload(f) }} />
+      </section>
+
+      {/* 2. 경기장 보정 */}
+      <section className="card">
+        <button type="button" onClick={() => setCalOpen(o => !o)} disabled={!src}
+          className="w-full flex items-center gap-3 p-5 text-left disabled:opacity-60">
+          <Ruler className="w-5 h-5 text-gray-500" />
+          <div className="flex-1">
+            <h2 className="font-semibold text-gray-900">2. 경기장 보정 <span className="text-xs font-normal text-gray-400">(선택 · 권장)</span></h2>
+            <p className="text-xs text-gray-500">
+              {match.calibrated ? '보정됨 — 거리·속도가 실제 미터로 계산됩니다.' : '네 점을 찍으면 거리·속도를 실제 미터로 재고, 경기장 밖 사람을 자동 제외합니다.'}
+            </p>
+          </div>
+          {match.calibrated && <CheckCircle className="w-5 h-5 text-green-600" />}
+          <ChevronDown className={cn('w-4 h-4 text-gray-400 transition-transform', calOpen && 'rotate-180')} />
+        </button>
+        {calOpen && src && (
+          <div className="px-5 pb-5"><CalibrationTool match={match} src={src} onSaved={onMatch} /></div>
+        )}
+      </section>
+
+      {/* 3. 분석 */}
+      <section className="card p-5">
+        <h2 className="font-semibold text-gray-900 mb-1">3. 분석</h2>
+        <p className="text-xs text-gray-500 mb-4">
+          유니폼 색으로 선수를 팀별로 나누고, 공의 움직임으로 볼 터치·패스 성공/실패·슈팅·가로채기를 선수별로 기록합니다.
+        </p>
+
+        {analyzing ? (
+          <div className="p-4 rounded-xl bg-blue-50 border border-blue-200">
+            <div className="flex items-center gap-2 mb-2">
+              <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+              <p className="text-sm font-medium text-blue-800 flex-1">{status?.message || '분석 중'}</p>
+              <span className="text-sm font-bold text-blue-700 tabular-nums">{Math.round(status?.progress ?? match.analysis_progress)}%</span>
+            </div>
+            <div className="w-full bg-blue-100 rounded-full h-2">
+              <div className="bg-blue-500 h-2 rounded-full transition-all duration-700" style={{ width: `${status?.progress ?? match.analysis_progress}%` }} />
+            </div>
+            <p className="text-xs text-blue-600 mt-2">이 페이지를 닫아도 분석은 계속됩니다. 끝나면 결과 화면으로 이동합니다.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {match.status === 'failed' && match.analysis_error && (
+              <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" /><span>{match.analysis_error}</span>
+              </div>
+            )}
+            {match.analysis_version === 2 && (
+              <p className="text-xs text-gray-500">
+                현재 결과: {SOURCE_LABEL[match.data_source ?? ''] ?? ''} 분석 · 다시 분석하면 선수 이름·병합 정보가 초기화됩니다.
+              </p>
+            )}
+
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={partial} onChange={e => setPartial(e.target.checked)} />
+              일부 구간만 분석 (빠른 확인용)
+            </label>
+            {partial && (
+              <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600 pl-6">
+                <input className="input !w-20" inputMode="numeric" value={startMin} onChange={e => setStartMin(e.target.value)} aria-label="시작(분)" />
+                분부터
+                <input className="input !w-20" inputMode="numeric" value={lenMin} onChange={e => setLenMin(e.target.value)} aria-label="길이(분)" />
+                분 동안
+              </div>
+            )}
+
+            <button onClick={() => start('video')} disabled={starting || !match.video_url || !engineReady}
+              className="w-full flex items-center gap-3 p-4 border-2 border-green-500 rounded-xl hover:bg-green-50 transition-colors text-left disabled:opacity-50 disabled:border-gray-200 disabled:hover:bg-transparent">
+              <span className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center shrink-0"><Cpu className="w-5 h-5 text-green-700" /></span>
+              <span className="flex-1">
+                <span className="block font-semibold text-green-800">영상 분석 시작</span>
+                <span className="block text-xs text-gray-500">
+                  {!match.video_url ? '먼저 영상을 올려 주세요'
+                    : !health ? '서버 상태 확인 중...'
+                    : health.engines.runpod ? 'GPU 서버(RunPod)에서 분석 · 90분 경기 약 15~30분'
+                    : health.engines.local ? '이 서버에서 분석 · CPU면 오래 걸릴 수 있습니다'
+                    : '분석 엔진이 설정되지 않았습니다 (README의 RunPod 설정 참고)'}
+                </span>
+              </span>
+            </button>
+            <button onClick={() => start('sample')} disabled={starting}
+              className="w-full flex items-center gap-3 p-3 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors text-left disabled:opacity-50">
+              <span className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center shrink-0"><FlaskConical className="w-5 h-5 text-gray-600" /></span>
+              <span>
+                <span className="block font-medium text-gray-700">샘플 분석으로 화면 미리보기</span>
+                <span className="block text-xs text-gray-500">가상 경기 데이터로 결과 화면을 체험합니다 · 영상과 무관</span>
+              </span>
+            </button>
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}
+
+// ── GPS ───────────────────────────────────────────────────────────────────
+
+function GpsTab({ match, reload }: { match: Match; reload: () => Promise<void> }) {
+  const router = useRouter()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [file, setFile] = useState<File | null>(null)
+  const [preview, setPreview] = useState<GpsPreview | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [drag, setDrag] = useState(false)
+
+  const pick = async (f: File) => {
+    if (!['csv', 'json', 'gpx'].includes(f.name.split('.').pop()?.toLowerCase() ?? '')) {
+      toast.error('CSV, JSON, GPX 파일만 지원합니다')
+      return
+    }
+    setFile(f)
+    setPreview(null)
+    setBusy(true)
+    try {
+      setPreview(await api.gpsPreview(match.id, f))
+    } catch (e) {
+      toast.error(`파일을 읽지 못했습니다: ${(e as Error).message}`)
+      setFile(null)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const run = async () => {
+    if (!file) return
+    setBusy(true)
+    try {
+      const r = await api.uploadGps(match.id, file)
+      toast.success(`GPS 분석 완료 · ${r.players}명`)
+      await reload()
+      router.push(`/matches/${match.id}/results`)
+    } catch (e) {
+      toast.error(`GPS 분석 실패: ${(e as Error).message}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="card p-5">
+        <h2 className="font-semibold text-gray-900 mb-1">GPS 파일로 활동량 분석</h2>
+        <p className="text-xs text-gray-500">
+          GPS 조끼·스마트워치 기록(CSV · JSON · GPX)으로 이동거리, 속도 구간, 스프린트, 히트맵을 계산합니다.
+          GPS에는 공 정보가 없어 패스·슈팅 기록은 영상 분석에서만 나옵니다.
+        </p>
+      </div>
+      {!file ? (
+        <div onClick={() => inputRef.current?.click()}
+          onDragOver={e => { e.preventDefault(); setDrag(true) }} onDragLeave={() => setDrag(false)}
+          onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f) pick(f) }}
+          className={cn('card border-2 border-dashed p-10 text-center cursor-pointer transition-all',
+            drag ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-green-400')}>
+          {busy ? <Loader2 className="w-9 h-9 text-green-500 mx-auto mb-2 animate-spin" /> : <MapPin className="w-9 h-9 text-gray-400 mx-auto mb-2" />}
+          <p className="font-medium text-gray-700">GPS 파일을 끌어 놓거나 눌러서 선택</p>
+          <p className="text-xs text-gray-400 mt-1">CSV · JSON · GPX · 최대 50MB</p>
+          <input ref={inputRef} type="file" accept=".csv,.json,.gpx" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) pick(f) }} />
+        </div>
+      ) : (
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <FileText className="w-5 h-5 text-green-600" />
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-sm text-gray-900 truncate">{file.name}</p>
+              <p className="text-xs text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>
+            </div>
+            <button onClick={() => { setFile(null); setPreview(null) }} className="text-xs text-gray-400 hover:text-red-500">파일 변경</button>
+          </div>
+          {preview && (
+            <>
+              <div className="grid grid-cols-3 gap-3 mb-4 text-center">
+                <Stat icon={<Users className="w-4 h-4" />} value={preview.total_players} label="선수" />
+                <Stat icon={<MapPin className="w-4 h-4" />} value={preview.total_points.toLocaleString()} label="포인트" />
+                <Stat icon={<Clock className="w-4 h-4" />} value={`${Math.floor(preview.duration_sec / 60)}분`} label="기록 시간" />
+              </div>
+              <div className="max-h-48 overflow-y-auto space-y-1 mb-4">
+                {preview.players.map(p => (
+                  <div key={p.player_id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg text-sm">
+                    <span className="w-7 h-7 rounded-full text-xs font-bold text-white flex items-center justify-center"
+                      style={{ background: p.team === 'away' ? match.away_team_color : match.home_team_color }}>{p.jersey_number || '?'}</span>
+                    <span className="flex-1 truncate">{p.player_name}</span>
+                    <span className="text-xs text-gray-400">{p.point_count.toLocaleString()}개</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+          <button onClick={run} disabled={busy || !preview} className="btn-primary w-full justify-center !py-3">
+            {busy ? <><Loader2 className="w-4 h-4 animate-spin" />분석 중...</> : 'GPS 데이터로 분석'}
+          </button>
+        </div>
+      )}
+      <div className="card p-4">
+        <p className="text-xs font-semibold text-gray-500 mb-2">CSV 형식 예시</p>
+        <pre className="text-xs bg-gray-50 p-3 rounded-lg overflow-x-auto text-gray-600">{`timestamp_ms,player_id,player_name,jersey_number,lat,lng,speed_mps,team
+0,1,김민준,10,37.5665,126.9780,0.0,home
+1000,1,김민준,10,37.5666,126.9781,2.3,home
+0,2,이현우,7,37.5668,126.9785,3.1,away`}</pre>
+      </div>
+    </div>
+  )
+}
+
+function Stat({ icon, value, label }: { icon: React.ReactNode; value: React.ReactNode; label: string }) {
+  return (
+    <div className="p-3 bg-gray-50 rounded-xl">
+      <span className="text-gray-500 flex justify-center mb-1">{icon}</span>
+      <p className="text-lg font-bold text-gray-900">{value}</p>
+      <p className="text-xs text-gray-500">{label}</p>
     </div>
   )
 }

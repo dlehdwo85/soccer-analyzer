@@ -68,7 +68,9 @@ class AnalysisConfig:
     def event_config(self, length: float, width: float) -> EventConfig:
         return EventConfig(length=length, width=width,
                            goal_width=GOAL_WIDTH.get(self.field_type, 7.32),
-                           home_attacks=self.home_attacks, halftime_s=self.halftime_s)
+                           home_attacks=self.home_attacks,
+                           # halftime_s는 영상 전체 기준 시각, 이벤트 시각은 분석 시작점 기준
+                           halftime_s=(self.halftime_s - self.start_seconds) if self.halftime_s is not None else None)
 
 
 # ── 검출기 ──────────────────────────────────────────────────────────────────
@@ -297,6 +299,7 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
 
     meta = {
         "source": "video",
+        "start_s": cfg.start_seconds,
         "duration_s": round(times[-1], 1),
         "fps_video": round(fps_video, 2),
         "analysis_fps": round(eff_fps, 2),

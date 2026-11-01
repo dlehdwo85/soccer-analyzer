@@ -75,7 +75,7 @@ export default function HomePage() {
             <Zap className="w-8 h-8 text-green-600" />
           </div>
           <h2 className="text-xl font-bold text-gray-900 mb-2">아직 등록된 경기가 없습니다</h2>
-          <p className="text-gray-500 mb-6">샘플 경기를 불러오거나 새 경기를 직접 등록해보세요.</p>
+          <p className="text-gray-500 mb-6">경기를 등록하고 영상을 올리면 선수별 볼 터치·패스·슈팅·활동량을 분석합니다.</p>
           <Link href="/matches/new" className="btn-primary inline-flex">
             <PlusCircle className="w-4 h-4" />첫 경기 등록하기
           </Link>
