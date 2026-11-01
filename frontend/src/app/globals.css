@@ -4,24 +4,27 @@
 
 @layer base {
   :root { color-scheme: dark; }
-  body { @apply bg-ink-950 text-ink-100 antialiased; font-feature-settings: 'tnum' 0; }
+  body { @apply bg-ink-950 text-ink-100 antialiased; }
   * { @apply box-border; }
-  ::selection { background: rgba(200, 240, 49, 0.35); }
-  input[type='checkbox'] { accent-color: #c8f031; }
+  ::selection { background: rgba(63, 163, 91, 0.35); }
+  input[type='checkbox'] { accent-color: #3fa35b; }
 }
 
 @layer components {
-  .btn { @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm transition-all duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap; }
-  .btn-primary { @apply btn bg-volt text-ink-950 hover:bg-volt-600 active:scale-[.97]; }
-  .btn-secondary { @apply btn bg-ink-800 text-ink-100 border border-ink-700 hover:bg-ink-700 active:scale-[.97]; }
+  .btn { @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md font-medium text-sm transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap; }
+  .btn-primary { @apply btn bg-volt text-ink-950 hover:bg-volt-600; }
+  .btn-secondary { @apply btn bg-ink-800 text-ink-100 border border-ink-700 hover:bg-ink-700; }
   .btn-ghost { @apply btn text-ink-300 hover:text-ink-100 hover:bg-ink-800; }
   .btn-danger { @apply btn bg-red-500/10 text-red-300 border border-red-500/30 hover:bg-red-500/20; }
-  .card { @apply bg-ink-900 rounded-2xl border border-ink-800; }
+  .card { @apply bg-ink-900 rounded-lg border border-ink-800; }
   .card-hover { @apply card transition-colors hover:border-ink-600; }
-  .label { @apply text-[11px] font-semibold text-ink-400 uppercase tracking-wider; }
-  .input { @apply w-full px-3 py-2 bg-ink-950 border border-ink-700 rounded-xl text-sm text-ink-100 placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-volt/60 focus:border-transparent; }
-  .chip { @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border border-ink-700 text-ink-300 bg-ink-900 hover:border-ink-500 hover:text-ink-100 transition-colors; }
-  .chip-on { @apply bg-volt text-ink-950 border-volt hover:text-ink-950 hover:border-volt; }
+  .label { @apply text-[11px] font-medium text-ink-400 uppercase tracking-wider; }
+  .input { @apply w-full px-3 py-2 bg-ink-950 border border-ink-700 rounded-md text-sm text-ink-100 placeholder:text-ink-500 focus:outline-none focus:ring-1 focus:ring-volt focus:border-volt; }
+  .chip { @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-ink-700 text-ink-300 bg-ink-900 hover:border-ink-500 hover:text-ink-100 transition-colors; }
+  .chip-on { @apply bg-ink-100 text-ink-950 border-ink-100 hover:text-ink-950 hover:border-ink-100; }
   .num { font-variant-numeric: tabular-nums; }
   .muted { @apply text-ink-400; }
+  /* 알림 박스 대신 쓰는 한 줄 메모 */
+  .note { @apply text-sm text-ink-300 border-l-2 border-ink-600 pl-3 py-1; }
+  .note-warn { @apply note border-amber-400/70 text-amber-100; }
 }

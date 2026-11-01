@@ -32,11 +32,11 @@ export default function PlayersPage() {
             const t = p.totals
             return (
               <Link key={p.name} href={`/players/${encodeURIComponent(p.name)}`} className="card-hover p-4 flex items-center gap-4 group">
-                <div className="w-12 h-12 rounded-2xl bg-volt flex items-center justify-center shrink-0">
-                  <span className="text-ink-950 font-black text-lg">{p.jersey_number ?? p.name.slice(0, 1)}</span>
+                <div className="w-12 h-12 rounded-lg bg-volt flex items-center justify-center shrink-0">
+                  <span className="text-ink-950 font-semibold text-lg">{p.jersey_number ?? p.name.slice(0, 1)}</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-extrabold text-ink-100 group-hover:text-volt">{p.name}</p>
+                  <p className="font-semibold text-ink-100 group-hover:text-volt">{p.name}</p>
                   <p className="text-xs text-ink-500">{p.match_count}경기 · {Math.round(t.minutes)}분</p>
                   <div className="flex gap-3 mt-1.5 text-[11px] text-ink-400 num">
                     <span>패스 <b className="text-ink-100">{t.pass_accuracy !== null ? `${t.pass_accuracy.toFixed(0)}%` : '-'}</b></span>

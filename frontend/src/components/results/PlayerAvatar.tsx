@@ -19,7 +19,7 @@ export default function PlayerAvatar({ matchId, match, player, size = 32 }:
     )
   }
   return (
-    <span className="rounded-xl flex items-center justify-center font-extrabold shrink-0"
+    <span className="rounded-xl flex items-center justify-center font-semibold shrink-0"
       style={{ width: size, height: size, background: color, color: inkOn(color), fontSize: size * 0.38,
                boxShadow: '0 0 0 1px rgba(255,255,255,.15) inset' }}>
       {player.jersey_number ?? (player.label.endsWith('_gk') ? 'GK' : '')}

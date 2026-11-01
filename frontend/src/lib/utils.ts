@@ -10,6 +10,16 @@ export function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })
 }
 
+/** 기록표용 짧은 날짜: "2025-10-12" 또는 ISO → "2025.10.12" */
+export function fmtDateShort(v: string | null | undefined): string {
+  if (!v) return ''
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v)
+  if (m) return `${m[1]}.${m[2]}.${m[3]}`
+  const d = new Date(v)
+  if (Number.isNaN(d.getTime())) return v
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
+}
+
 /** 초 → m:ss (1시간 이상이면 h:mm:ss) */
 export function fmtClock(sec: number): string {
   const s = Math.max(0, Math.floor(sec))

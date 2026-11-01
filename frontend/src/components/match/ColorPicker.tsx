@@ -21,7 +21,7 @@ export default function ColorPicker({ label, value, onChange }: Props) {
             className="w-7 h-7 rounded-full border-2 transition-transform hover:scale-110"
             style={{
               background: c,
-              borderColor: value === c ? '#c8f031' : '#34416a',
+              borderColor: value === c ? '#3fa35b' : '#34416a',
               transform: value === c ? 'scale(1.15)' : undefined,
             }} />
         ))}

@@ -46,14 +46,14 @@ export default function PlayerModal({ matchId, result, player, players, onClose,
   ]
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] bg-black/70 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-label={`${playerName(player)} 상세 기록`}
-        className="bg-ink-900 border border-ink-700 w-full sm:max-w-4xl max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl"
+        className="bg-ink-900 border border-ink-700 w-full sm:max-w-4xl max-h-[92vh] overflow-y-auto rounded-t-lg sm:rounded-lg"
         onClick={e => e.stopPropagation()}>
-        <div className="sticky top-0 bg-ink-900/95 backdrop-blur border-b border-ink-800 px-5 py-3.5 flex items-center gap-3 z-10">
+        <div className="sticky top-0 bg-ink-900 border-b border-ink-800 px-5 py-3.5 flex items-center gap-3 z-10">
           <PlayerAvatar matchId={matchId} match={result.match} player={player} size={46} />
           <div className="min-w-0 flex-1">
-            <p className="font-extrabold text-lg text-ink-100 truncate">{playerName(player)}</p>
+            <p className="font-semibold text-lg text-ink-100 truncate">{playerName(player)}</p>
             <p className="text-xs text-ink-400 flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full" style={{ background: team.color }} />
               {team.name}{isGk(player) && ' · 골키퍼'} · {s.minutes_tracked.toFixed(0)}분 · 트랙 {player.track_id}
@@ -66,9 +66,9 @@ export default function PlayerModal({ matchId, result, player, players, onClose,
         <div className="p-5 space-y-5">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {tiles.map(([label, value, sub]) => (
-              <div key={label} className="rounded-2xl bg-ink-850 border border-ink-800 px-3.5 py-3">
+              <div key={label} className="rounded-lg bg-ink-850 border border-ink-800 px-3.5 py-3">
                 <p className="text-[11px] text-ink-400">{label}</p>
-                <p className="text-xl font-extrabold text-ink-100 num">{value}</p>
+                <p className="text-xl font-semibold text-ink-100 num">{value}</p>
                 {sub && <p className="text-[11px] text-ink-500">{sub}</p>}
               </div>
             ))}
@@ -85,7 +85,7 @@ export default function PlayerModal({ matchId, result, player, players, onClose,
                 {view === 'pass' && passes.filter(isPlaced).map(e => e.x2 !== null && e.y2 !== null && (
                   <g key={e.id} className="cursor-pointer" onClick={() => onSeek?.(e.t)}>
                     <title>{`${fmtClock(e.t)} ${eventLabel(e)}${e.target ? ` → ${playerName(players.get(e.target))}` : ''}`}</title>
-                    <Arrow x1={e.x} y1={e.y} x2={e.x2} y2={e.y2} color={e.success ? '#c8f031' : '#f87171'} width={0.45}
+                    <Arrow x1={e.x} y1={e.y} x2={e.x2} y2={e.y2} color={e.success ? '#3fa35b' : '#f87171'} width={0.45}
                       dashed={!e.success} />
                   </g>
                 ))}

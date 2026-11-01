@@ -105,7 +105,7 @@ export default function CalibrationTool({ match, src, onSaved }: { match: Match;
             <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="w-full h-full">
               {points.length >= 2 && (
                 <polygon points={points.map(p => p.join(',')).join(' ')} fill="rgba(200,240,49,.18)"
-                  stroke="#c8f031" strokeWidth={0.004} vectorEffect="non-scaling-stroke" />
+                  stroke="#3fa35b" strokeWidth={0.004} vectorEffect="non-scaling-stroke" />
               )}
             </svg>
             {points.map((p, i) => (
@@ -125,7 +125,7 @@ export default function CalibrationTool({ match, src, onSaved }: { match: Match;
 
       <div className="flex items-center gap-2">
         <span className="text-xs tabular-nums text-ink-400 w-12">{fmtClock(time)}</span>
-        <input type="range" min={0} max={dur || 0} step={0.5} value={time} className="flex-1 accent-[#c8f031]"
+        <input type="range" min={0} max={dur || 0} step={0.5} value={time} className="flex-1 accent-[#3fa35b]"
           onChange={e => { const t = Number(e.target.value); setTime(t); if (video.current) video.current.currentTime = t }}
           aria-label="영상 위치" />
         <span className="text-xs tabular-nums text-ink-500 w-12 text-right">{fmtClock(dur)}</span>

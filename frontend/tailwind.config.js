@@ -4,7 +4,7 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // 경기장 야간 조명 느낌의 어두운 바탕 + 형광 라임 포인트
+        // 어두운 남색 바탕 + 절제된 잔디색 포인트
         ink: {
           950: '#070b14',
           900: '#0d1321',
@@ -19,16 +19,13 @@ module.exports = {
           100: '#eef2fa',
         },
         volt: {
-          DEFAULT: '#c8f031',
-          600: '#a9d118',
-          soft: 'rgba(200,240,49,0.12)',
+          DEFAULT: '#3fa35b',
+          600: '#348a4c',
+          soft: 'rgba(63,163,91,0.12)',
         },
       },
       fontFamily: {
         sans: ['Pretendard Variable', 'Pretendard', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
-      },
-      boxShadow: {
-        glow: '0 0 0 1px rgba(200,240,49,.35), 0 8px 30px -10px rgba(200,240,49,.35)',
       },
     },
   },

@@ -68,7 +68,7 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number }>(
 
   if (!open) return null
   return (
-    <div className={`fixed z-50 bottom-4 right-4 bg-black rounded-2xl shadow-2xl overflow-hidden border border-ink-700 transition-all
+    <div className={`fixed z-50 bottom-4 right-4 bg-black rounded-lg shadow-2xl overflow-hidden border border-ink-700 transition-all
       ${big ? 'left-4 sm:left-auto sm:w-[760px]' : 'w-[min(380px,calc(100vw-2rem))]'}`}>
       <div className="flex items-center gap-2 px-3 py-2 text-xs text-ink-200 bg-ink-900">
         <span className="flex-1 truncate font-semibold">{title}</span>

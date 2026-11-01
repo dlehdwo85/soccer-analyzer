@@ -42,7 +42,7 @@ export default function Compare({ matchId, result }: { matchId: number; result: 
     <div className={cn('flex items-center gap-3 mb-3', right && 'flex-row-reverse text-right')}>
       <PlayerAvatar matchId={matchId} match={result.match} player={p} size={52} />
       <div className="min-w-0">
-        <p className="font-extrabold text-ink-100 truncate">{playerName(p)}</p>
+        <p className="font-semibold text-ink-100 truncate">{playerName(p)}</p>
         <p className="text-xs text-ink-400">{teamInfo(result.match, p.team).name} · {p.stats.minutes_tracked.toFixed(0)}분</p>
       </div>
     </div>

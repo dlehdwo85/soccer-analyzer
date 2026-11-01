@@ -65,10 +65,10 @@ export default function MatchDetailPage() {
         <Link href="/" className="btn-ghost !px-2.5" aria-label="목록"><ArrowLeft className="w-4 h-4" /></Link>
         <div className="flex-1 min-w-0">
           <p className="label">{match.date || fmtDate(match.created_at)}</p>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-ink-100 truncate">{match.title}</h1>
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-ink-100 truncate">{match.title}</h1>
         </div>
         {hasResult && match.status !== 'analyzing' && (
-          <Link href={`/matches/${matchId}/results`} className="btn-primary"><BarChart3 className="w-4 h-4" />결과 보기</Link>
+          <Link href={`/matches/${matchId}/results`} className="btn-primary"><BarChart3 className="w-4 h-4" />기록 보기</Link>
         )}
       </div>
 
@@ -101,8 +101,8 @@ export default function MatchDetailPage() {
               const color = side === 'home' ? match.home_team_color : match.away_team_color
               const gk = side === 'home' ? match.home_gk_color : match.away_gk_color
               return (
-                <div key={side} className="flex items-center gap-3 rounded-2xl bg-ink-850 border border-ink-800 p-3">
-                  <span className="w-10 h-10 rounded-xl flex items-center justify-center font-black ring-1 ring-white/15"
+                <div key={side} className="flex items-center gap-3 rounded-lg bg-ink-850 border border-ink-800 p-3">
+                  <span className="w-10 h-10 rounded-xl flex items-center justify-center font-semibold ring-1 ring-white/15"
                     style={{ background: color, color: inkOn(color) }}>{name.slice(0, 1)}</span>
                   <div className="min-w-0">
                     <p className="font-bold text-ink-100 truncate">{name}</p>
@@ -134,7 +134,7 @@ function Step({ n, title, done, children, id }: { n: number; title: React.ReactN
   return (
     <section id={id} className="card p-5 scroll-mt-20">
       <div className="flex items-center gap-3 mb-3">
-        <span className={cn('w-7 h-7 rounded-full flex items-center justify-center text-xs font-black',
+        <span className={cn('w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold',
           done ? 'bg-volt text-ink-950' : 'bg-ink-800 text-ink-300')}>{done ? <CheckCircle2 className="w-4 h-4" /> : n}</span>
         <h2 className="font-bold text-ink-100">{title}</h2>
       </div>
@@ -220,15 +220,15 @@ function AnalysisSteps({ match, health, onMatch, reload }:
       <Step n={1} title="경기 영상" done={!!match.video_url}>
         <p className="text-xs text-ink-400 mb-3">
           <b className="text-ink-200">1080p 이상</b>, 높은 곳에서 경기장을 넓게 담은 영상이 가장 정확합니다.
-          480p처럼 화질이 낮거나 멀리서 찍어 공이 몇 픽셀밖에 안 되면 공을 놓쳐 볼 기록이 크게 줄어듭니다 — 이때는 '이벤트 검수'에서 보완하세요.
+          480p처럼 화질이 낮거나 멀리서 찍어 공이 몇 픽셀밖에 안 되면 공을 놓쳐 볼 기록이 크게 줄어듭니다 — 이때는 &lsquo;이벤트 검수&rsquo;에서 보완하세요.
         </p>
         {uploadPct !== null ? (
-          <div className="p-4 rounded-2xl bg-ink-850 border border-ink-700">
+          <div className="p-4 rounded-lg bg-ink-850 border border-ink-700">
             <p className="text-sm font-semibold text-ink-100 mb-2 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin text-volt" />업로드 중 <span className="num">{uploadPct}%</span></p>
             <div className="w-full bg-ink-800 rounded-full h-2"><div className="bg-volt h-2 rounded-full transition-all" style={{ width: `${uploadPct}%` }} /></div>
           </div>
         ) : match.video_url ? (
-          <div className="flex items-center gap-3 p-3 rounded-2xl bg-volt-soft border border-volt/25">
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-volt-soft border border-volt/25">
             <CheckCircle2 className="w-5 h-5 text-volt shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-ink-100">영상 준비됨</p>
@@ -238,7 +238,7 @@ function AnalysisSteps({ match, health, onMatch, reload }:
           </div>
         ) : (
           <button type="button" onClick={() => fileRef.current?.click()}
-            className="w-full border-2 border-dashed border-ink-700 hover:border-volt/60 hover:bg-volt/5 rounded-2xl p-8 text-center transition-colors">
+            className="w-full border-2 border-dashed border-ink-700 hover:border-volt/60 hover:bg-volt/5 rounded-lg p-8 text-center transition-colors">
             <Upload className="w-8 h-8 text-ink-500 mx-auto mb-2" />
             <p className="font-bold text-ink-200">영상 파일 선택</p>
             <p className="text-xs text-ink-500 mt-1">MP4 · MOV · M4V · MKV · AVI {health?.r2 ? '· 대용량은 저장소로 바로 올라갑니다' : ''}</p>
@@ -272,11 +272,11 @@ function AnalysisSteps({ match, health, onMatch, reload }:
         </p>
 
         {analyzing ? (
-          <div className="p-4 rounded-2xl bg-ink-850 border border-ink-700">
+          <div className="p-4 rounded-lg bg-ink-850 border border-ink-700">
             <div className="flex items-center gap-2 mb-2">
               <Loader2 className="w-4 h-4 text-volt animate-spin" />
               <p className="text-sm font-semibold text-ink-100 flex-1">{status?.message || match.analysis_message || '분석 중'}</p>
-              <span className="text-sm font-black text-volt num">{Math.round(pct)}%</span>
+              <span className="text-sm font-semibold text-volt num">{Math.round(pct)}%</span>
             </div>
             <div className="w-full bg-ink-800 rounded-full h-2">
               <div className="bg-volt h-2 rounded-full transition-all duration-700" style={{ width: `${pct}%` }} />
@@ -313,10 +313,10 @@ function AnalysisSteps({ match, health, onMatch, reload }:
             )}
 
             <button onClick={() => start('video')} disabled={starting || !match.video_url || !engineReady}
-              className="w-full flex items-center gap-3 p-4 rounded-2xl border-2 border-volt bg-volt/5 hover:bg-volt/10 transition-colors text-left disabled:opacity-40 disabled:border-ink-700 disabled:bg-transparent">
+              className="w-full flex items-center gap-3 p-4 rounded-lg border-2 border-volt bg-volt/5 hover:bg-volt/10 transition-colors text-left disabled:opacity-40 disabled:border-ink-700 disabled:bg-transparent">
               <span className="w-10 h-10 bg-volt rounded-xl flex items-center justify-center shrink-0"><Cpu className="w-5 h-5 text-ink-950" /></span>
               <span className="flex-1">
-                <span className="block font-extrabold text-ink-100">영상 분석 시작</span>
+                <span className="block font-semibold text-ink-100">영상 분석 시작</span>
                 <span className="block text-xs text-ink-400">
                   {!match.video_url ? '먼저 영상을 올려 주세요'
                     : !health ? '서버 상태 확인 중...'
@@ -327,7 +327,7 @@ function AnalysisSteps({ match, health, onMatch, reload }:
               </span>
             </button>
             <button onClick={() => start('sample')} disabled={starting}
-              className="w-full flex items-center gap-3 p-3 rounded-2xl border border-ink-700 hover:bg-ink-850 transition-colors text-left disabled:opacity-40">
+              className="w-full flex items-center gap-3 p-3 rounded-lg border border-ink-700 hover:bg-ink-850 transition-colors text-left disabled:opacity-40">
               <span className="w-10 h-10 bg-ink-800 rounded-xl flex items-center justify-center shrink-0"><FlaskConical className="w-5 h-5 text-ink-300" /></span>
               <span>
                 <span className="block font-semibold text-ink-200">샘플로 결과 화면 미리보기</span>

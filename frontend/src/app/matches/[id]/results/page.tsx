@@ -2,10 +2,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { AlertTriangle, ArrowLeft, Download, FlaskConical, Info, Settings2 } from 'lucide-react'
+import { ArrowLeft, Download, Settings2 } from 'lucide-react'
 import { api } from '@/lib/api'
-import { MatchResult } from '@/lib/types'
-import { cn, fmtClock, inkOn, SOURCE_LABEL, teamInfo } from '@/lib/utils'
+import { MatchResult, Team, TeamStats } from '@/lib/types'
+import { cn, fmtClock, fmtDateShort, isDark, SOURCE_LABEL, teamInfo } from '@/lib/utils'
 import { Leaders, PossessionChart, ShotMap, TeamComparison } from '@/components/results/Overview'
 import PlayerTable from '@/components/results/PlayerTable'
 import PlayerModal from '@/components/results/PlayerModal'
@@ -23,6 +23,23 @@ const TABS: [Tab, string][] = [
   ['overview', '개요'], ['players', '선수 기록'], ['highlights', '하이라이트'], ['events', '이벤트 검수'],
   ['network', '패스 네트워크'], ['compare', '선수 비교'], ['edit', '선수 정리'],
 ]
+
+/** 박스 스코어의 팀 합계 열 */
+const BOX_COLS: { label: string; get: (t: TeamStats) => string }[] = [
+  { label: '선수', get: t => String(t.players) },
+  { label: '점유율', get: t => pct(t.possession_pct) },
+  { label: '패스 성공/시도', get: t => `${t.passes_completed}/${t.passes_attempted}` },
+  { label: '성공률', get: t => pct(t.pass_accuracy) },
+  { label: '키패스', get: t => String(t.key_passes) },
+  { label: '슈팅/유효', get: t => `${t.shots}/${t.shots_on_target}` },
+  { label: 'xG', get: t => t.xg.toFixed(2) },
+  { label: '가로채기', get: t => String(t.interceptions) },
+  { label: '볼 탈취', get: t => String(t.recoveries) },
+]
+
+function pct(v: number | null | undefined) {
+  return v == null ? '–' : `${v.toFixed(0)}%`
+}
 
 export default function ResultsPage() {
   const { id } = useParams<{ id: string }>()
@@ -48,12 +65,12 @@ export default function ResultsPage() {
 
   if (error) return (
     <div className="max-w-3xl mx-auto px-4 py-16 text-center">
-      <p className="text-ink-200 font-semibold mb-3">{error}</p>
+      <p className="text-ink-200 mb-3">{error}</p>
       <Link href={`/matches/${matchId}#analyze`} className="btn-primary"><ArrowLeft className="w-4 h-4" />경기 페이지로</Link>
     </div>
   )
   if (!result) return (
-    <div className="max-w-6xl mx-auto px-4 py-8 space-y-4">{[1, 2, 3].map(i => <div key={i} className="card h-40 animate-pulse" />)}</div>
+    <div className="max-w-6xl mx-auto px-4 py-8 space-y-4" aria-busy="true">{[1, 2, 3].map(i => <div key={i} className="card h-40 animate-pulse" />)}</div>
   )
 
   const { match, meta } = result
@@ -63,14 +80,15 @@ export default function ResultsPage() {
   const sel = selected ? players.get(selected) ?? null : null
   const ts = result.team_stats
   const hasHalves = meta.halftime_rel_s != null && meta.halftime_rel_s > 0
+  const warnings = meta.warnings?.filter(w => !w.includes('거리·속도')) ?? []
+  const periodLabel = period === 1 ? ' · 전반' : period === 2 ? ' · 후반' : ''
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <Link href={`/matches/${matchId}`} className="btn-ghost !px-2.5" aria-label="경기 페이지"><ArrowLeft className="w-4 h-4" /></Link>
-        <p className="text-xs text-ink-400 flex-1 min-w-0 truncate">
-          {match.date ?? ''} · {SOURCE_LABEL[meta.source] ?? meta.source} 분석 · {fmtClock(meta.duration_s)}
-          {meta.source === 'video' && meta.ball_detected_pct != null && ` · 공 검출 ${meta.ball_detected_pct.toFixed(0)}%`}
+        <p className="text-xs text-ink-400 flex-1 min-w-0 truncate num">
+          {fmtDateShort(match.date) || fmtDateShort(match.created_at)} · {SOURCE_LABEL[meta.source] ?? meta.source} 분석 · {fmtClock(meta.duration_s)}{periodLabel}
         </p>
         <Link href={`/matches/${matchId}`} className="btn-ghost !px-2.5" aria-label="경기 설정"><Settings2 className="w-4 h-4" /></Link>
         <a href={api.exportCsvUrl(matchId, period)} className="btn-secondary !py-1.5" download>
@@ -78,55 +96,81 @@ export default function ResultsPage() {
         </a>
       </div>
 
-      {/* 스코어보드 */}
-      <section className="relative overflow-hidden rounded-3xl border border-ink-800 bg-gradient-to-b from-ink-900 to-ink-950 p-5 sm:p-7 mb-4">
-        <div className="absolute inset-x-0 top-0 h-1 flex"><span className="flex-1" style={{ background: home.color }} /><span className="flex-1" style={{ background: away.color }} /></div>
-        <h1 className="text-center text-sm font-semibold text-ink-300 mb-4 truncate">{match.title}</h1>
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+      {/* 박스 스코어 */}
+      <section className="card mb-4" aria-label="경기 요약">
+        <div className="px-4 sm:px-5 pt-4 pb-3 border-b border-ink-800">
+          <h1 className="font-semibold text-ink-100 truncate">{match.title}</h1>
+        </div>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 sm:px-5 py-4">
           <TeamHead name={home.name} color={home.color} />
           <div className="text-center px-2">
-            <p className="text-4xl sm:text-5xl font-black num text-ink-100 tracking-tight">
+            <p className="text-4xl sm:text-5xl font-semibold num text-ink-100 tracking-tight">
               {ts.home.shots_on_target}<span className="text-ink-600 mx-2">:</span>{ts.away.shots_on_target}
             </p>
             <p className="label mt-1">유효 슈팅</p>
           </div>
           <TeamHead name={away.name} color={away.color} right />
         </div>
-        <div className="grid grid-cols-3 gap-2 mt-5 max-w-md mx-auto text-center">
-          {[['점유율', `${ts.home.possession_pct?.toFixed(0) ?? '-'}%`, `${ts.away.possession_pct?.toFixed(0) ?? '-'}%`],
-            ['xG', ts.home.xg.toFixed(2), ts.away.xg.toFixed(2)],
-            ['패스 성공률', `${ts.home.pass_accuracy?.toFixed(0) ?? '-'}%`, `${ts.away.pass_accuracy?.toFixed(0) ?? '-'}%`]].map(([l, a, b]) => (
-            <div key={l} className="rounded-xl bg-ink-950/70 border border-ink-800 py-2">
-              <p className="text-[10px] text-ink-500 font-semibold">{l}</p>
-              <p className="text-sm font-bold num text-ink-100">{a} <span className="text-ink-600">·</span> {b}</p>
-            </div>
-          ))}
+        <div className="overflow-x-auto border-t border-ink-800">
+          <table className="w-full text-sm num">
+            <thead>
+              <tr className="text-[11px] text-ink-400">
+                <th scope="col" className="text-left font-medium px-4 sm:px-5 py-2">팀</th>
+                {BOX_COLS.map(c => (
+                  <th key={c.label} scope="col" className="text-right font-medium px-2 py-2 whitespace-nowrap last:pr-4 sm:last:pr-5">{c.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(['home', 'away'] as Team[]).map(t => {
+                const info = teamInfo(match, t)
+                return (
+                  <tr key={t} className="border-t border-ink-800">
+                    <th scope="row" className="text-left font-medium text-ink-100 px-4 sm:px-5 py-2 whitespace-nowrap">
+                      <span className="inline-flex items-center gap-2">
+                        <Swatch color={info.color} />{info.name}
+                      </span>
+                    </th>
+                    {BOX_COLS.map(c => (
+                      <td key={c.label} className="text-right text-ink-200 px-2 py-2 whitespace-nowrap last:pr-4 sm:last:pr-5">{c.get(ts[t])}</td>
+                    ))}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       </section>
 
-      {meta.sample && (
-        <Banner tone="info" icon={<FlaskConical className="w-4 h-4" />}>
-          샘플 분석입니다. 올린 영상이 아니라 가상 경기 데이터로 만든 결과이므로 화면 구성 확인용으로만 보세요.
-        </Banner>
+      {/* 분석 신뢰도 · 주의 사항 */}
+      {meta.source === 'video' && meta.ball_detected_pct != null && (
+        <p className="note mb-2">
+          분석 신뢰도 · 공 검출 비율 <span className="num text-ink-100">{meta.ball_detected_pct.toFixed(0)}%</span>
+          <span className="text-ink-500"> — 영상에서 공이 잡힌 비율입니다. 낮을수록 볼 기록이 실제보다 적게 잡힙니다.</span>
+        </p>
       )}
-      {meta.warnings?.filter(w => !w.includes('거리·속도')).map(w => <Banner key={w} tone="warn" icon={<AlertTriangle className="w-4 h-4" />}>{w}</Banner>)}
+      {meta.sample && (
+        <p className="note mb-2">샘플 분석입니다. 올린 영상이 아니라 가상 경기 데이터로 만든 결과이므로 화면 구성 확인용으로만 보세요.</p>
+      )}
+      {warnings.map(w => <p key={w} className="note-warn mb-2">{w}</p>)}
 
       {/* 탭 + 전/후반 */}
-      <div className="sticky top-14 z-30 -mx-4 px-4 py-2 bg-ink-950/90 backdrop-blur mb-4 flex flex-wrap items-center gap-2">
-        <div className="flex gap-1 overflow-x-auto flex-1 min-w-0 basis-full sm:basis-0">
+      <div className="sticky top-14 z-30 -mx-4 px-4 bg-ink-950 border-b border-ink-800 mb-4 mt-4 flex flex-wrap items-end gap-x-3 gap-y-1">
+        <div role="tablist" aria-label="결과 보기" className="flex overflow-x-auto flex-1 min-w-0 basis-full sm:basis-0">
           {TABS.map(([k, label]) => (
-            <button key={k} onClick={() => setTab(k)}
-              className={cn('px-3.5 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-colors',
-                tab === k ? 'bg-ink-100 text-ink-950' : 'text-ink-400 hover:text-ink-100 hover:bg-ink-850')}>
+            <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
+              className={cn('px-3 py-2.5 text-sm whitespace-nowrap border-b-2 -mb-px transition-colors',
+                tab === k ? 'border-volt text-ink-100 font-medium' : 'border-transparent text-ink-400 hover:text-ink-100')}>
               {label}
             </button>
           ))}
         </div>
-        <div className="flex rounded-xl border border-ink-700 p-0.5 bg-ink-900" title={hasHalves ? '' : '경기 설정에서 후반 시작 시각을 입력하면 전반/후반을 나눠 볼 수 있습니다'}>
+        <div className="flex rounded-md border border-ink-700 p-0.5 bg-ink-900 mb-1.5" role="group" aria-label="구간"
+          title={hasHalves ? '' : '경기 설정에서 후반 시작 시각을 입력하면 전반/후반을 나눠 볼 수 있습니다'}>
           {([[null, '전체'], [1, '전반'], [2, '후반']] as [Period, string][]).map(([p, l]) => (
-            <button key={l} disabled={p !== null && !hasHalves} onClick={() => setPeriod(p)}
-              className={cn('px-3 py-1.5 rounded-lg text-xs font-bold disabled:opacity-30',
-                period === p ? 'bg-volt text-ink-950' : 'text-ink-300 hover:text-ink-100')}>{l}</button>
+            <button key={l} type="button" disabled={p !== null && !hasHalves} onClick={() => setPeriod(p)} aria-pressed={period === p}
+              className={cn('px-3 py-1 rounded text-xs disabled:opacity-30',
+                period === p ? 'bg-ink-700 text-ink-100 font-medium' : 'text-ink-300 hover:text-ink-100')}>{l}</button>
           ))}
         </div>
       </div>
@@ -147,7 +191,7 @@ export default function ResultsPage() {
       )}
       {tab === 'events' && (
         <>
-          {!videoSrc && <Banner tone="info" icon={<Info className="w-4 h-4" />}>영상이 연결된 분석에서는 이벤트를 눌러 장면을 보면서 고칠 수 있습니다.</Banner>}
+          {!videoSrc && <p className="note mb-3">영상이 연결된 분석에서는 이벤트를 눌러 장면을 보면서 고칠 수 있습니다.</p>}
           <EventReview matchId={matchId} result={result} players={players} onSeek={seek}
             getVideoTime={videoSrc ? () => dock.current?.currentTime() ?? null : undefined} onChanged={load} />
         </>
@@ -165,22 +209,15 @@ export default function ResultsPage() {
   )
 }
 
-function Banner({ tone, icon, children }: { tone: 'info' | 'warn'; icon: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div className={cn('flex items-start gap-2 text-sm rounded-2xl px-4 py-3 mb-3 border',
-      tone === 'warn' ? 'bg-amber-500/5 border-amber-500/30 text-amber-200' : 'bg-sky-500/5 border-sky-500/30 text-sky-200')}>
-      <span className="mt-0.5 shrink-0">{icon}</span><span>{children}</span>
-    </div>
-  )
+function Swatch({ color }: { color: string }) {
+  return <span className={cn('w-3 h-3 rounded-sm shrink-0', isDark(color) && 'ring-1 ring-white/25')} style={{ background: color }} aria-hidden />
 }
 
 function TeamHead({ name, color, right }: { name: string; color: string; right?: boolean }) {
   return (
-    <div className={cn('flex flex-col items-center gap-2 min-w-0', right ? 'sm:flex-row-reverse sm:justify-end' : 'sm:flex-row sm:justify-end',
-      right ? 'sm:text-right' : 'sm:text-left')}>
-      <span className="w-11 h-11 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center text-lg sm:text-xl font-black ring-1 ring-white/15 shrink-0"
-        style={{ background: color, color: inkOn(color) }}>{name.slice(0, 1)}</span>
-      <span className="font-extrabold text-ink-100 text-center sm:text-inherit truncate max-w-full text-sm sm:text-lg">{name}</span>
+    <div className={cn('flex items-center gap-2 min-w-0 justify-end', right && 'flex-row-reverse text-right')}>
+      <Swatch color={color} />
+      <span className="font-semibold text-ink-100 truncate text-sm sm:text-lg">{name}</span>
     </div>
   )
 }
