@@ -59,7 +59,7 @@ export default function MatchForm({ initial, submitLabel, onSubmit, onCancel }: 
   return (
     <form onSubmit={submit} className="space-y-5">
       <div className="card p-5 space-y-4">
-        <h2 className="font-semibold text-gray-900">경기 정보</h2>
+        <h2 className="font-semibold text-ink-100">경기 정보</h2>
         <div>
           <label className="label mb-1 block" htmlFor="title">경기 제목 *</label>
           <input id="title" className="input" placeholder="예) 2026 가을리그 3라운드" value={form.title}
@@ -82,8 +82,8 @@ export default function MatchForm({ initial, submitLabel, onSubmit, onCancel }: 
 
       <div className="card p-5 space-y-5">
         <div>
-          <h2 className="font-semibold text-gray-900">유니폼 색상</h2>
-          <p className="text-xs text-gray-500 mt-1">
+          <h2 className="font-semibold text-ink-100">유니폼 색상</h2>
+          <p className="text-xs text-ink-400 mt-1">
             영상 속 사람을 이 색으로 홈·원정·골키퍼·심판으로 나눕니다. 대략 맞으면 분석 초반에 실제 영상의 색으로 자동 보정됩니다.
             상의 색 기준이며, 줄무늬 유니폼은 더 넓게 보이는 색을 고르세요.
           </p>
@@ -111,8 +111,8 @@ export default function MatchForm({ initial, submitLabel, onSubmit, onCancel }: 
 
       <div className="card p-5 space-y-4">
         <div>
-          <h2 className="font-semibold text-gray-900">공격 방향</h2>
-          <p className="text-xs text-gray-500 mt-1">슈팅·전진 패스 판정에 씁니다. 자동이면 골키퍼와 선수 위치로 추정합니다.</p>
+          <h2 className="font-semibold text-ink-100">공격 방향</h2>
+          <p className="text-xs text-ink-400 mt-1">슈팅·전진 패스 판정에 씁니다. 자동이면 골키퍼와 선수 위치로 추정합니다.</p>
         </div>
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
@@ -127,7 +127,7 @@ export default function MatchForm({ initial, submitLabel, onSubmit, onCancel }: 
             <label className="label mb-1 block" htmlFor="half">후반 시작 시각 (영상 기준, 선택)</label>
             <input id="half" className="input" placeholder="예) 47:30" value={half} onChange={e => setHalf(e.target.value)}
               inputMode="numeric" />
-            <p className="text-[11px] text-gray-400 mt-1">입력하면 후반에 공격 방향을 바꿔서 판정합니다. 비우면 한 방향으로 봅니다.</p>
+            <p className="text-[11px] text-ink-500 mt-1">입력하면 후반에 공격 방향을 바꿔서 판정합니다. 비우면 한 방향으로 봅니다.</p>
           </div>
         </div>
       </div>
@@ -146,7 +146,7 @@ function OptionalColor({ label, value, onChange, defaultColor = '#f59e0b' }:
   { label: string; value: string | null; onChange: (v: string | null) => void; defaultColor?: string }) {
   return (
     <div>
-      <label className="flex items-center gap-2 text-sm text-gray-700 mb-2 cursor-pointer">
+      <label className="flex items-center gap-2 text-sm text-ink-200 mb-2 cursor-pointer">
         <input type="checkbox" checked={value !== null} onChange={e => onChange(e.target.checked ? defaultColor : null)} />
         {label}
       </label>

@@ -1,6 +1,6 @@
 import {
-  AnalysisStatus, Calibration, CalibrationInput, GpsPreview, Health, Match, MatchInput, MatchResult,
-  PlayerProfile, PlayerProfileDetail, Team,
+  AnalysisStatus, Calibration, CalibrationInput, EventCreate, EventPatch, Health, Match, MatchInput, MatchResult,
+  PlayerProfile, PlayerProfileDetail, Team, VideoLibrary,
 } from './types'
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
@@ -82,8 +82,10 @@ export const api = {
   analyze: (id: number, body: { mode: 'video' | 'sample'; start_seconds?: number; max_seconds?: number | null }) =>
     req<{ status: string; mode: string }>(`/api/matches/${id}/analyze`, json('POST', body)),
   getStatus: (id: number) => req<AnalysisStatus>(`/api/matches/${id}/status`),
-  getResult: (id: number) => req<MatchResult>(`/api/matches/${id}/result`),
-  exportCsvUrl: (id: number) => `${API_BASE}/api/matches/${id}/export.csv`,
+  getResult: (id: number, period?: 1 | 2 | null) =>
+    req<MatchResult>(`/api/matches/${id}/result${period ? `?period=${period}` : ''}`),
+  exportCsvUrl: (id: number, period?: 1 | 2 | null) =>
+    `${API_BASE}/api/matches/${id}/export.csv${period ? `?period=${period}` : ''}`,
   thumbnailUrl: (id: number, trackId: string) =>
     `${API_BASE}/api/matches/${id}/players/${encodeURIComponent(trackId)}/thumbnail.jpg`,
 
@@ -96,18 +98,17 @@ export const api = {
   unmergePlayer: (id: number, trackId: string) =>
     req<{ ok: boolean }>(`/api/matches/${id}/players/${encodeURIComponent(trackId)}/unmerge`, json('POST')),
 
-  // ── GPS ────────────────────────────────────────────────────────
-  gpsPreview: (id: number, file: File) => {
-    const form = new FormData()
-    form.append('file', file)
-    return req<GpsPreview>(`/api/matches/${id}/gps-preview`, { method: 'POST', body: form })
-  },
-  uploadGps: (id: number, file: File) => {
-    const form = new FormData()
-    form.append('file', file)
-    return req<{ players: number; points: number; duration_s: number }>(
-      `/api/matches/${id}/upload-gps`, { method: 'POST', body: form })
-  },
+  // ── 이벤트 검수 ────────────────────────────────────────────────
+  updateEvent: (id: number, eventId: number, body: EventPatch) =>
+    req<{ ok: boolean }>(`/api/matches/${id}/events/${eventId}`, json('PATCH', body)),
+  createEvent: (id: number, body: EventCreate) =>
+    req<{ ok: boolean; id: number }>(`/api/matches/${id}/events`, json('POST', body)),
+  resetEvents: (id: number) => req<{ ok: boolean }>(`/api/matches/${id}/events/reset`, json('POST')),
+
+  // ── 영상 보관함 ────────────────────────────────────────────────
+  getVideos: () => req<VideoLibrary>('/api/videos'),
+  attachVideoUrl: (id: number, video_url: string, filename: string) =>
+    req<{ video_url: string }>(`/api/matches/${id}/set-video-url`, json('POST', { video_url, filename })),
 
   // ── 선수 프로필 ────────────────────────────────────────────────
   getPlayerProfiles: () => req<PlayerProfile[]>('/api/players'),

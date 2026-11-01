@@ -11,15 +11,15 @@ export default function PassNetwork({ result, players, onSelect }:
   const { length: L, width: W } = result.meta.field
   return (
     <div className="space-y-3">
-      <div className="card p-4 flex flex-wrap items-center gap-3 text-sm">
-        <span className="text-gray-600">선을 그릴 최소 패스 수</span>
+      <div className="card p-4 flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-ink-300 mr-1">선을 그릴 최소 패스 수</span>
         {[1, 2, 3, 5].map(n => (
           <button key={n} onClick={() => setMinPasses(n)}
-            className={`px-3 py-1 rounded-full text-xs font-medium ${minPasses === n ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600'}`}>
+            className={`chip ${minPasses === n ? 'chip-on' : ''}`}>
             {n}회+
           </button>
         ))}
-        <span className="text-xs text-gray-400 w-full sm:w-auto sm:ml-auto">점 위치 = 평균 위치 · 점 크기 = 볼 터치 · 선 굵기 = 주고받은 패스</span>
+        <span className="text-xs text-ink-500 w-full sm:w-auto sm:ml-auto">점 위치 = 평균 위치 · 점 크기 = 볼 터치 · 선 굵기 = 주고받은 패스</span>
       </div>
       <div className="grid lg:grid-cols-2 gap-4">
         {(['home', 'away'] as Team[]).map(team => {
@@ -33,14 +33,14 @@ export default function PassNetwork({ result, players, onSelect }:
           return (
             <div key={team} className="card p-4">
               <div className="flex items-center gap-2 mb-3">
-                <span className="w-3.5 h-3.5 rounded-full border border-gray-300" style={{ background: t.color }} />
-                <h3 className="font-semibold text-gray-900">{t.name}</h3>
-                <span className="text-xs text-gray-400 ml-auto">성공 패스 {result.team_stats[team].passes_completed}회</span>
+                <span className="w-3.5 h-3.5 rounded-full ring-1 ring-white/20" style={{ background: t.color }} />
+                <h3 className="font-bold text-ink-100">{t.name}</h3>
+                <span className="text-xs text-ink-400 ml-auto num">성공 패스 {result.team_stats[team].passes_completed}회</span>
               </div>
               {net.nodes.length === 0 ? (
-                <p className="text-sm text-gray-400 py-10 text-center">성공한 패스가 없습니다</p>
+                <p className="text-sm text-ink-500 py-10 text-center">성공한 패스가 없습니다</p>
               ) : (
-                <Pitch length={L} width={W} className="w-full rounded-lg">
+                <Pitch length={L} width={W} className="w-full rounded-xl">
                   {edges.map(e => {
                     const a = pos.get(e.a), b = pos.get(e.b)
                     if (!a || !b) return null
@@ -58,7 +58,7 @@ export default function PassNetwork({ result, players, onSelect }:
                     return (
                       <g key={n.id} className="cursor-pointer" onClick={() => p && onSelect(p)}>
                         <title>{`${playerName(p)} · 터치 ${n.touches}`}</title>
-                        <circle cx={n.x * L} cy={n.y * W} r={r} fill={t.color} stroke="#111827" strokeWidth={0.3} />
+                        <circle cx={n.x * L} cy={n.y * W} r={r} fill={t.color} stroke="#070b14" strokeWidth={0.35} />
                         <text x={n.x * L} y={n.y * W + 0.9} textAnchor="middle" fontSize={2.4} fontWeight={700}
                           fill={inkOn(t.color)}>
                           {p?.jersey_number ?? ''}
@@ -73,11 +73,11 @@ export default function PassNetwork({ result, players, onSelect }:
               )}
               {top.length > 0 && (
                 <div className="mt-3 space-y-1">
-                  <p className="text-xs font-semibold text-gray-500">가장 많이 주고받은 조합</p>
+                  <p className="label">가장 많이 주고받은 조합</p>
                   {top.map(e => (
-                    <p key={`${e.a}-${e.b}`} className="text-xs text-gray-700 flex justify-between">
+                    <p key={`${e.a}-${e.b}`} className="text-xs text-ink-200 flex justify-between">
                       <span>{playerName(players.get(e.a))} ↔ {playerName(players.get(e.b))}</span>
-                      <span className="tabular-nums text-gray-500">{e.count}회</span>
+                      <span className="num text-volt font-bold">{e.count}회</span>
                     </p>
                   ))}
                 </div>

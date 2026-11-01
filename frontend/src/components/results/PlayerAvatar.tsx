@@ -8,19 +8,20 @@ import { inkOn, teamInfo } from '@/lib/utils'
 export default function PlayerAvatar({ matchId, match, player, size = 32 }:
   { matchId: number; match: Match; player: PlayerRow; size?: number }) {
   const [broken, setBroken] = useState(false)
-  const color = player.color_hex || teamInfo(match, player.team).color
   const ring = teamInfo(match, player.team).color
+  const color = player.color_hex || ring
   if (player.has_thumbnail && !broken) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img src={api.thumbnailUrl(matchId, player.track_id)} alt="" onError={() => setBroken(true)}
-        className="rounded-lg object-cover object-top bg-gray-100 shrink-0"
+        className="rounded-xl object-cover object-top bg-ink-800 shrink-0"
         style={{ width: size, height: size, boxShadow: `0 0 0 2px ${ring}` }} />
     )
   }
   return (
-    <span className="rounded-full flex items-center justify-center font-bold shrink-0 border border-black/10"
-      style={{ width: size, height: size, background: color, color: inkOn(color), fontSize: size * 0.38 }}>
+    <span className="rounded-xl flex items-center justify-center font-extrabold shrink-0"
+      style={{ width: size, height: size, background: color, color: inkOn(color), fontSize: size * 0.38,
+               boxShadow: '0 0 0 1px rgba(255,255,255,.15) inset' }}>
       {player.jersey_number ?? (player.label.endsWith('_gk') ? 'GK' : '')}
     </span>
   )

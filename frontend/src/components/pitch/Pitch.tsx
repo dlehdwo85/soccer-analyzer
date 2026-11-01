@@ -20,14 +20,14 @@ export default function Pitch({ length: L, width: W, children, className, light 
   const goalW = futsal ? 3 : 7.32
   const circle = futsal ? 3 : 9.15
   const spot = futsal ? 6 : 11
-  const line = light ? '#cbd5e1' : 'rgba(255,255,255,0.75)'
+  const line = light ? '#cbd5e1' : 'rgba(255,255,255,0.55)'
   const sw = Math.max(0.25, L / 350)
   return (
     <svg viewBox={`${-pad} ${-pad} ${L + pad * 2} ${W + pad * 2}`} className={className} role="img"
       aria-label="경기장">
-      <rect x={-pad} y={-pad} width={L + pad * 2} height={W + pad * 2} fill={light ? '#f8fafc' : '#2f7d4a'} rx={1.5} />
+      <rect x={-pad} y={-pad} width={L + pad * 2} height={W + pad * 2} fill={light ? '#f8fafc' : '#1f5c37'} rx={1.5} />
       {!light && Array.from({ length: 10 }, (_, i) => (
-        <rect key={i} x={(L / 10) * i} y={0} width={L / 10} height={W} fill={i % 2 ? '#2b7444' : '#33854f'} />
+        <rect key={i} x={(L / 10) * i} y={0} width={L / 10} height={W} fill={i % 2 ? '#1d5634' : '#22623b'} />
       ))}
       <g fill="none" stroke={line} strokeWidth={sw}>
         <rect x={0} y={0} width={L} height={W} />
@@ -49,28 +49,6 @@ export default function Pitch({ length: L, width: W, children, className, light 
       </g>
       {children}
     </svg>
-  )
-}
-
-export const HEAT_COLS = 12
-export const HEAT_ROWS = 8
-
-/** 12×8 체류 시간 격자를 경기장 위에 칠한다 */
-export function HeatLayer({ heat, length, width, color = '#f97316' }:
-  { heat: number[]; length: number; width: number; color?: string }) {
-  const max = Math.max(...heat, 1e-6)
-  const cw = length / HEAT_COLS
-  const ch = width / HEAT_ROWS
-  return (
-    <g>
-      {heat.map((v, i) => {
-        if (v <= 0) return null
-        const r = Math.floor(i / HEAT_COLS)
-        const c = i % HEAT_COLS
-        return <rect key={i} x={c * cw} y={r * ch} width={cw} height={ch} fill={color}
-          fillOpacity={0.12 + 0.75 * (v / max)} />
-      })}
-    </g>
   )
 }
 

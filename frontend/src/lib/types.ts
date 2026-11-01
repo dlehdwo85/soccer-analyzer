@@ -20,7 +20,7 @@ export interface Match {
   video_filename: string | null
   video_url: string | null
   status: MatchStatus
-  data_source: 'video' | 'gps' | 'sample' | null
+  data_source: 'video' | 'gps' | 'sample' | null  // gps는 예전 버전 데이터
   analysis_progress: number
   analysis_message: string
   analysis_error: string | null
@@ -49,6 +49,7 @@ export interface PlayerStats {
   passes_failed: number
   passes_received: number
   forward_passes: number
+  key_passes: number
   shots: number
   shots_on_target: number
   shots_blocked: number
@@ -56,22 +57,13 @@ export interface PlayerStats {
   recoveries: number
   dispossessed: number
   xg: number
-  distance_m: number
-  walk_m: number
-  jog_m: number
-  run_m: number
-  sprint_m: number
-  sprint_count: number
   seconds_tracked: number
-  top_speed_ms: number
-  heat: number[]
   first_seen_s: number | null
   last_seen_s: number | null
   pass_accuracy: number | null
   avg_pass_length_m: number | null
   avg_x: number | null
   avg_y: number | null
-  top_speed_kmh: number
   minutes_tracked: number
 }
 
@@ -93,14 +85,16 @@ export type EventKind = 'pass' | 'shot' | 'recovery'
 
 export interface MatchEvent {
   id: number
+  manual: boolean
+  edited: boolean
   kind: EventKind
   t: number
   t_end: number | null
   team: Team
   player: string
   target: string | null
-  x: number
-  y: number
+  x: number | null
+  y: number | null
   x2: number | null
   y2: number | null
   success: boolean | null
@@ -123,6 +117,7 @@ export interface TeamStats {
   passes_failed: number
   pass_accuracy: number | null
   forward_passes: number
+  key_passes: number
   shots: number
   shots_on_target: number
   shots_blocked: number
@@ -130,11 +125,7 @@ export interface TeamStats {
   recoveries: number
   dispossessed: number
   touches: number
-  sprint_count: number
   xg: number
-  distance_m: number
-  sprint_m: number
-  heat: number[]
 }
 
 export interface PassNetworkTeam {
@@ -146,6 +137,7 @@ export interface ResultMeta {
   source: 'video' | 'sample' | 'gps'
   sample?: boolean
   start_s?: number
+  halftime_rel_s?: number | null
   duration_s: number
   fps_video?: number
   analysis_fps?: number
@@ -162,6 +154,7 @@ export interface MatchResult {
   version: number
   match: Match
   meta: ResultMeta
+  period: 1 | 2 | null
   players: PlayerRow[]
   events: MatchEvent[]
   /** [시작, 끝, 팀, 선수] */
@@ -184,35 +177,21 @@ export interface Calibration extends CalibrationInput {
   width: number
 }
 
-export interface GpsPreview {
-  total_points: number
-  total_players: number
-  duration_sec: number
-  teams: string[]
-  players: {
-    player_id: string
-    player_name: string
-    jersey_number: number
-    team: string
-    point_count: number
-    time_range_sec: number
-  }[]
-}
-
 export interface ProfileTotals {
   touches: number
   passes_attempted: number
   passes_completed: number
+  passes_failed: number
+  forward_passes: number
+  key_passes: number
   pass_accuracy: number | null
   shots: number
   shots_on_target: number
   xg: number
   interceptions: number
   recoveries: number
-  distance_m: number
-  sprint_count: number
+  dispossessed: number
   minutes: number
-  top_speed_kmh: number
 }
 
 export interface PlayerProfile {
@@ -240,3 +219,41 @@ export interface Health {
   engines: { runpod: boolean; local: boolean }
   r2: boolean
 }
+
+export type EventResult = 'completed' | 'intercepted' | 'out' | 'on_target' | 'off_target' | 'blocked'
+
+export interface EventPatch {
+  player?: string
+  target?: string | null
+  result?: EventResult
+  t?: number
+  deleted?: boolean
+}
+
+export interface EventCreate {
+  kind: EventKind
+  t: number
+  player: string
+  target?: string | null
+  result?: EventResult
+}
+
+export interface VideoLibrary {
+  storage: boolean
+  matches: {
+    match_id: number
+    title: string
+    date: string | null
+    video_filename: string | null
+    video_url: string
+    status: MatchStatus
+    analysis_version: number
+    data_source: string | null
+    needs_analysis: boolean
+  }[]
+  orphans: { key: string; filename: string; url: string; size_mb: number; last_modified: string | null }[]
+}
+
+/** 경기장 위치가 있는 이벤트 (직접 추가한 이벤트는 위치가 없다) */
+export type PlacedEvent = MatchEvent & { x: number; y: number }
+export const isPlaced = (e: MatchEvent): e is PlacedEvent => e.x !== null && e.y !== null

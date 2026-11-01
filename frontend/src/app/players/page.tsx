@@ -5,7 +5,6 @@ import { ChevronRight, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { PlayerProfile } from '@/lib/types'
-import { fmtDist } from '@/lib/utils'
 import PageHeader from '@/components/layout/PageHeader'
 
 export default function PlayersPage() {
@@ -16,52 +15,42 @@ export default function PlayersPage() {
   }, [])
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <PageHeader title="선수 프로필" subtitle="경기 결과의 '선수 정리'에서 이름을 붙인 선수의 누적 기록" />
+    <div className="max-w-5xl mx-auto px-4 py-8">
+      <PageHeader eyebrow="선수" title="선수 누적 기록" subtitle="경기 결과의 '선수 정리'에서 이름을 붙인 선수의 여러 경기 기록을 합칩니다" />
       {profiles === null ? (
-        <div className="space-y-2">{[1, 2, 3].map(i => <div key={i} className="card h-20 animate-pulse bg-gray-100" />)}</div>
+        <div className="space-y-2">{[1, 2, 3].map(i => <div key={i} className="card h-20 animate-pulse" />)}</div>
       ) : profiles.length === 0 ? (
-        <div className="card p-10 text-center">
-          <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-600 font-medium mb-1">아직 이름이 붙은 선수가 없습니다</p>
-          <p className="text-xs text-gray-400 mb-4">분석 결과 화면의 &lsquo;선수 정리&rsquo; 탭에서 트랙에 이름을 붙이면 여기서 경기별 기록이 합산됩니다.</p>
-          <Link href="/" className="btn-primary inline-flex text-sm">경기 목록으로</Link>
+        <div className="card p-12 text-center">
+          <Users className="w-10 h-10 text-ink-600 mx-auto mb-3" />
+          <p className="text-ink-200 font-bold mb-1">아직 이름이 붙은 선수가 없습니다</p>
+          <p className="text-sm text-ink-500 mb-5">분석 결과의 &lsquo;선수 정리&rsquo; 탭에서 트랙에 이름을 붙이면 여기서 기록이 합산됩니다.</p>
+          <Link href="/" className="btn-primary">경기 목록으로</Link>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="grid sm:grid-cols-2 gap-3">
           {profiles.map(p => {
             const t = p.totals
             return (
-              <Link key={p.name} href={`/players/${encodeURIComponent(p.name)}`}
-                className="card flex items-center gap-4 p-4 hover:border-green-300 hover:shadow-sm transition-all group">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-500 to-green-700 flex items-center justify-center shrink-0">
-                  <span className="text-white font-bold text-lg">{p.jersey_number ?? p.name.slice(0, 1)}</span>
+              <Link key={p.name} href={`/players/${encodeURIComponent(p.name)}`} className="card-hover p-4 flex items-center gap-4 group">
+                <div className="w-12 h-12 rounded-2xl bg-volt flex items-center justify-center shrink-0">
+                  <span className="text-ink-950 font-black text-lg">{p.jersey_number ?? p.name.slice(0, 1)}</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-gray-900 group-hover:text-green-700">{p.name}</p>
-                  <p className="text-xs text-gray-400">{p.match_count}경기 · {Math.round(t.minutes)}분</p>
+                  <p className="font-extrabold text-ink-100 group-hover:text-volt">{p.name}</p>
+                  <p className="text-xs text-ink-500">{p.match_count}경기 · {Math.round(t.minutes)}분</p>
+                  <div className="flex gap-3 mt-1.5 text-[11px] text-ink-400 num">
+                    <span>패스 <b className="text-ink-100">{t.pass_accuracy !== null ? `${t.pass_accuracy.toFixed(0)}%` : '-'}</b></span>
+                    <span>키패스 <b className="text-ink-100">{t.key_passes}</b></span>
+                    <span>슈팅 <b className="text-ink-100">{t.shots}/{t.shots_on_target}</b></span>
+                    <span>수비 <b className="text-ink-100">{t.interceptions + t.recoveries}</b></span>
+                  </div>
                 </div>
-                <div className="hidden sm:grid grid-cols-4 gap-4 text-center text-xs">
-                  <Mini label="패스 성공률" value={t.pass_accuracy !== null ? `${t.pass_accuracy.toFixed(0)}%` : '–'} />
-                  <Mini label="슈팅/유효" value={`${t.shots}/${t.shots_on_target}`} />
-                  <Mini label="가로채기+탈취" value={`${t.interceptions + t.recoveries}`} />
-                  <Mini label="이동거리" value={fmtDist(t.distance_m)} />
-                </div>
-                <ChevronRight className="w-4 h-4 text-gray-400" />
+                <ChevronRight className="w-4 h-4 text-ink-600 group-hover:text-volt" />
               </Link>
             )
           })}
         </div>
       )}
-    </div>
-  )
-}
-
-function Mini({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="font-bold text-gray-900 text-sm tabular-nums">{value}</p>
-      <p className="text-gray-400">{label}</p>
     </div>
   )
 }

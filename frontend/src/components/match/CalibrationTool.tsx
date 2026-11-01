@@ -18,7 +18,7 @@ const DIMS = { soccer: [105, 68], futsal: [40, 20] } as const
 
 /**
  * 고정 카메라 영상에서 경기장 네 점을 찍어 화면 좌표 → 실제 경기장(m) 변환을 만든다.
- * 보정하면 거리·속도·패스 길이·슈팅 거리가 실제 미터로 계산되고, 경기장 밖 사람(벤치·관중)이 자동 제외된다.
+ * 보정하면 경기장 밖 사람(벤치·관중)이 자동 제외되고, 패스 길이·전진 패스·슈팅 위치(xG)가 실제 미터 기준으로 정확해진다.
  */
 export default function CalibrationTool({ match, src, onSaved }: { match: Match; src: string; onSaved: (m: Match) => void }) {
   const video = useRef<HTMLVideoElement>(null)
@@ -79,17 +79,17 @@ export default function CalibrationTool({ match, src, onSaved }: { match: Match;
       <div className="flex flex-wrap gap-1.5">
         {PRESETS.map(p => (
           <button key={p.key} type="button" onClick={() => { setPreset(p.key); setPoints([]) }}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium ${preset === p.key ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600'}`}>
+            className={`px-3 py-1.5 rounded-full text-xs font-medium ${preset === p.key ? 'bg-volt text-ink-950' : 'bg-ink-800 text-ink-300'}`}>
             {p.label}
           </button>
         ))}
       </div>
-      <p className="text-xs text-gray-500">
+      <p className="text-xs text-ink-400">
         영상에서 네 점이 모두 보이는 장면으로 이동한 뒤 순서대로 누르세요. 카메라가 고정된 영상일 때 정확합니다.
       </p>
 
       {error ? (
-        <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">영상을 불러올 수 없어 보정할 수 없습니다.</p>
+        <p className="text-sm text-red-300 bg-red-500/10 rounded-lg p-3">영상을 불러올 수 없어 보정할 수 없습니다.</p>
       ) : (
         <div className="relative w-full bg-black rounded-lg overflow-hidden select-none" style={{ aspectRatio: aspect }}>
           <video ref={video} src={src} preload="metadata" muted playsInline className="absolute inset-0 w-full h-full"
@@ -104,12 +104,12 @@ export default function CalibrationTool({ match, src, onSaved }: { match: Match;
           <div className="absolute inset-0 cursor-crosshair" onClick={click}>
             <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="w-full h-full">
               {points.length >= 2 && (
-                <polygon points={points.map(p => p.join(',')).join(' ')} fill="rgba(34,197,94,.18)"
-                  stroke="#22c55e" strokeWidth={0.004} vectorEffect="non-scaling-stroke" />
+                <polygon points={points.map(p => p.join(',')).join(' ')} fill="rgba(200,240,49,.18)"
+                  stroke="#c8f031" strokeWidth={0.004} vectorEffect="non-scaling-stroke" />
               )}
             </svg>
             {points.map((p, i) => (
-              <span key={i} className="absolute -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-green-500 border-2 border-white text-white text-xs font-bold flex items-center justify-center shadow"
+              <span key={i} className="absolute -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-volt border-2 border-ink-950 text-ink-950 text-xs font-bold flex items-center justify-center shadow"
                 style={{ left: `${p[0] * 100}%`, top: `${p[1] * 100}%` }}>{i + 1}</span>
             ))}
           </div>
@@ -124,11 +124,11 @@ export default function CalibrationTool({ match, src, onSaved }: { match: Match;
       )}
 
       <div className="flex items-center gap-2">
-        <span className="text-xs tabular-nums text-gray-500 w-12">{fmtClock(time)}</span>
-        <input type="range" min={0} max={dur || 0} step={0.5} value={time} className="flex-1 accent-green-600"
+        <span className="text-xs tabular-nums text-ink-400 w-12">{fmtClock(time)}</span>
+        <input type="range" min={0} max={dur || 0} step={0.5} value={time} className="flex-1 accent-[#c8f031]"
           onChange={e => { const t = Number(e.target.value); setTime(t); if (video.current) video.current.currentTime = t }}
           aria-label="영상 위치" />
-        <span className="text-xs tabular-nums text-gray-400 w-12 text-right">{fmtClock(dur)}</span>
+        <span className="text-xs tabular-nums text-ink-500 w-12 text-right">{fmtClock(dur)}</span>
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
@@ -140,7 +140,7 @@ export default function CalibrationTool({ match, src, onSaved }: { match: Match;
           <label className="label block mb-1">폭(m)</label>
           <input className="input !w-24" inputMode="decimal" value={dims[1]} onChange={e => setDims([dims[0], e.target.value])} />
         </div>
-        <p className="text-[11px] text-gray-400 flex-1 min-w-[160px]">실제 구장 크기를 알면 입력하세요. 동네 구장은 규격보다 작은 경우가 많습니다.</p>
+        <p className="text-[11px] text-ink-500 flex-1 min-w-[160px]">실제 구장 크기를 알면 입력하세요. 동네 구장은 규격보다 작은 경우가 많습니다.</p>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -151,7 +151,7 @@ export default function CalibrationTool({ match, src, onSaved }: { match: Match;
           <Save className="w-4 h-4" />{saving ? '저장 중...' : '보정 저장'}
         </button>
         {match.calibrated && (
-          <button type="button" className="btn-secondary ml-auto text-red-600" onClick={clear}>
+          <button type="button" className="btn-secondary ml-auto text-red-300" onClick={clear}>
             <Trash2 className="w-4 h-4" />보정 삭제
           </button>
         )}
