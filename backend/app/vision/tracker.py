@@ -11,7 +11,7 @@ ByteTrack의 핵심 아이디어(고신뢰 검출 먼저 매칭, 남은 트랙�
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -44,6 +44,14 @@ class _Track:
     hits: int = 1
     missed: int = 0
     confirmed: bool = False
+    team_votes: Dict[str, float] = field(default_factory=dict)
+
+    def team(self, min_votes: float = 2.0) -> Optional[str]:
+        if not self.team_votes:
+            return None
+        lbl, v = max(self.team_votes.items(), key=lambda kv: kv[1])
+        total = sum(self.team_votes.values())
+        return lbl if v >= min_votes and v / total >= 0.6 else None
 
     def predicted(self) -> Box:
         vx, vy = self.vel
@@ -71,10 +79,16 @@ class TrackPoint:
 
 
 class IoUTracker:
-    """프레임마다 update(dets) 호출 → [(track_id, Detection)] 반환(확정 트랙만)."""
+    """프레임마다 update(dets) 호출 → [(track_id, Detection)] 반환(확정 트랙만).
+
+    team_of(payload) → (팀, 신뢰도) 를 주면 팀이 확실히 다른 검출과는 매칭하지 않는다.
+    다른 팀 선수가 엇갈려 지나갈 때 ID가 바뀌는 문제를 막는다.
+    """
 
     def __init__(self, high_conf: float = 0.45, iou_match: float = 0.2,
-                 max_missed: int = 15, min_hits: int = 2, center_gate: float = 0.6):
+                 max_missed: int = 15, min_hits: int = 2, center_gate: float = 0.6,
+                 team_of: Optional[Callable[[object], Tuple[Optional[str], float]]] = None):
+        self.team_of = team_of
         self.high_conf = high_conf
         self.iou_match = iou_match
         self.max_missed = max_missed
@@ -85,13 +99,23 @@ class IoUTracker:
         self.history: Dict[int, List[TrackPoint]] = {}
         self._pending: Dict[int, List[TrackPoint]] = {}
 
+    def _team_conflict(self, tr: "_Track", det: Detection) -> bool:
+        if self.team_of is None:
+            return False
+        t_team = tr.team()
+        d_team, d_conf = self.team_of(det.payload)
+        return bool(t_team and d_team and d_conf >= 0.5 and d_team != t_team)
+
     def _match(self, track_ids: List[int], dets: List[Tuple[int, Detection]]):
         pairs = []
         for tid in track_ids:
-            pb = self.tracks[tid].predicted()
+            tr = self.tracks[tid]
+            pb = tr.predicted()
             ph = max(1.0, pb[3] - pb[1])
             pcx, pcy = (pb[0] + pb[2]) / 2, (pb[1] + pb[3]) / 2
             for di, det in dets:
+                if self._team_conflict(tr, det):
+                    continue
                 s = iou(pb, det.box)
                 if s >= self.iou_match:
                     pairs.append((s + 1.0, tid, di))  # IoU 매칭 우선
@@ -128,6 +152,7 @@ class IoUTracker:
             det = detections[di]
             tr = self.tracks[tid]
             tr.update(det.box)
+            self._vote(tr, det)
             self._record(tid, frame, det)
             if not tr.confirmed and tr.hits >= self.min_hits:
                 tr.confirmed = True
@@ -149,12 +174,20 @@ class IoUTracker:
             tid = self._next
             self._next += 1
             self.tracks[tid] = _Track(tid=tid, box=det.box)
+            self._vote(self.tracks[tid], det)
             self._pending[tid] = [TrackPoint(frame, det.box, det.conf, det.payload)]
             if self.min_hits <= 1:
                 self.tracks[tid].confirmed = True
                 self.history.setdefault(tid, []).extend(self._pending.pop(tid))
                 results.append((tid, det))
         return results
+
+    def _vote(self, tr: "_Track", det: Detection):
+        if self.team_of is None:
+            return
+        team, conf = self.team_of(det.payload)
+        if team and conf >= 0.3:
+            tr.team_votes[team] = tr.team_votes.get(team, 0.0) + conf
 
     def _record(self, tid: int, frame: int, det: Detection):
         pt = TrackPoint(frame, det.box, det.conf, det.payload)

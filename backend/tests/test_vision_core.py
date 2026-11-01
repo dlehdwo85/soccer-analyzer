@@ -153,3 +153,16 @@ def test_mapper_calibrated():
     x, y, r, s = m.player_geometry((480, 200, 520, 250))
     assert (x, y) == pytest.approx((25.0, 30.0))
     assert s == 1.0
+
+
+def test_tracker_does_not_swap_teams_when_crossing():
+    team_of = lambda pl: (pl, 0.9)
+    tr = IoUTracker(min_hits=1, team_of=team_of)
+    owners = {}
+    for f in range(30):
+        ax = 10 + f * 6       # 홈 선수 → 오른쪽
+        bx = 190 - f * 6      # 원정 선수 ← 왼쪽, 같은 높이로 겹쳐 지나감
+        dets = [Detection((ax, 50, ax + 20, 100), 0.9, "home"), Detection((bx, 50, bx + 20, 100), 0.9, "away")]
+        for tid, det in tr.update(f, dets):
+            owners.setdefault(tid, set()).add(det.payload)
+    assert all(len(v) == 1 for v in owners.values())

@@ -1,0 +1,8 @@
+# RunPod GPU 워커 전용 (Dockerfile.worker). 백엔드 서버에는 필요 없다.
+# 백엔드에서 직접 영상 분석(ANALYSIS_ENGINE=local)을 하려면 이 파일도 설치한다.
+runpod>=1.6,<2
+requests>=2.31
+numpy>=1.26,<3
+ultralytics>=8.3,<9
+# ultralytics가 끌어오는 GUI용 opencv-python 대신 headless를 쓴다 (Dockerfile에서 교체)
+opencv-python-headless>=4.9
