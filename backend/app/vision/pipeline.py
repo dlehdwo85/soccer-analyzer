@@ -83,19 +83,34 @@ class Detector(Protocol):
 
 
 class YoloDetector:
-    """ultralytics YOLO (COCO: 0=person, 32=sports ball). 모델·해상도는 환경변수로 조정."""
+    """ultralytics YOLO (COCO: 0=person, 32=sports ball). 모델·해상도는 환경변수로 조정.
 
-    def __init__(self, model: Optional[str] = None, imgsz: Optional[int] = None, device: Optional[str] = None):
+    공은 화면에서 몇 픽셀밖에 안 될 때가 많아 COCO 범용 모델로는 잘 안 잡힌다.
+    축구공으로 학습한 YOLO 가중치가 있으면 YOLO_BALL_MODEL로 지정한다(클래스 이름에 ball/football 포함).
+    """
+
+    PERSON_CONF = 0.2
+    BALL_CONF = 0.05   # 낮게 잡고, 시간 연속성으로 거른다 (ball.select_ball_positions)
+
+    def __init__(self, model: Optional[str] = None, imgsz: Optional[int] = None, device: Optional[str] = None,
+                 ball_model: Optional[str] = None):
         try:
             from ultralytics import YOLO
         except ImportError as e:  # pragma: no cover - 환경 의존
-            raise RuntimeError("영상 분석에는 ultralytics가 필요합니다: pip install -r requirements-vision.txt") from e
+            raise RuntimeError("영상 분석에는 ultralytics가 필요합니다: pip install -r requirements-worker.txt") from e
         self.model = YOLO(model or os.environ.get("YOLO_MODEL", "yolov8s.pt"))
         self.imgsz = imgsz or int(os.environ.get("YOLO_IMGSZ", "1280"))
         self.device = device or os.environ.get("YOLO_DEVICE") or None
+        bm = ball_model or os.environ.get("YOLO_BALL_MODEL")
+        self.ball_model = YOLO(bm) if bm else None
+        self.ball_classes = None
+        if self.ball_model is not None:
+            names = self.ball_model.names
+            self.ball_classes = [k for k, v in names.items() if "ball" in str(v).lower()] or list(names)
 
     def detect(self, frame_rgb):
-        res = self.model.predict(frame_rgb, imgsz=self.imgsz, classes=[0, 32], conf=0.12,
+        classes = [0] if self.ball_model is not None else [0, 32]
+        res = self.model.predict(frame_rgb, imgsz=self.imgsz, classes=classes, conf=self.BALL_CONF,
                                  device=self.device, verbose=False)[0]
         persons, balls = [], []
         if res.boxes is not None and len(res.boxes):
@@ -103,9 +118,15 @@ class YoloDetector:
             conf = res.boxes.conf.cpu().numpy()
             cls = res.boxes.cls.cpu().numpy().astype(int)
             for b, c, k in zip(xyxy, conf, cls):
-                if k == 0 and c >= 0.2:
+                if k == 0 and c >= self.PERSON_CONF:
                     persons.append(((float(b[0]), float(b[1]), float(b[2]), float(b[3])), float(c)))
                 elif k == 32:
+                    balls.append((float((b[0] + b[2]) / 2), float((b[1] + b[3]) / 2), float(c)))
+        if self.ball_model is not None:
+            rb = self.ball_model.predict(frame_rgb, imgsz=self.imgsz, classes=self.ball_classes, conf=self.BALL_CONF,
+                                         device=self.device, verbose=False)[0]
+            if rb.boxes is not None and len(rb.boxes):
+                for b, c in zip(rb.boxes.xyxy.cpu().numpy(), rb.boxes.conf.cpu().numpy()):
                     balls.append((float((b[0] + b[2]) / 2), float((b[1] + b[3]) / 2), float(c)))
         return persons, balls
 

@@ -219,7 +219,8 @@ function AnalysisSteps({ match, health, onMatch, reload }:
     <div className="space-y-4">
       <Step n={1} title="경기 영상" done={!!match.video_url}>
         <p className="text-xs text-ink-400 mb-3">
-          높은 곳에서 경기장 전체를 담은 고정 카메라 영상이 가장 정확합니다. 공이 작게 보이거나 자주 가려지면 볼 기록이 덜 잡힙니다.
+          <b className="text-ink-200">1080p 이상</b>, 높은 곳에서 경기장을 넓게 담은 영상이 가장 정확합니다.
+          480p처럼 화질이 낮거나 멀리서 찍어 공이 몇 픽셀밖에 안 되면 공을 놓쳐 볼 기록이 크게 줄어듭니다 — 이때는 '이벤트 검수'에서 보완하세요.
         </p>
         {uploadPct !== null ? (
           <div className="p-4 rounded-2xl bg-ink-850 border border-ink-700">
