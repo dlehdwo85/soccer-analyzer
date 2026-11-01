@@ -31,6 +31,7 @@ import numpy as np
 
 from . import color as C
 from .ball import interpolate_gaps, select_ball_positions
+from .camera import CameraMotion, stationary
 from .events import EventConfig, Frame, PlayerObs, detect_events
 from .pitch import GOAL_WIDTH, PitchMapper
 from .stats import compute_player_stats, pass_network, possession_timeline, team_stats
@@ -158,6 +159,8 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
 
     mapper = PitchMapper.build(frame_w, frame_h, cfg.field_type, cfg.calibration)
+    # 보정이 없으면 카메라가 움직인다고 보고 화면 이동을 보정한다 (보정된 고정 카메라는 그대로)
+    cam = None if mapper.calibrated else CameraMotion(frame_w, frame_h)
     clf = C.TeamColorClassifier.from_match(cfg.home_color, cfg.away_color, cfg.referee_color,
                                            cfg.home_gk_color, cfg.away_gk_color)
     detector = detector or YoloDetector()
@@ -176,17 +179,18 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
 
     def run_tracker(k: int, frame_rgb: Optional[np.ndarray], dets: List):
         tracked = []
-        for box, conf, sample in dets:
+        for box, conf, sample, orig in dets:
             label, lconf = clf.classify(sample)
-            tracked.append(Detection(box, conf, (label, lconf, sample.median_lab if sample else None)))
+            tracked.append(Detection(box, conf, (label, lconf, sample.median_lab if sample else None, orig)))
         for tid, det in tracker.update(k, tracked):
             ti = info[tid]
             ti.votes.append((det.payload[0], det.payload[1]))
             if det.payload[2] is not None:
                 ti.labs.append(det.payload[2])
-            area = (det.box[2] - det.box[0]) * (det.box[3] - det.box[1])
+            ob = det.payload[3]
+            area = (ob[2] - ob[0]) * (ob[3] - ob[1])
             if frame_rgb is not None and area > ti.best_area and det.payload[0] in C.TEAM_OF_LABEL:
-                thumb = _encode_thumb(frame_rgb, det.box)
+                thumb = _encode_thumb(frame_rgb, ob)
                 if thumb:
                     ti.best_area, ti.thumb = area, thumb
 
@@ -208,6 +212,9 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
         frame_rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         t = (f_idx - start_f) / fps_video
         persons, balls = detector.detect(frame_rgb)
+        if cam is not None:
+            cam.update(frame_rgb, [b for b, _ in persons])
+            balls = [(*cam.point(bx, by), bc) for bx, by, bc in balls]
         dets = []
         for box, conf in persons:
             if mapper.calibrated:
@@ -215,7 +222,8 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
                 if not mapper.inside(x, y):
                     removed_outside += 1
                     continue  # 관중·벤치
-            dets.append((box, conf, C.sample_jersey(frame_rgb, box, rng=rng)))
+            ref = cam.box(box) if cam is not None else box
+            dets.append((ref, conf, C.sample_jersey(frame_rgb, box, rng=rng), box))
         times.append(t)
         ball_cands.append(balls)
 
@@ -251,10 +259,16 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
     tracklets: List[Tracklet] = []
     labels: Dict[str, str] = {}
     geo: Dict[str, List[Tuple[int, float, float, float, float]]] = {}
+    removed_static = 0
     for tid, pts in tracker.history.items():
         lbl, _ = C.vote_track_labels(info[tid].votes)
         if lbl not in C.TEAM_OF_LABEL:
             continue
+        if cam is not None and lbl in (C.HOME, C.AWAY) and stationary(
+                [(times[p.frame], (p.box[0] + p.box[2]) / 2, p.box[3]) for p in pts],
+                [p.box[3] - p.box[1] for p in pts]):
+            removed_static += 1
+            continue  # 오래 제자리에 있는 사람 — 관중·벤치
         key = f"T{tid}"
         labels[key] = lbl
         g = []
@@ -292,8 +306,12 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
     ball_seen = sum(1 for b in ball_px if b is not None) / len(times)
     if ball_seen < 0.3:
         warnings.append(f"공이 영상의 {ball_seen * 100:.0f}% 구간에서만 검출되어 볼 이벤트가 적게 잡혔을 수 있습니다.")
-    if not mapper.calibrated:
-        warnings.append("경기장 보정이 없어 거리·속도는 선수 키 기준 추정치입니다.")
+    camera_moving = cam is not None and cam.travel() > 0.3 * frame_w
+    if camera_moving:
+        warnings.append("카메라가 움직이는 영상입니다. 화면 이동을 보정해 추적했지만 공격 방향·슈팅 위치 판정은 "
+                        "부정확할 수 있으니 '이벤트 검수'에서 슈팅을 확인해 주세요.")
+    elif not mapper.calibrated:
+        warnings.append("경기장 지정이 없어 경기장 밖 사람(벤치·관중)이 일부 섞일 수 있습니다. '선수 정리'에서 제외하세요.")
     if len(tracker.history) and not labels:
         warnings.append("유니폼 색으로 팀을 구분하지 못했습니다. 경기 설정의 팀 색상을 확인하세요.")
 
@@ -308,6 +326,8 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
         "ball_detected_pct": round(ball_seen * 100, 1),
         "raw_tracks": len(tracker.history),
         "removed_outside_pitch": removed_outside,
+        "removed_static": removed_static,
+        "camera_moving": camera_moving,
         "snapped_colors": dict(clf.snapped_hex),
         "warnings": warnings,
     }

@@ -120,7 +120,8 @@ def test_pipeline_uncalibrated_and_missing_file(rendered):
                          color_calib_s=10, max_seconds=40)
     res = analyze_video(path, cfg, detector=BlobDetector())
     assert res["meta"]["calibrated"] is False
-    assert any("보정" in w for w in res["meta"]["warnings"])
+    assert any("경기장 지정" in w for w in res["meta"]["warnings"])
+    assert res["meta"]["camera_moving"] is False
     assert res["meta"]["duration_s"] <= 41
     with pytest.raises(RuntimeError):
         analyze_video(os.path.join(os.path.dirname(path), "nope.mp4"), cfg, detector=BlobDetector())

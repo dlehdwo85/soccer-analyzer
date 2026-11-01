@@ -124,8 +124,43 @@ def grass_mask_rgb(pixels_rgb: np.ndarray) -> np.ndarray:
     return green_dominant & (sat > 0.18) & (mx > 40)
 
 
+BG_DE = 14.0  # 배경 색과 이만큼 가까운 상체 픽셀은 배경으로 본다
+
+
+def background_pixels_rgb(frame_rgb: np.ndarray, box: Sequence[float]) -> np.ndarray:
+    """박스 바로 바깥 좌우 띠(상체 높이)의 픽셀 — 선수 뒤 배경(나무·펜스·관중석) 색 추정용."""
+    h_img, w_img = frame_rgb.shape[:2]
+    x1, y1, x2, y2 = box
+    w, h = x2 - x1, y2 - y1
+    band = max(2, int(round(0.18 * w)))
+    cy1, cy2 = max(0, int(round(y1 + 0.10 * h))), min(h_img, int(round(y1 + 0.55 * h)))
+    parts = []
+    lx2, rx1 = int(round(x1)), int(round(x2))
+    if lx2 - band >= 0:
+        parts.append(frame_rgb[cy1:cy2, lx2 - band:lx2].reshape(-1, 3))
+    if rx1 + band <= w_img:
+        parts.append(frame_rgb[cy1:cy2, rx1:rx1 + band].reshape(-1, 3))
+    return np.concatenate(parts) if parts else np.zeros((0, 3), dtype=frame_rgb.dtype)
+
+
+def _remove_background(valid_rgb: np.ndarray, bg_rgb: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    bg = bg_rgb[~grass_mask_rgb(bg_rgb)] if len(bg_rgb) else bg_rgb
+    if len(bg) < 12:
+        return valid_rgb
+    if len(bg) > 400:
+        bg = bg[rng.choice(len(bg), 400, replace=False)]
+    centers, _ = kmeans(rgb_to_lab(bg), 3, iters=10)
+    lab = rgb_to_lab(valid_rgb)
+    near = np.min([delta_e(lab, c) for c in centers], axis=0) < BG_DE
+    kept = valid_rgb[~near]
+    # 옆에 같은 팀 선수가 붙어 있으면 '배경'이 곧 유니폼이라 다 지워진다 → 이때는 거르지 않는다
+    return kept if len(kept) >= max(8, 0.3 * len(valid_rgb)) else valid_rgb
+
+
 def sample_jersey(frame_rgb: np.ndarray, box: Sequence[float], max_pixels: int = 256,
                   rng: Optional[np.random.Generator] = None) -> Optional[JerseySample]:
+    """상체 픽셀에서 잔디와 배경을 빼고 유니폼 색 표본을 만든다."""
+    rng = rng or np.random.default_rng(0)
     px = torso_pixels_rgb(frame_rgb, box)
     if len(px) < 12:
         return None
@@ -134,8 +169,8 @@ def sample_jersey(frame_rgb: np.ndarray, box: Sequence[float], max_pixels: int =
     frac = float(keep.mean()) if len(px) else 0.0
     if len(valid) < 8:
         return None
+    valid = _remove_background(valid, background_pixels_rgb(frame_rgb, box), rng)
     if len(valid) > max_pixels:
-        rng = rng or np.random.default_rng(0)
         valid = valid[rng.choice(len(valid), max_pixels, replace=False)]
     lab = rgb_to_lab(valid)
     return JerseySample(median_lab=np.median(lab, axis=0), pixels_lab=lab, valid_fraction=frac)
