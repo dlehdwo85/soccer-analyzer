@@ -5,7 +5,7 @@ import { cn, fmtClock, playerName, teamInfo } from '@/lib/utils'
 import Pitch from '@/components/pitch/Pitch'
 import PlayerAvatar from './PlayerAvatar'
 
-type Row = { label: string; get: (t: TeamStats) => number | null; fmt?: (v: number) => string; hint?: string }
+type Row = { label: string; get: (t: TeamStats) => number | null; fmt?: (v: number) => string; hint?: string; hideIfZero?: boolean }
 
 const ROWS: Row[] = [
   { label: '점유율', get: t => t.possession_pct, fmt: v => `${v.toFixed(0)}%` },
@@ -19,6 +19,13 @@ const ROWS: Row[] = [
   { label: '키패스', get: t => t.key_passes, hint: '받은 선수가 8초 안에 슈팅한 패스' },
   { label: '가로채기', get: t => t.interceptions },
   { label: '볼 탈취', get: t => t.recoveries },
+  // 세트피스: 종류 구분은 경기장 지정(보정)이 있을 때만 나온다. 없으면 '재개' 합계만 보인다.
+  { label: '코너킥', get: t => t.corners ?? 0, hideIfZero: true },
+  { label: '프리킥', get: t => t.free_kicks ?? 0, hideIfZero: true },
+  { label: '스로인', get: t => t.throw_ins ?? 0, hideIfZero: true },
+  { label: '골킥', get: t => t.goal_kicks ?? 0, hideIfZero: true },
+  { label: '재개(세트피스)', get: t => t.set_pieces ?? 0, hideIfZero: true,
+    hint: '경기 중단 뒤 다시 시작한 횟수. 경기장 지정이 있으면 코너킥·프리킥·스로인·골킥으로 나뉩니다' },
 ]
 
 export function TeamComparison({ result }: { result: MatchResult }) {
@@ -35,6 +42,7 @@ export function TeamComparison({ result }: { result: MatchResult }) {
         {ROWS.map(r => {
           const h = r.get(ts.home), a = r.get(ts.away)
           if (h === null && a === null) return null
+          if (r.hideIfZero && !h && !a) return null
           const hv = h ?? 0, av = a ?? 0
           const total = hv + av
           const hp = total ? (hv / total) * 100 : 50

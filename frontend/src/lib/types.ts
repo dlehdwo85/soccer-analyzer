@@ -81,7 +81,12 @@ export interface PlayerRow {
   stats: PlayerStats
 }
 
-export type EventKind = 'pass' | 'shot' | 'recovery'
+export type EventKind = 'pass' | 'shot' | 'recovery' | 'set_piece'
+/** 세트피스 종류 — 경기장 지정(보정)이 있을 때만 나뉘고, 없으면 'restart' */
+export type SetPieceType = 'corner' | 'free_kick' | 'throw_in' | 'goal_kick' | 'kick_off' | 'restart'
+export const SET_PIECE_LABEL: Record<SetPieceType, string> = {
+  corner: '코너킥', free_kick: '프리킥', throw_in: '스로인', goal_kick: '골킥', kick_off: '킥오프', restart: '재개',
+}
 
 export interface MatchEvent {
   id: number
@@ -126,6 +131,12 @@ export interface TeamStats {
   dispossessed: number
   touches: number
   xg: number
+  set_pieces: number
+  corners: number
+  free_kicks: number
+  throw_ins: number
+  goal_kicks: number
+  kick_offs: number
 }
 
 export interface PassNetworkTeam {

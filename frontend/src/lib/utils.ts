@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import { Match, MatchEvent, MatchStatus, PlayerRow, Team } from './types'
+import { Match, MatchEvent, MatchStatus, PlayerRow, SET_PIECE_LABEL, SetPieceType, Team } from './types'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -97,13 +97,18 @@ export function eventLabel(e: MatchEvent): string {
     if (e.detail.outcome === 'blocked') return '슈팅 · 블록'
     return '슈팅 · 빗나감'
   }
+  if (e.kind === 'set_piece') {
+    const type = (e.detail as { type?: SetPieceType }).type ?? 'restart'
+    return SET_PIECE_LABEL[type] ?? '재개'
+  }
   return '볼 탈취'
 }
 
 export function eventTone(e: MatchEvent): string {
   if (e.kind === 'shot') return e.detail.outcome === 'on_target' ? 'text-volt' : 'text-amber-300'
   if (e.kind === 'recovery') return 'text-violet-300'
+  if (e.kind === 'set_piece') return 'text-ink-300'
   return e.success ? 'text-emerald-300' : 'text-red-300'
 }
 
-export const KIND_LABEL: Record<string, string> = { pass: '패스', shot: '슈팅', recovery: '볼 탈취' }
+export const KIND_LABEL: Record<string, string> = { pass: '패스', shot: '슈팅', recovery: '볼 탈취', set_piece: '세트피스' }

@@ -15,6 +15,7 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'pass', label: '패스' },
   { key: 'fail', label: '패스 실패' },
   { key: 'recovery', label: '볼 탈취' },
+  { key: 'set_piece', label: '세트피스' },
   { key: 'edited', label: '수정한 것' },
 ]
 
@@ -22,6 +23,7 @@ const RESULTS: Record<EventKind, { value: EventResult; label: string }[]> = {
   pass: [{ value: 'completed', label: '성공 (받은 선수)' }, { value: 'intercepted', label: '차단 (가로챈 선수)' }, { value: 'out', label: '아웃' }],
   shot: [{ value: 'on_target', label: '유효 슈팅' }, { value: 'off_target', label: '빗나감' }, { value: 'blocked', label: '블록' }],
   recovery: [],
+  set_piece: [],
 }
 
 function currentResult(e: MatchEvent): EventResult | undefined {

@@ -14,14 +14,15 @@ import EventReview from '@/components/results/EventReview'
 import Highlights from '@/components/results/Highlights'
 import Compare from '@/components/results/Compare'
 import TrackEditor from '@/components/results/TrackEditor'
+import LineupBoard from '@/components/results/LineupBoard'
 import VideoDock, { VideoDockHandle } from '@/components/results/VideoDock'
 
-type Tab = 'overview' | 'players' | 'highlights' | 'events' | 'network' | 'compare' | 'edit'
+type Tab = 'overview' | 'players' | 'highlights' | 'events' | 'network' | 'compare' | 'lineup' | 'edit'
 type Period = 1 | 2 | null
 
 const TABS: [Tab, string][] = [
   ['overview', '개요'], ['players', '선수 기록'], ['highlights', '하이라이트'], ['events', '이벤트 검수'],
-  ['network', '패스 네트워크'], ['compare', '선수 비교'], ['edit', '선수 정리'],
+  ['network', '패스 네트워크'], ['compare', '선수 비교'], ['lineup', '라인업'], ['edit', '선수 정리'],
 ]
 
 /** 박스 스코어의 팀 합계 열 */
@@ -198,6 +199,7 @@ export default function ResultsPage() {
       )}
       {tab === 'network' && <PassNetwork result={result} players={players} onSelect={p => setSelected(p.track_id)} />}
       {tab === 'compare' && <Compare matchId={matchId} result={result} />}
+      {tab === 'lineup' && <LineupBoard matchId={matchId} result={result} onChanged={load} />}
       {tab === 'edit' && <TrackEditor matchId={matchId} result={result} onChanged={load} />}
 
       {sel && (
