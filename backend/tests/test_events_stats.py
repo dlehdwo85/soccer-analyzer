@@ -239,3 +239,52 @@ def test_event_stats_counts():
     assert st["A2"]["recoveries"] == 1 and st["A2"]["shots_on_target"] == 1
     assert finalize(st["H2"])["pass_accuracy"] == 0.0
     assert finalize(empty_stats())["pass_accuracy"] is None
+
+
+def test_set_piece_corner_detected_after_still_ball():
+    corner = (0.6, 0.6)
+    recv = (19.5, 10.0)
+
+    def players(t):
+        h1 = (1.2, 1.2) if t >= 2.0 else (6.0, 6.0)      # 2초부터 코너로 걸어와 선다
+        return [("H1", "home", *h1), ("H2", "home", 20.0, 10.0), ("A1", "away", 50.0, 30.0), ("A2", "away", 80.0, 40.0)]
+
+    def ball(t):
+        if t < 3.0:
+            return corner                                 # 공이 코너에 멈춰 있다
+        if t < 4.0:
+            return _lerp(corner, recv, t - 3.0)           # 코너킥
+        return recv
+
+    frames = _frames(7, 5, players, ball)
+    events, spells, _ = detect_events(frames, EventConfig(calibrated=True))
+    sps = [e for e in events if e.kind == "set_piece"]
+    assert [(e.player, e.detail["type"]) for e in sps] == [("H1", "corner")]
+    assert sps[0].detail["still_s"] >= 0.7
+    st = compute_player_stats(frames, events, 105.0, 68.0)
+    ts = team_stats(st, spells)
+    assert (ts["home"]["corners"], ts["home"]["set_pieces"], ts["away"]["set_pieces"]) == (1, 1, 0)
+
+    # 보정이 없으면 위치를 믿지 않으므로 종류 없이 '재개'로만 센다
+    events_u, _, _ = detect_events(frames, EventConfig(calibrated=False))
+    sps_u = [e for e in events_u if e.kind == "set_piece"]
+    assert [e.detail["type"] for e in sps_u] == ["restart"]
+
+
+def test_set_piece_free_kick_and_throw_in_by_location():
+    def scenario(spot):
+        def players(t):
+            a1 = (spot[0] + 0.8, spot[1] + 0.8) if t >= 2.0 else (spot[0] + 8, spot[1] + 8)
+            return [("A1", "away", *a1), ("A2", "away", 70.0, 34.0), ("H1", "home", 30.0, 34.0), ("H2", "home", 20.0, 20.0)]
+
+        def ball(t):
+            if t < 3.0:
+                return spot
+            if t < 4.0:
+                return _lerp(spot, (70.0, 34.0), t - 3.0)
+            return (70.0, 34.0)
+        events, _, _ = detect_events(_frames(7, 5, players, ball), EventConfig(calibrated=True))
+        return [(e.player, e.detail["type"]) for e in events if e.kind == "set_piece"]
+
+    assert scenario((50.0, 30.0)) == [("A1", "free_kick")]
+    assert scenario((50.0, 0.8)) == [("A1", "throw_in")]

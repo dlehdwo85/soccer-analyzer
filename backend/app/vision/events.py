@@ -66,6 +66,16 @@ class EventConfig:
     blip_max_s: float = 0.3             # 같은 선수 점유 사이에 끼인 이보다 짧은 상대 점유는 잡음
     intercept_min_m: float = 4.0        # 상대가 가져갔을 때 공이 이만큼 날아갔으면 가로채기
     intercept_min_gap_s: float = 0.6    # 또는 공이 이만큼 떠 있었으면 가로채기
+    # 세트피스(재개) 판정
+    calibrated: bool = False            # 경기장 보정이 있어야 코너킥·골킥·스로인·프리킥을 위치로 구분한다
+    still_s: float = 1.2                # 재개 전 공이 이만큼 멈춰 있어야 한다
+    still_m: float = 0.75               # 멈춤으로 보는 최대 이동(m)
+    dead_gap_s: float = 1.5             # 직전 점유 종료 후 이만큼 비어 있으면 경기 중단으로 본다
+    corner_m: float = 3.0               # 코너 아크 반경 근사
+    touchline_m: float = 2.0            # 스로인: 터치라인에서 이 거리 안
+    goal_area_x_m: float = 6.5          # 골킥: 골라인에서 이 거리 안 (골에어리어 5.5m + 여유)
+    goal_area_y_m: float = 12.0         # 골킥: 골문 중심에서 이 거리 안
+    kickoff_m: float = 2.5              # 킥오프: 센터 스폿 반경
 
 
 @dataclass
@@ -87,7 +97,7 @@ class Spell:
 
 @dataclass
 class Event:
-    kind: str                       # possession | pass | shot | recovery
+    kind: str                       # possession | pass | shot | recovery | set_piece
     t: float
     team: str
     player: str
@@ -331,6 +341,59 @@ def _went_out(bi: _BallIndex, t0: float, t1: float, cfg: EventConfig, s: float) 
     return any(x < -m or x > cfg.length + m or y < -m or y > cfg.width + m for _, x, y in bi.path(t0, t1))
 
 
+def _ball_still_before(bi: _BallIndex, t: float, cfg: EventConfig, s: float) -> Optional[float]:
+    """t 직전에 공이 멈춰 있던 시간(초). 멈춰 있지 않았거나 공을 거의 못 봤으면 None."""
+    pts = bi.path(t - cfg.still_s, t)
+    if len(pts) < 3 or pts[-1][0] - pts[0][0] < cfg.still_s * 0.6:
+        return None
+    xs, ys = [p[1] for p in pts], [p[2] for p in pts]
+    spread = math.hypot(max(xs) - min(xs), max(ys) - min(ys)) * s
+    return round(pts[-1][0] - pts[0][0], 2) if spread <= cfg.still_m else None
+
+
+def _set_piece_type(a: Spell, prev: Optional[Spell], cfg: EventConfig, direction: int) -> Optional[str]:
+    """재개 종류. 보정이 없으면 위치를 믿을 수 없어 'restart'로만 기록한다."""
+    if not cfg.calibrated:
+        return "restart"
+    x, y = a.x0 * a.s, a.y0 * a.s
+    L, W = cfg.length, cfg.width
+    if prev is None and math.hypot(x - L / 2, y - W / 2) <= cfg.kickoff_m:
+        return "kick_off"
+    if min(x, L - x) <= cfg.corner_m and min(y, W - y) <= cfg.corner_m:
+        return "corner"
+    own_goal_x = 0.0 if direction > 0 else L          # 공격 방향의 반대편이 우리 골문
+    if abs(x - own_goal_x) <= cfg.goal_area_x_m and abs(y - W / 2) <= cfg.goal_area_y_m:
+        return "goal_kick"
+    if min(y, W - y) <= cfg.touchline_m:
+        return "throw_in"
+    return "free_kick"
+
+
+def detect_set_pieces(spells: Sequence[Spell], bi: _BallIndex, cfg: EventConfig,
+                      dirs: Dict[str, Dict[str, int]]) -> List[Event]:
+    """경기 중단 뒤 다시 시작하는 점유 = 세트피스.
+
+    중단 근거: 직전 점유 뒤 공이 밖으로 나갔거나, 점유 공백이 dead_gap_s 이상이거나,
+    공이 still_s 동안 멈춰 있었다. 종류 구분(코너·골킥·스로인·프리킥·킥오프)은 보정된 경기장에서만 한다.
+    """
+    out: List[Event] = []
+    for i, a in enumerate(spells):
+        prev = spells[i - 1] if i else None
+        still = _ball_still_before(bi, a.t0, cfg, a.s)
+        went_out = prev is not None and _went_out(bi, prev.t1, a.t0, cfg, prev.s)
+        gap = (a.t0 - prev.t1) if prev is not None else float("inf")
+        if still is None and not went_out:
+            continue
+        if still is None and gap < cfg.dead_gap_s:
+            continue
+        kind = _set_piece_type(a, prev, cfg, attack_dir(dirs, a.team, a.t0, cfg))
+        if kind is None:
+            continue
+        out.append(Event("set_piece", a.t0, a.team, a.tid, x=a.x0, y=a.y0,
+                         detail={"type": kind, "still_s": still, "after_out": went_out, "gap_s": round(min(gap, 999), 2)}))
+    return out
+
+
 def detect_events(frames: Sequence[Frame], cfg: Optional[EventConfig] = None
                   ) -> Tuple[List[Event], List[Spell], Dict[str, Dict[str, int]]]:
     cfg = cfg or EventConfig()
@@ -344,6 +407,7 @@ def detect_events(frames: Sequence[Frame], cfg: Optional[EventConfig] = None
         events.append(Event("possession", sp.t0, sp.team, sp.tid, t_end=sp.t1,
                             x=sp.x0, y=sp.y0, x2=sp.x1, y2=sp.y1,
                             detail={"duration_s": round(sp.duration, 2)}))
+    events.extend(detect_set_pieces(spells, bi, cfg, dirs))
 
     for i, a in enumerate(spells):
         b = spells[i + 1] if i + 1 < len(spells) else None

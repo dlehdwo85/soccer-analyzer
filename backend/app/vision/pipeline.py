@@ -66,10 +66,10 @@ class AnalysisConfig:
         keys = cls.__dataclass_fields__.keys()
         return cls(**{k: v for k, v in (d or {}).items() if k in keys})
 
-    def event_config(self, length: float, width: float) -> EventConfig:
+    def event_config(self, length: float, width: float, calibrated: bool = False) -> EventConfig:
         return EventConfig(length=length, width=width,
                            goal_width=GOAL_WIDTH.get(self.field_type, 7.32),
-                           home_attacks=self.home_attacks,
+                           home_attacks=self.home_attacks, calibrated=calibrated,
                            # halftime_s는 영상 전체 기준 시각, 이벤트 시각은 분석 시작점 기준
                            halftime_s=(self.halftime_s - self.start_seconds) if self.halftime_s is not None else None)
 
@@ -451,7 +451,7 @@ def postprocess(frames: Sequence[Frame], cfg: AnalysisConfig, length: float, wid
                 labels: Dict[str, str], thumbs: Dict[str, Optional[bytes]], colors: Dict[str, str],
                 progress: Optional[ProgressFn] = None) -> Dict:
     progress = progress or (lambda p, m: None)
-    ecfg = cfg.event_config(length, width)
+    ecfg = cfg.event_config(length, width, calibrated=bool(meta.get("calibrated")))
     events, spells, dirs = detect_events(frames, ecfg)
     ps = compute_player_stats(frames, events, length, width)
     progress(97, "통계 집계 중")

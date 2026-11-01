@@ -19,7 +19,11 @@ KEY_PASS_WINDOW_S = 8.0  # 패스를 받은 선수가 이 시간 안에 슈팅�
 
 BALL_KEYS = ("touches", "possession_s", "passes_attempted", "passes_completed", "passes_failed",
              "passes_received", "forward_passes", "key_passes", "shots", "shots_on_target", "shots_blocked",
-             "interceptions", "recoveries", "dispossessed", "xg")
+             "interceptions", "recoveries", "dispossessed", "xg",
+             # 세트피스(재개): 보정된 경기장에서만 종류가 나뉘고, 아니면 set_pieces만 센다
+             "set_pieces", "corners", "free_kicks", "throw_ins", "goal_kicks", "kick_offs")
+SET_PIECE_KEY = {"corner": "corners", "free_kick": "free_kicks", "throw_in": "throw_ins",
+                 "goal_kick": "goal_kicks", "kick_off": "kick_offs"}
 PRESENCE_KEYS = ("seconds_tracked",)
 SUM_KEYS = BALL_KEYS + PRESENCE_KEYS + ("pos_sum_x", "pos_sum_y", "pos_weight", "pass_length_sum")
 
@@ -98,6 +102,12 @@ def add_event_stats(stats: Dict[str, Dict], events: Iterable[Event]) -> None:
             g(e.player)["recoveries"] += 1
             if e.target:
                 g(e.target)["dispossessed"] += 1
+        elif e.kind == "set_piece":
+            s = g(e.player)
+            s["set_pieces"] += 1
+            key = SET_PIECE_KEY.get(e.detail.get("type") or "")
+            if key:
+                s[key] += 1
 
 
 def finalize(st: Dict) -> Dict:
@@ -159,7 +169,8 @@ def team_stats(player_stats: Dict[str, Dict], spells: Sequence[Spell]) -> Dict[s
             "players": len(members),
             **{k: fin[k] for k in ("passes_attempted", "passes_completed", "passes_failed", "pass_accuracy",
                                     "forward_passes", "key_passes", "shots", "shots_on_target", "shots_blocked",
-                                    "interceptions", "recoveries", "dispossessed", "touches")},
+                                    "interceptions", "recoveries", "dispossessed", "touches",
+                                    "set_pieces", "corners", "free_kicks", "throw_ins", "goal_kicks", "kick_offs")},
             "xg": round(agg["xg"], 2),
         }
     return out
