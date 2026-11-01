@@ -1,3 +1,4 @@
+import importlib
 import logging
 import os
 
@@ -74,6 +75,6 @@ def add_missing_columns(bind=None) -> list:
 
 
 def create_tables():
-    from app import models  # noqa: F401 — 모델 등록
+    importlib.import_module("app.models")  # 모델을 Base.metadata에 등록
     Base.metadata.create_all(bind=engine)
     add_missing_columns()
