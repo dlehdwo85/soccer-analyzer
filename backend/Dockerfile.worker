@@ -7,18 +7,23 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     YOLO_MODEL=yolov8m.pt \
     YOLO_IMGSZ=1280 \
-    YOLO_CONFIG_DIR=/app/.ultralytics
+    YOLO_CONFIG_DIR=/app/.ultralytics \
+    YOLO_BALL_MODEL=/app/models/ball.onnx \
+    YOLO_BALL_IMGSZ=1280
 
 RUN apt-get update && apt-get install -y --no-install-recommends libglib2.0-0 ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements-worker.txt .
+COPY requirements-worker.txt fetch_ball_model.py ./
+# GPU에서 공 모델을 돌리도록 onnxruntime을 GPU판으로 바꾼다.
 RUN pip install --no-cache-dir -r requirements-worker.txt \
-    && pip uninstall -y opencv-python \
-    && pip install --no-cache-dir --force-reinstall --no-deps "opencv-python-headless>=4.9"
+    && pip uninstall -y opencv-python onnxruntime \
+    && pip install --no-cache-dir --force-reinstall --no-deps "opencv-python-headless>=4.9" \
+    && pip install --no-cache-dir "onnxruntime-gpu>=1.18,<2"
 
 # 모델 가중치를 이미지에 미리 받아 둔다 (콜드스타트 단축)
-RUN python -c "from ultralytics import YOLO; YOLO('${YOLO_MODEL}')"
+RUN python -c "from ultralytics import YOLO; YOLO('${YOLO_MODEL}')" \
+    && mkdir -p /app/models && python fetch_ball_model.py /app/models/ball.onnx
 
 COPY app/__init__.py app/__init__.py
 COPY app/vision app/vision

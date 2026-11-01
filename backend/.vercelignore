@@ -1,0 +1,17 @@
+# Vercel 함수 번들에 넣지 않을 것 (서버 직접 분석용 파일·테스트)
+tests/
+uploads/
+*.db
+*.sqlite3
+Dockerfile
+Dockerfile.worker
+worker_handler.py
+fetch_ball_model.py
+import_result.py
+migrate.py
+railway.toml
+Procfile
+runtime.txt
+requirements-worker.txt
+requirements-dev.txt
+.pytest_cache/

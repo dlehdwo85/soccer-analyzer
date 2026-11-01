@@ -4,6 +4,8 @@ runpod>=1.6,<2
 requests>=2.31
 numpy>=1.26,<2
 ultralytics>=8.3,<9
+# 축구공 전용 모델(ONNX, fetch_ball_model.py) 실행용. GPU 워커는 onnxruntime-gpu로 바꿔 설치한다.
+onnxruntime>=1.18,<2
 # ultralytics가 끌어오는 GUI용 opencv-python을 numpy 1.x 호환 버전으로 고정하고, 설치 후 headless로 교체
 opencv-python<4.11
 opencv-python-headless>=4.9,<4.11

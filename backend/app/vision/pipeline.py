@@ -91,9 +91,15 @@ class YoloDetector:
 
     PERSON_CONF = 0.2
     BALL_CONF = 0.05   # 낮게 잡고, 시간 연속성으로 거른다 (ball.select_ball_positions)
+    # 축구공 전용 모델은 진짜 공도 신뢰도 0.05~0.35로 낮게 나온다 → 새 궤적 시작 기준도 낮춘다.
+    BALL_MODEL_MIN_CONF_NEW = 0.08
+    BALL_FOCUS_CONF = 0.08     # 이 이상이면 다음 프레임 확대 영역의 중심으로 삼는다
+    BALL_FOCUS_MAX_AGE = 12    # 공을 놓친 뒤 이 프레임 수까지는 마지막 위치 주변을 계속 본다
+    BALL_FULL_EVERY = 3        # 공을 추적 중일 때 전체 화면 검출은 이 프레임마다 한 번 (속도 ↑)
 
     def __init__(self, model: Optional[str] = None, imgsz: Optional[int] = None, device: Optional[str] = None,
-                 ball_model: Optional[str] = None):
+                 ball_model: Optional[str] = None, ball_imgsz: Optional[int] = None,
+                 ball_roi: Optional[bool] = None):
         try:
             from ultralytics import YOLO
         except ImportError as e:  # pragma: no cover - 환경 의존
@@ -102,11 +108,54 @@ class YoloDetector:
         self.imgsz = imgsz or int(os.environ.get("YOLO_IMGSZ", "1280"))
         self.device = device or os.environ.get("YOLO_DEVICE") or None
         bm = ball_model or os.environ.get("YOLO_BALL_MODEL")
-        self.ball_model = YOLO(bm) if bm else None
+        self.ball_model = YOLO(bm, task="detect") if bm else None
         self.ball_classes = None
+        # 공 전용 모델은 학습 해상도(보통 1280)로 돌린다. 사람 검출 해상도(YOLO_IMGSZ)와 따로 둔다.
+        self.ball_imgsz = ball_imgsz or int(os.environ.get("YOLO_BALL_IMGSZ", "1280"))
+        # 확대 영역: 직전 공 위치(없으면 선수들이 모인 곳) 주변을 원본 해상도로 한 번 더 본다.
+        self.ball_roi = (os.environ.get("YOLO_BALL_ROI", "1") != "0") if ball_roi is None else ball_roi
+        self.ball_min_conf_new = 0.3
+        self._focus: Optional[Tuple[float, float]] = None
+        self._focus_age = 0
+        self._frame_no = 0
         if self.ball_model is not None:
             names = self.ball_model.names
             self.ball_classes = [k for k, v in names.items() if "ball" in str(v).lower()] or list(names)
+            self.ball_min_conf_new = self.BALL_MODEL_MIN_CONF_NEW
+
+    def _ball_predict(self, img, x0: int = 0, y0: int = 0) -> List[Tuple[float, float, float]]:
+        rb = self.ball_model.predict(img, imgsz=self.ball_imgsz, classes=self.ball_classes, conf=self.BALL_CONF,
+                                     device=self.device, verbose=False)[0]
+        out = []
+        if rb.boxes is not None and len(rb.boxes):
+            for b, c in zip(rb.boxes.xyxy.cpu().numpy(), rb.boxes.conf.cpu().numpy()):
+                out.append((float((b[0] + b[2]) / 2) + x0, float((b[1] + b[3]) / 2) + y0, float(c)))
+        return out
+
+    def _roi(self, w: int, h: int, persons) -> Optional[Tuple[int, int, int, int]]:
+        """확대해서 다시 볼 영역 (x0, y0, x1, y1). 원본 해상도 그대로 ball_imgsz 정도 크기."""
+        rw, rh = min(w, self.ball_imgsz), min(h, int(self.ball_imgsz * 9 / 16))
+        if rw >= w and rh >= h:
+            return None  # 영상이 작으면 전체 화면 검출과 같다
+        if self._focus is not None and self._focus_age <= self.BALL_FOCUS_MAX_AGE:
+            cx, cy = self._focus
+        elif persons:
+            cx = float(np.median([(b[0] + b[2]) / 2 for b, _ in persons]))
+            cy = float(np.median([(b[1] + b[3]) / 2 for b, _ in persons]))
+        else:
+            return None
+        x0 = int(min(max(cx - rw / 2, 0), w - rw))
+        y0 = int(min(max(cy - rh / 2, 0), h - rh))
+        return x0, y0, x0 + rw, y0 + rh
+
+    @staticmethod
+    def _held_by_person(cx: float, cy: float, persons) -> bool:
+        """사람 상체·손 높이에 있는 후보(들고 있는 봉지·물병 등). 발밑 공과 머리 위 공은 남긴다."""
+        for (x1, y1, x2, y2), _ in persons:
+            h = y2 - y1
+            if x1 <= cx <= x2 and y1 + 0.15 * h <= cy <= y1 + 0.7 * h:
+                return True
+        return False
 
     def detect(self, frame_rgb):
         classes = [0] if self.ball_model is not None else [0, 32]
@@ -123,11 +172,29 @@ class YoloDetector:
                 elif k == 32:
                     balls.append((float((b[0] + b[2]) / 2), float((b[1] + b[3]) / 2), float(c)))
         if self.ball_model is not None:
-            rb = self.ball_model.predict(frame_rgb, imgsz=self.imgsz, classes=self.ball_classes, conf=self.BALL_CONF,
-                                         device=self.device, verbose=False)[0]
-            if rb.boxes is not None and len(rb.boxes):
-                for b, c in zip(rb.boxes.xyxy.cpu().numpy(), rb.boxes.conf.cpu().numpy()):
-                    balls.append((float((b[0] + b[2]) / 2), float((b[1] + b[3]) / 2), float(c)))
+            h, w = frame_rgb.shape[:2]
+            self._frame_no += 1
+            roi = self._roi(w, h, persons) if self.ball_roi else None
+            tracking = roi is not None and self._focus is not None and self._focus_age <= self.BALL_FOCUS_MAX_AGE
+            cands: List[Tuple[float, float, float]] = []
+            # 추적 중이면 확대 영역만 보고, 전체 화면은 가끔 확인한다 (공이 멀리 튀었을 때 대비).
+            if not tracking or self._frame_no % self.BALL_FULL_EVERY == 0:
+                cands += self._ball_predict(frame_rgb)
+            if roi is not None:
+                x0, y0, x1, y1 = roi
+                cands += self._ball_predict(frame_rgb[y0:y1, x0:x1], x0, y0)
+            # 두 번 잡힌 같은 공은 하나로 (신뢰도 높은 쪽)
+            merged: List[Tuple[float, float, float]] = []
+            for c in sorted(cands, key=lambda c: -c[2]):
+                if all((c[0] - m[0]) ** 2 + (c[1] - m[1]) ** 2 > 12 ** 2 for m in merged):
+                    merged.append(c)
+            merged = [c for c in merged if not self._held_by_person(c[0], c[1], persons)]
+            balls.extend(merged)
+            best = max(merged, key=lambda c: c[2], default=None)
+            if best is not None and best[2] >= self.BALL_FOCUS_CONF:
+                self._focus, self._focus_age = (best[0], best[1]), 0
+            else:
+                self._focus_age += 1
         return persons, balls
 
 
@@ -317,7 +384,8 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
             thumbs[pid], thumb_area[pid] = info[tid].thumb, info[tid].best_area
         color_by_player[pid].extend(info[tid].labs[:50])
 
-    ball_px = interpolate_gaps(select_ball_positions(ball_cands, times, frame_w), times)
+    ball_px = interpolate_gaps(select_ball_positions(
+        ball_cands, times, frame_w, min_conf_new=getattr(detector, "ball_min_conf_new", 0.3)), times)
     frames = []
     for i, t in enumerate(times):
         b = ball_px[i]

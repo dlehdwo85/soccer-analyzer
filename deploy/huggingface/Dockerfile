@@ -21,8 +21,12 @@ ENV HOME=/home/user \
     YOLO_MODEL=/app/models/yolov8s.pt \
     YOLO_IMGSZ=960 \
     YOLO_CONFIG_DIR=/tmp/Ultralytics \
-    UPLOAD_DIR=/tmp/uploads
-RUN mkdir -p /app/models && cd /app/models && python -c "from ultralytics import YOLO; YOLO('yolov8s.pt')"
+    UPLOAD_DIR=/tmp/uploads \
+    YOLO_BALL_MODEL=/app/models/ball.onnx \
+    YOLO_BALL_IMGSZ=1280
+COPY fetch_ball_model.py /tmp/fetch_ball_model.py
+RUN mkdir -p /app/models && cd /app/models && python -c "from ultralytics import YOLO; YOLO('yolov8s.pt')" \
+    && python /tmp/fetch_ball_model.py /app/models/ball.onnx
 
 COPY --chown=user . .
 RUN chown user /app

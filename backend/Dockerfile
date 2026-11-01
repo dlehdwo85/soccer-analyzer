@@ -16,13 +16,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 ARG ENABLE_VIDEO_ANALYSIS=0
 ARG YOLO_MODEL=yolov8s.pt
 ENV YOLO_MODEL=${YOLO_MODEL} YOLO_CONFIG_DIR=/app/.ultralytics
+COPY fetch_ball_model.py ./
 RUN if [ "$ENABLE_VIDEO_ANALYSIS" = "1" ]; then \
       pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch torchvision \
       && pip install --no-cache-dir -r requirements-worker.txt \
       && pip uninstall -y opencv-python \
       && pip install --no-cache-dir --force-reinstall --no-deps "opencv-python-headless==4.9.0.80" \
-      && python -c "from ultralytics import YOLO; YOLO('${YOLO_MODEL}')"; \
+      && python -c "from ultralytics import YOLO; YOLO('${YOLO_MODEL}')" \
+      && mkdir -p /app/models && python fetch_ball_model.py /app/models/ball.onnx; \
     fi
+# 공 전용 모델은 분석을 켠 이미지에만 들어 있다. 분석이 꺼진 이미지에서는 검출기를 만들지 않으므로 쓰이지 않는다.
+ENV YOLO_BALL_MODEL=/app/models/ball.onnx YOLO_BALL_IMGSZ=1280
 
 COPY . .
 
