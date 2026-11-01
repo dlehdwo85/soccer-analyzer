@@ -114,6 +114,9 @@ class YoloDetector:
         self.ball_imgsz = ball_imgsz or int(os.environ.get("YOLO_BALL_IMGSZ", "1280"))
         # 확대 영역: 직전 공 위치(없으면 선수들이 모인 곳) 주변을 원본 해상도로 한 번 더 본다.
         self.ball_roi = (os.environ.get("YOLO_BALL_ROI", "1") != "0") if ball_roi is None else ball_roi
+        # 타일 검출: 공을 놓쳤을 때 전체 화면을 n×n 조각으로 나눠 원본 해상도로 본다 (느리지만 작은 공을 더 찾음).
+        # 0이면 끔. GPU나 넉넉한 시간이 있을 때 YOLO_BALL_TILES=2 권장.
+        self.ball_tiles = int(os.environ.get("YOLO_BALL_TILES", "0"))
         self.ball_min_conf_new = 0.3
         self._focus: Optional[Tuple[float, float]] = None
         self._focus_age = 0
@@ -179,7 +182,16 @@ class YoloDetector:
             cands: List[Tuple[float, float, float]] = []
             # 추적 중이면 확대 영역만 보고, 전체 화면은 가끔 확인한다 (공이 멀리 튀었을 때 대비).
             if not tracking or self._frame_no % self.BALL_FULL_EVERY == 0:
-                cands += self._ball_predict(frame_rgb)
+                if self.ball_tiles >= 2 and not tracking:
+                    n, ov = self.ball_tiles, 0.12
+                    tw, th = int(w / n * (1 + ov)), int(h / n * (1 + ov))
+                    for iy in range(n):
+                        for ix in range(n):
+                            x0 = 0 if ix == 0 else min(int(ix * w / n - (tw - w / n) / 2), w - tw)
+                            y0 = 0 if iy == 0 else min(int(iy * h / n - (th - h / n) / 2), h - th)
+                            cands += self._ball_predict(frame_rgb[y0:y0 + th, x0:x0 + tw], x0, y0)
+                else:
+                    cands += self._ball_predict(frame_rgb)
             if roi is not None:
                 x0, y0, x1, y1 = roi
                 cands += self._ball_predict(frame_rgb[y0:y1, x0:x1], x0, y0)
@@ -384,8 +396,14 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
             thumbs[pid], thumb_area[pid] = info[tid].thumb, info[tid].best_area
         color_by_player[pid].extend(info[tid].labs[:50])
 
+    # 공 전용 모델은 검출이 촘촘해 궤적 기억·보간 구간을 더 길게 잡아도 엉뚱한 점을 잇지 않는다.
+    # 실측(1080p 조기축구 1분): 보간 0.8초 → 공 위치 파악 66%, 2.5초 → 91%. 발밑에 가려진 공이 대부분이라
+    # 양 끝 이동 속도가 화면 폭의 0.6배/초를 넘는 공백(시야 밖으로 나간 경우)만 잇지 않는다.
+    dedicated_ball = getattr(detector, "ball_model", None) is not None
     ball_px = interpolate_gaps(select_ball_positions(
-        ball_cands, times, frame_w, min_conf_new=getattr(detector, "ball_min_conf_new", 0.3)), times)
+        ball_cands, times, frame_w, min_conf_new=getattr(detector, "ball_min_conf_new", 0.3),
+        memory_s=1.5 if dedicated_ball else 1.0), times,
+        max_gap_s=2.5 if dedicated_ball else 0.8, max_speed_px_s=0.6 * frame_w if dedicated_ball else None)
     frames = []
     for i, t in enumerate(times):
         b = ball_px[i]
@@ -451,7 +469,10 @@ def postprocess(frames: Sequence[Frame], cfg: AnalysisConfig, length: float, wid
                 labels: Dict[str, str], thumbs: Dict[str, Optional[bytes]], colors: Dict[str, str],
                 progress: Optional[ProgressFn] = None) -> Dict:
     progress = progress or (lambda p, m: None)
-    ecfg = cfg.event_config(length, width, calibrated=bool(meta.get("calibrated")))
+    calibrated = bool(meta.get("calibrated"))
+    ecfg = cfg.event_config(length, width, calibrated=calibrated)
+    # 보정 없이 카메라까지 움직이면 화면 가장자리가 경기장 경계가 아니다 → '아웃' 판정을 끈다.
+    ecfg.trust_bounds = calibrated or not meta.get("camera_moving", False)
     events, spells, dirs = detect_events(frames, ecfg)
     ps = compute_player_stats(frames, events, length, width)
     progress(97, "통계 집계 중")

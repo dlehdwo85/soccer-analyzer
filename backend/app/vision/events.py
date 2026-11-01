@@ -53,6 +53,7 @@ class EventConfig:
     lose_s: float = 0.6                 # 반경 밖으로 이만큼 지나면 점유 종료
     release_factor: float = 2.5         # 공이 반경의 이 배수 밖이면 즉시 점유 종료(킥)
     hold_unknown_s: float = 1.5         # 공이 안 보여도 점유 유지하는 시간
+    hold_unknown_owner_s: float = 3.0   # 공은 안 보이지만 점유자는 계속 잡히고 있을 때(발밑 가림) 유지 시간
     merge_same_s: float = 1.5           # 같은 선수 구간 합치기 허용 공백
     max_link_s: float = 6.0             # A→B를 하나의 패스로 볼 최대 공백
     max_unknown_s: float = 2.5          # 공백 중 공 미검출이 이보다 길면 판정 보류
@@ -66,6 +67,9 @@ class EventConfig:
     blip_max_s: float = 0.3             # 같은 선수 점유 사이에 끼인 이보다 짧은 상대 점유는 잡음
     intercept_min_m: float = 4.0        # 상대가 가져갔을 때 공이 이만큼 날아갔으면 가로채기
     intercept_min_gap_s: float = 0.6    # 또는 공이 이만큼 떠 있었으면 가로채기
+    # 경기장 경계를 믿을 수 있는가. 보정이 없고 카메라가 움직이면 화면 밖 = 경기장 밖이 아니므로
+    # '아웃'으로 단정하지 않는다 (공이 시야에서 벗어난 것뿐일 수 있다).
+    trust_bounds: bool = True
     # 세트피스(재개) 판정
     calibrated: bool = False            # 경기장 보정이 있어야 코너킥·골킥·스로인·프리킥을 위치로 구분한다
     still_s: float = 1.2                # 재개 전 공이 이만큼 멈춰 있어야 한다
@@ -184,8 +188,12 @@ def detect_spells(frames: Sequence[Frame], cfg: EventConfig) -> List[Spell]:
 
     for f in frames:
         if f.ball is None:
-            if owner is not None and f.t - own_last > cfg.hold_unknown_s:
-                close(own_last)
+            if owner is not None:
+                # 공이 발밑에 가려진 경우가 흔하다: 점유자가 계속 보이면 더 오래 기다린다.
+                owner_visible = any(p.tid == owner.tid for p in f.players)
+                limit = cfg.hold_unknown_owner_s if owner_visible else cfg.hold_unknown_s
+                if f.t - own_last > limit:
+                    close(own_last)
             pending, pend_n = None, 0
             continue
         bx, by = f.ball
@@ -428,14 +436,15 @@ def detect_events(frames: Sequence[Frame], cfg: Optional[EventConfig] = None
         travel_m = _dist(a.x1, a.y1, b.x0, b.y0) * a.s if b else 0.0
         kicked = rel_speed >= cfg.kick_speed or travel_m >= 5.0
 
-        if _went_out(bi, a.t1, t_next, cfg, a.s):
+        if cfg.trust_bounds and _went_out(bi, a.t1, t_next, cfg, a.s):
             if kicked or b is None or b.team != a.team:
                 events.append(Event("pass", a.t1, a.team, a.tid, x=a.x1, y=a.y1,
                                     success=False, detail={"reason": "out"}))
             continue
 
         if b is None or gap > cfg.max_link_s:
-            if rel_speed >= cfg.kick_speed:
+            # 경계를 믿을 수 없으면(이동 카메라·미보정) 공이 시야 밖으로 나간 것인지 알 수 없다 — 추측하지 않는다.
+            if rel_speed >= cfg.kick_speed and cfg.trust_bounds:
                 events.append(Event("pass", a.t1, a.team, a.tid, x=a.x1, y=a.y1,
                                     success=False, detail={"reason": "out"}))
             continue

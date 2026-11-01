@@ -3,7 +3,7 @@ import pytest
 
 from app.vision import color as C
 from app.vision.ball import interpolate_gaps, select_ball_positions
-from app.vision.pitch import PitchMapper, apply_h, calibration_from_preset, homography
+from app.vision.pitch import POSSESSION_RADIUS_H, PitchMapper, apply_h, calibration_from_preset, homography
 from app.vision.tracker import Detection, IoUTracker, Tracklet, stitch_tracklets
 
 GRASS = (60, 140, 60)
@@ -143,7 +143,7 @@ def test_mapper_uncalibrated_scale_uses_person_height():
     x, y, r, s = m.player_geometry((500, 300, 540, 475))
     assert (x, y) == pytest.approx((52.0, 47.5))
     assert s == pytest.approx(0.1)
-    assert r == pytest.approx(0.55 * 175 / 10)
+    assert r == pytest.approx(POSSESSION_RADIUS_H * 175 / 10)
 
 
 def test_mapper_calibrated():

@@ -73,14 +73,22 @@ def remove_spikes(pos: List[BallPos], times: Sequence[float], frame_w: float,
     return out
 
 
-def interpolate_gaps(pos: List[BallPos], times: Sequence[float], max_gap_s: float = 0.8) -> List[BallPos]:
+def interpolate_gaps(pos: List[BallPos], times: Sequence[float], max_gap_s: float = 0.8,
+                     max_speed_px_s: Optional[float] = None) -> List[BallPos]:
+    """짧은 공백은 직선 보간. max_speed_px_s를 주면 양 끝이 그보다 빨리 이동한 공백(시야 밖으로 나갔다
+    다른 곳에서 다시 보인 경우)은 잇지 않는다 — 가려진 공은 보통 거의 제자리에 있다."""
     out = list(pos)
     known = [i for i, p in enumerate(pos) if p is not None]
     for a, b in zip(known, known[1:]):
         if b - a <= 1:
             continue
-        if times[b] - times[a] > max_gap_s:
+        gap = times[b] - times[a]
+        if gap > max_gap_s:
             continue
+        if max_speed_px_s is not None and gap > 0:
+            (ax, ay), (bx, by) = pos[a], pos[b]
+            if ((bx - ax) ** 2 + (by - ay) ** 2) ** 0.5 / gap > max_speed_px_s:
+                continue
         (x0, y0), (x1, y1) = pos[a], pos[b]
         for i in range(a + 1, b):
             f = (times[i] - times[a]) / (times[b] - times[a])

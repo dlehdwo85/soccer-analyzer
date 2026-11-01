@@ -20,7 +20,9 @@ import numpy as np
 
 PERSON_HEIGHT_M = 1.75
 POSSESSION_RADIUS_M = 1.6     # 보정 시 공 소유 판정 반경
-POSSESSION_RADIUS_H = 0.55    # 미보정 시 박스 높이 대비 반경
+# 미보정 시 박스 높이 대비 점유 반경. 1080p 광각 영상(선수 키 약 40px)에서 0.55는 발밑 공(≈1m)도 자주 놓쳤다:
+# 실측 1분 구간에서 0.55 → 점유 12.5초, 0.8 → 19초(패스 성공 3→4). 그 이상은 잡음만 늘었다.
+POSSESSION_RADIUS_H = 0.8
 
 FIELD_DIMS = {"soccer": (105.0, 68.0), "futsal": (40.0, 20.0)}
 GOAL_WIDTH = {"soccer": 7.32, "futsal": 3.0}
