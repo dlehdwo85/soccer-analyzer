@@ -26,7 +26,7 @@ HEAT_COLS, HEAT_ROWS = 12, 8
 
 BALL_KEYS = ("touches", "possession_s", "passes_attempted", "passes_completed", "passes_failed",
              "passes_received", "forward_passes", "shots", "shots_on_target", "shots_blocked",
-             "interceptions", "recoveries", "dispossessed")
+             "interceptions", "recoveries", "dispossessed", "xg")
 PHYS_KEYS = ("distance_m", "walk_m", "jog_m", "run_m", "sprint_m", "sprint_count", "seconds_tracked")
 SUM_KEYS = BALL_KEYS + PHYS_KEYS + ("pos_sum_x", "pos_sum_y", "pos_weight", "pass_length_sum")
 
@@ -171,6 +171,7 @@ def add_event_stats(stats: Dict[str, Dict], events: Iterable[Event]) -> None:
             s["shots"] += 1
             if e.success:
                 s["shots_on_target"] += 1
+            s["xg"] += e.detail.get("xg", 0.0) or 0.0
             if e.detail.get("outcome") == "blocked":
                 s["shots_blocked"] += 1
         elif e.kind == "recovery":
@@ -245,6 +246,7 @@ def team_stats(player_stats: Dict[str, Dict], spells: Sequence[Spell]) -> Dict[s
                                     "forward_passes", "shots", "shots_on_target", "shots_blocked",
                                     "interceptions", "recoveries", "dispossessed", "touches",
                                     "sprint_count")},
+            "xg": round(agg["xg"], 2),
             "distance_m": round(agg["distance_m"], 1),
             "sprint_m": round(agg["sprint_m"], 1),
             "heat": [round(v, 1) for v in agg["heat"]],

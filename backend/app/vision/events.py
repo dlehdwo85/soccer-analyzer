@@ -310,6 +310,22 @@ def _shot_check(a: Spell, bi: _BallIndex, cfg: EventConfig, direction: int
     return {"speed_ms": round(speed, 1), "y_cross": y_cross, "goal_x": goal_x, "goal_y": goal_y, "half": half}
 
 
+def shot_xg(x: float, y: float, goal_x: float, goal_y: float, goal_width_m: float, s: float = 1.0) -> float:
+    """간이 xG — 거리·골문 각도 로지스틱 모형.
+
+    대략 페널티 지점 0.2, 골 에어리어 정면 0.5, 페널티 박스 경계 0.07, 25m 0.03 수준.
+    머리/발, 수비 위치, 패스 유형은 반영하지 못하므로 참고 지표다.
+    """
+    half = goal_width_m / 2 / max(s, 1e-6)
+    dx, dy = abs(goal_x - x), y - goal_y
+    d_m = math.hypot(dx, dy) * s
+    angle = math.atan2(2 * half * dx, dx * dx + dy * dy - half * half)
+    if angle < 0:
+        angle += math.pi
+    logit = -0.4 - 0.14 * d_m + 1.0 * angle
+    return round(1 / (1 + math.exp(-logit)), 3)
+
+
 def _went_out(bi: _BallIndex, t0: float, t1: float, cfg: EventConfig, s: float) -> bool:
     m = 1.0 / max(s, 1e-6)  # 1m를 좌표 단위로
     return any(x < -m or x > cfg.length + m or y < -m or y > cfg.width + m for _, x, y in bi.path(t0, t1))
@@ -398,4 +414,5 @@ def _shot_event(a: Spell, b: Optional[Spell], bi: _BallIndex, cfg: EventConfig, 
     return Event("shot", a.t1, a.team, a.tid, t_end=reached[0] if reached else t_stop,
                  target=b.tid if b and b.team != a.team else None,
                  x=a.x1, y=a.y1, x2=end[0], y2=end[1], success=outcome == "on_target",
-                 detail={"outcome": outcome, "speed_ms": shot["speed_ms"]})
+                 detail={"outcome": outcome, "speed_ms": shot["speed_ms"],
+                         "xg": shot_xg(a.x1, a.y1, goal_x, goal_y, cfg.goal_width, a.s)})

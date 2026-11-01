@@ -1,6 +1,8 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text
+
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
+
 from app.database import Base
 
 
@@ -16,66 +18,77 @@ class Match(Base):
     home_team_color   = Column(String(20), default="#56b4d3")
     away_team_color   = Column(String(20), default="#ef4444")
     referee_color     = Column(String(20), default="#facc15")
+    home_gk_color     = Column(String(20), nullable=True)
+    away_gk_color     = Column(String(20), nullable=True)
     video_filename    = Column(String(512), nullable=True)
-    video_url         = Column(String(1024), nullable=True)  # Supabase URL 또는 YouTube URL
-    status            = Column(String(20), default="created")
-    # 분석 데이터 소스: video | gps | sample
-    data_source       = Column(String(20), default="sample")
+    video_url         = Column(String(1024), nullable=True)  # R2 공개 URL 또는 local:{id}/{파일명}
+    status            = Column(String(20), default="created")  # created|uploaded|analyzing|done|failed
+    data_source       = Column(String(20), default="sample")   # video|gps|sample
     created_at        = Column(DateTime, default=datetime.utcnow)
 
-    players         = relationship("PlayerTrackSummary", back_populates="match", cascade="all, delete-orphan")
-    frames          = relationship("FrameTracking", back_populates="match", cascade="all, delete-orphan")
-    match_analytics = relationship("MatchAnalytics", back_populates="match", uselist=False, cascade="all, delete-orphan")
-    gps_tracks      = relationship("GpsTrackPoint", back_populates="match", cascade="all, delete-orphan")
+    # 분석 설정
+    home_attacks      = Column(String(10), default="auto")     # auto|right|left (전반 기준)
+    halftime_s        = Column(Float, nullable=True)           # 후반 시작 시각(초) — 공격 방향 전환
+    calibration_json  = Column(Text, nullable=True)            # 경기장 보정 {preset, image_points, ...}
+
+    # 분석 진행 상태
+    analysis_progress = Column(Float, default=0.0)
+    analysis_message  = Column(String(255), default="")
+    analysis_error    = Column(Text, nullable=True)
+    analysis_version  = Column(Integer, default=0)             # 2 = 현재 엔진 결과
+    result_meta_json  = Column(Text, nullable=True)            # 길이·fps·경고·공격 방향 등
+
+    players    = relationship("MatchPlayer", back_populates="match", cascade="all, delete-orphan")
+    events     = relationship("MatchEvent", back_populates="match", cascade="all, delete-orphan")
+    gps_tracks = relationship("GpsTrackPoint", back_populates="match", cascade="all, delete-orphan")
 
 
-class PlayerTrackSummary(Base):
-    __tablename__ = "player_track_summaries"
+class MatchPlayer(Base):
+    """영상에서 추적된 선수(트랙) 하나. stats_json은 합산 가능한 원시값."""
+    __tablename__ = "match_players"
 
-    id                     = Column(Integer, primary_key=True, index=True)
-    match_id               = Column(Integer, ForeignKey("matches.id"), nullable=False, index=True)
-    track_id               = Column(String(50), nullable=False)
-    team_side              = Column(String(10), nullable=False)
-    total_distance_m       = Column(Float, default=0.0)
-    avg_position_x         = Column(Float, default=0.5)
-    avg_position_y         = Column(Float, default=0.5)
-    active_area_score      = Column(Float, default=0.0)
-    first_half_distance_m  = Column(Float, default=0.0)
-    second_half_distance_m = Column(Float, default=0.0)
-    comment                = Column(Text, default="")
-    style_badge            = Column(String(50), default="")
-    fatigue_index          = Column(Float, default=0.0)
-    press_count            = Column(Integer, default=0)
-    zone_left_pct          = Column(Float, default=33.0)
-    zone_center_pct        = Column(Float, default=34.0)
-    zone_right_pct         = Column(Float, default=33.0)
-    role_type              = Column(String(30), default="")
-    sprint_count           = Column(Integer, default=0)
+    id            = Column(Integer, primary_key=True, index=True)
+    match_id      = Column(Integer, ForeignKey("matches.id"), nullable=False, index=True)
+    track_id      = Column(String(50), nullable=False)
+    team          = Column(String(10), nullable=False)        # home|away
+    label         = Column(String(20), default="")            # home|away|home_gk|away_gk
+    color_hex     = Column(String(20), nullable=True)         # 실제 관측된 유니폼 색
+    thumbnail     = Column(Text, nullable=True)               # JPEG base64
+    minor         = Column(Boolean, default=False)            # 짧게 잡힌 조각 트랙
+    excluded      = Column(Boolean, default=False)            # 사용자가 제외(코치/관중 등)
+    merged_into   = Column(String(50), nullable=True)         # 다른 트랙과 합쳐졌으면 대상 track_id
+    display_name  = Column(String(100), nullable=True)
+    jersey_number = Column(Integer, nullable=True)
+    stats_json    = Column(Text, nullable=False, default="{}")
 
     match = relationship("Match", back_populates="players")
 
 
-class FrameTracking(Base):
-    __tablename__ = "frame_trackings"
+class MatchEvent(Base):
+    """볼 이벤트. player/target은 원래 track_id (병합은 조회 시 반영)."""
+    __tablename__ = "match_events"
 
-    id           = Column(Integer, primary_key=True, index=True)
-    match_id     = Column(Integer, ForeignKey("matches.id"), nullable=False, index=True)
-    frame_index  = Column(Integer, nullable=False)
-    timestamp_ms = Column(Integer, nullable=False)
-    track_id     = Column(String(50), nullable=False, index=True)
-    team_side    = Column(String(10), nullable=False)
-    x            = Column(Float, nullable=False)
-    y            = Column(Float, nullable=False)
-    bbox_x       = Column(Float, default=0.0)
-    bbox_y       = Column(Float, default=0.0)
-    bbox_w       = Column(Float, default=0.0)
-    bbox_h       = Column(Float, default=0.0)
+    id          = Column(Integer, primary_key=True, index=True)
+    match_id    = Column(Integer, ForeignKey("matches.id"), nullable=False, index=True)
+    seq         = Column(Integer, nullable=False)
+    kind        = Column(String(20), nullable=False)          # possession|pass|shot|recovery
+    t           = Column(Float, nullable=False)
+    t_end       = Column(Float, nullable=True)
+    team        = Column(String(10), nullable=False)
+    player      = Column(String(50), nullable=False)
+    target      = Column(String(50), nullable=True)
+    x           = Column(Float, nullable=True)
+    y           = Column(Float, nullable=True)
+    x2          = Column(Float, nullable=True)
+    y2          = Column(Float, nullable=True)
+    success     = Column(Boolean, nullable=True)
+    detail_json = Column(Text, default="{}")
 
-    match = relationship("Match", back_populates="frames")
+    match = relationship("Match", back_populates="events")
 
 
 class GpsTrackPoint(Base):
-    """GPS 원본 좌표 포인트 저장 (파일 재분석 / 원본 보존용)."""
+    """GPS 원본 좌표 (시각화·재분석용)."""
     __tablename__ = "gps_track_points"
 
     id             = Column(Integer, primary_key=True, index=True)
@@ -88,48 +101,7 @@ class GpsTrackPoint(Base):
     lat            = Column(Float, nullable=False)
     lng            = Column(Float, nullable=False)
     speed_mps      = Column(Float, default=0.0)
-    norm_x         = Column(Float, default=0.5)   # 정규화 x (0~1)
-    norm_y         = Column(Float, default=0.5)   # 정규화 y (0~1)
+    norm_x         = Column(Float, default=0.5)
+    norm_y         = Column(Float, default=0.5)
 
     match = relationship("Match", back_populates="gps_tracks")
-
-
-class PlayerProfile(Base):
-    """등번호 기반 선수 프로필 — 여러 경기 누적 통계."""
-    __tablename__ = "player_profiles"
-
-    id             = Column(Integer, primary_key=True, index=True)
-    jersey_number  = Column(Integer, nullable=False, index=True)
-    player_name    = Column(String(100), nullable=False)
-    team_name      = Column(String(100), default="")
-    total_matches  = Column(Integer, default=0)
-    total_distance_m = Column(Float, default=0.0)
-    total_sprints  = Column(Integer, default=0)
-    avg_fatigue    = Column(Float, default=0.0)
-    created_at     = Column(DateTime, default=datetime.utcnow)
-    updated_at     = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class MatchAnalytics(Base):
-    __tablename__ = "match_analytics"
-
-    id                     = Column(Integer, primary_key=True, index=True)
-    match_id               = Column(Integer, ForeignKey("matches.id"), nullable=False, unique=True)
-    home_formation         = Column(String(20), default="4-4-2")
-    away_formation         = Column(String(20), default="4-4-2")
-    home_zone_map          = Column(Text, default="{}")
-    away_zone_map          = Column(Text, default="{}")
-    home_press_timeline    = Column(Text, default="[]")
-    away_press_timeline    = Column(Text, default="[]")
-    home_centroid_timeline = Column(Text, default="[]")
-    away_centroid_timeline = Column(Text, default="[]")
-    home_fatigue_timeline  = Column(Text, default="[]")
-    away_fatigue_timeline  = Column(Text, default="[]")
-    home_total_distance_m  = Column(Float, default=0.0)
-    away_total_distance_m  = Column(Float, default=0.0)
-    home_avg_press_dist    = Column(Float, default=0.0)
-    away_avg_press_dist    = Column(Float, default=0.0)
-    match_summary_text     = Column(Text, default="")
-    created_at             = Column(DateTime, default=datetime.utcnow)
-
-    match = relationship("Match", back_populates="match_analytics")

@@ -7,9 +7,8 @@ GPS 데이터 파싱 및 분석 서비스
   - GPX : 표준 GPS Exchange Format (가민, 폴라, 수토 등)
 
 주요 기능:
-  - lat/lng → 경기장 정규화 좌표(0~1) 변환 (Haversine 기반)
-  - 선수별 이동거리, 스프린트 횟수, 피로도 계산
-  - 기존 players/frames 구조로 변환 → analysis_service와 완전 호환
+  - lat/lng → 경기장 좌표(m) 변환 (로컬 투영 + 주축 정렬)
+  - 영상 분석과 같은 활동량 엔진(app.vision.stats)으로 거리·속도 구간·스프린트·히트맵 계산
 """
 
 from __future__ import annotations
@@ -21,76 +20,15 @@ import math
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
-
-# 축구장 실제 크기 (m)
-FIELD_WIDTH_M  = 105.0
-FIELD_HEIGHT_M = 68.0
-
-# 스프린트 임계값 (m/s) — 약 25km/h
-SPRINT_THRESHOLD_MPS = 6.94
 
 # GPX XML 네임스페이스
 GPX_NS = {
     "gpx": "http://www.topografix.com/GPX/1/1",
     "gpx10": "http://www.topografix.com/GPX/1/0",
 }
-
-
-# ─────────────────────────────────────────────
-# 좌표 변환 유틸
-# ─────────────────────────────────────────────
-
-def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-    """두 GPS 좌표 사이의 거리(미터) — Haversine 공식."""
-    R = 6_371_000  # 지구 반지름 m
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlambda = math.radians(lng2 - lng1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-
-def normalize_coords(
-    points: List[Dict],
-    ref_lat: Optional[float] = None,
-    ref_lng: Optional[float] = None,
-) -> List[Dict]:
-    """
-    lat/lng → 정규화 x/y (0~1) 변환.
-
-    ref_lat/ref_lng 가 주어지면 해당 점을 원점으로 삼아 실제 m 단위로 변환 후
-    경기장 크기(105m × 68m) 로 나눠 정규화한다.
-    주어지지 않으면 bounding-box 방식으로 데이터 범위 내에서 정규화한다.
-    """
-    lats = [p["lat"] for p in points]
-    lngs = [p["lng"] for p in points]
-
-    if not lats:
-        return points
-
-    if ref_lat is None:
-        ref_lat = min(lats)
-    if ref_lng is None:
-        ref_lng = min(lngs)
-
-    # 실제 m 범위 계산
-    max_x_m = haversine_m(ref_lat, ref_lng, ref_lat, max(lngs))
-    max_y_m = haversine_m(ref_lat, ref_lng, max(lats), ref_lng)
-
-    # 실제 경기장 크기로 클램프 (bounding-box가 더 크면 필드 크기 사용)
-    range_x = max(max_x_m, 1.0)
-    range_y = max(max_y_m, 1.0)
-
-    for p in points:
-        x_m = haversine_m(ref_lat, ref_lng, ref_lat, p["lng"])
-        y_m = haversine_m(ref_lat, ref_lng, p["lat"], ref_lng)
-        p["x"] = min(x_m / range_x, 1.0)
-        p["y"] = min(y_m / range_y, 1.0)
-
-    return points
 
 
 # ─────────────────────────────────────────────
@@ -237,194 +175,83 @@ def parse_gps_file(filename: str, content: bytes) -> List[Dict]:
 
 
 # ─────────────────────────────────────────────
-# 선수별 통계 계산
+# GPS → 분석 결과 (영상 분석과 같은 형식, 볼 이벤트 없음)
 # ─────────────────────────────────────────────
 
-def _calc_player_stats(
-    pid: str,
-    pts: List[Dict],
-    match_id: int,
-) -> Tuple[Dict, List[Dict]]:
-    """
-    단일 선수의 raw 포인트 → PlayerTrackSummary 딕셔너리 + FrameTracking 목록.
-    """
-    pts = sorted(pts, key=lambda p: p["timestamp_ms"])
-    total_ms = pts[-1]["timestamp_ms"] if pts else 0
-    half_ms  = total_ms / 2
-
-    total_dist   = 0.0
-    first_dist   = 0.0
-    second_dist  = 0.0
-    sprint_count = 0
-    press_count  = 0
-
-    xs = [p["x"] for p in pts]
-    ys = [p["y"] for p in pts]
-
-    prev = None
-    in_sprint = False
-    fatigue_acc = 0.0
-
-    for p in pts:
-        if prev is not None:
-            d = haversine_m(prev["lat"], prev["lng"], p["lat"], p["lng"])
-            total_dist += d
-            if p["timestamp_ms"] <= half_ms:
-                first_dist += d
-            else:
-                second_dist += d
-
-        # 스프린트 감지
-        speed = p.get("speed_mps", 0.0)
-        if speed >= SPRINT_THRESHOLD_MPS:
-            if not in_sprint:
-                sprint_count += 1
-                in_sprint = True
-        else:
-            in_sprint = False
-
-        # 압박: 속도 3~6 m/s 범위 고강도 이동
-        if 3.0 <= speed < SPRINT_THRESHOLD_MPS:
-            press_count += 1
-
-        fatigue_acc += speed
-        prev = p
-
-    avg_x = sum(xs) / len(xs) if xs else 0.5
-    avg_y = sum(ys) / len(ys) if ys else 0.5
-
-    # 구역 분포
-    zone_left   = sum(1 for x in xs if x < 0.33) / max(len(xs), 1) * 100
-    zone_center = sum(1 for x in xs if 0.33 <= x < 0.67) / max(len(xs), 1) * 100
-    zone_right  = 100 - zone_left - zone_center
-
-    # 피로도: 후반 평균속도 / 전반 평균속도 비율 역수
-    first_pts  = [p for p in pts if p["timestamp_ms"] <= half_ms]
-    second_pts = [p for p in pts if p["timestamp_ms"] > half_ms]
-    avg_speed1 = sum(p.get("speed_mps", 0) for p in first_pts)  / max(len(first_pts), 1)
-    avg_speed2 = sum(p.get("speed_mps", 0) for p in second_pts) / max(len(second_pts), 1)
-    fatigue_index = round(1 - (avg_speed2 / max(avg_speed1, 0.01)), 3)
-    fatigue_index = max(0.0, min(1.0, fatigue_index))
-
-    player_name   = pts[0].get("player_name", pid)
-    jersey_number = pts[0].get("jersey_number", 0)
-    team_side     = pts[0].get("team", "home")
-
-    # track_id: GPS 선수는 "gps_<jersey>" 또는 "gps_<player_id>"
-    track_id = f"gps_{jersey_number}" if jersey_number else f"gps_{pid}"
-
-    # 역할 추정
-    if avg_y < 0.35:
-        role_type = "수비형"
-    elif avg_y > 0.65:
-        role_type = "공격형"
-    else:
-        role_type = "중간형"
-
-    active_area = min(len(set((round(p["x"], 1), round(p["y"], 1)) for p in pts)) / 30.0, 1.0)
-
-    summary = {
-        "match_id":               match_id,
-        "track_id":               track_id,
-        "team_side":              team_side,
-        "total_distance_m":       round(total_dist, 2),
-        "avg_position_x":         round(avg_x, 4),
-        "avg_position_y":         round(avg_y, 4),
-        "active_area_score":      round(active_area, 4),
-        "first_half_distance_m":  round(first_dist, 2),
-        "second_half_distance_m": round(second_dist, 2),
-        "comment":                f"GPS #{jersey_number} {player_name}",
-        "style_badge":            "GPS",
-        "fatigue_index":          fatigue_index,
-        "press_count":            press_count,
-        "zone_left_pct":          round(zone_left, 1),
-        "zone_center_pct":        round(zone_center, 1),
-        "zone_right_pct":         round(zone_right, 1),
-        "role_type":              role_type,
-        "sprint_count":           sprint_count,
-        # GPS 전용 추가 정보 (DB 컬럼 없음 → comment에 직렬화)
-        "_player_name":           player_name,
-        "_jersey_number":         jersey_number,
-    }
-
-    frames = [
-        {
-            "match_id":    match_id,
-            "frame_index": i,
-            "timestamp_ms": p["timestamp_ms"],
-            "track_id":    track_id,
-            "team_side":   team_side,
-            "x":           round(p.get("x", 0.5), 4),
-            "y":           round(p.get("y", 0.5), 4),
-        }
-        for i, p in enumerate(pts)
-    ]
-
-    return summary, frames
+def _project_m(points: List[Dict]) -> List[Tuple[float, float]]:
+    """위경도 → 로컬 평면 좌표(m). 등장방형 투영 — 경기장 크기에서는 오차가 무시할 수준."""
+    lat0 = sum(p["lat"] for p in points) / len(points)
+    lng0 = sum(p["lng"] for p in points) / len(points)
+    kx = 111_320.0 * math.cos(math.radians(lat0))
+    ky = 110_540.0
+    return [((p["lng"] - lng0) * kx, (p["lat"] - lat0) * ky) for p in points]
 
 
-# ─────────────────────────────────────────────
-# 퍼블릭 API
-# ─────────────────────────────────────────────
+def _align_to_pitch(xy: List[Tuple[float, float]], length: float, width: float) -> List[Tuple[float, float]]:
+    """주축(PCA)을 경기장 길이 방향으로 돌리고, 경기장 크기 안으로 옮긴다."""
+    n = len(xy)
+    mx = sum(x for x, _ in xy) / n
+    my = sum(y for _, y in xy) / n
+    sxx = sum((x - mx) ** 2 for x, _ in xy) / n
+    syy = sum((y - my) ** 2 for _, y in xy) / n
+    sxy = sum((x - mx) * (y - my) for x, y in xy) / n
+    theta = 0.5 * math.atan2(2 * sxy, sxx - syy)
+    c, s = math.cos(-theta), math.sin(-theta)
+    rot = [((x - mx) * c - (y - my) * s, (x - mx) * s + (y - my) * c) for x, y in xy]
+    xs = sorted(p[0] for p in rot)
+    ys = sorted(p[1] for p in rot)
+    # 이상치(벤치·이동 중 기록)를 빼고 1~99% 범위를 경기장 중앙에 맞춘다
+    lo_x, hi_x = xs[int(0.01 * (n - 1))], xs[int(0.99 * (n - 1))]
+    lo_y, hi_y = ys[int(0.01 * (n - 1))], ys[int(0.99 * (n - 1))]
+    off_x = length / 2 - (lo_x + hi_x) / 2
+    off_y = width / 2 - (lo_y + hi_y) / 2
+    return [(x + off_x, y + off_y) for x, y in rot]
 
-def process_gps_data(
-    match_id: int,
-    filename: str,
-    content: bytes,
-) -> Dict[str, Any]:
-    """
-    GPS 파일 → analysis_service._save_results() 호환 딕셔너리 반환.
 
-    Returns:
-        {
-            "players": [...],   # PlayerTrackSummary 딕셔너리 목록
-            "frames":  [...],   # FrameTracking 딕셔너리 목록
-            "preview": {...},   # 업로드 전 미리보기용 메타 정보
-        }
-    """
-    raw_points = parse_gps_file(filename, content)
+def build_gps_result(raw_points: List[Dict], field_type: str = "soccer") -> Dict[str, Any]:
+    """GPS 포인트 → 분석 결과(version 2). 활동량·히트맵만 채워지고 볼 이벤트는 없다."""
+    from app.vision.pitch import field_dims
+    from app.vision.stats import physical_stats
+
     if not raw_points:
         raise ValueError("파싱된 GPS 포인트가 없습니다.")
+    length, width = field_dims(field_type)
+    pts = sorted(raw_points, key=lambda p: p["timestamp_ms"])
+    t0 = pts[0]["timestamp_ms"]
+    xy = _align_to_pitch(_project_m(pts), length, width)
 
-    # lat/lng → 정규화 좌표
-    raw_points = normalize_coords(raw_points)
+    grouped: Dict[str, List[Tuple[float, float, float, float]]] = {}
+    info: Dict[str, Dict] = {}
+    for p, (x, y) in zip(pts, xy):
+        pid = str(p.get("player_id") or p.get("jersey_number") or "unknown")
+        grouped.setdefault(pid, []).append(((p["timestamp_ms"] - t0) / 1000.0, x, y, 1.0))
+        info.setdefault(pid, p)
 
-    # player_id 기준으로 그루핑
-    grouped: Dict[str, List[Dict]] = {}
-    for p in raw_points:
-        pid = p["player_id"] or p.get("jersey_number") or "unknown"
-        grouped.setdefault(str(pid), []).append(p)
-
-    players, frames = [], []
-    for pid, pts in grouped.items():
-        summary, frame_list = _calc_player_stats(pid, pts, match_id)
-        players.append(summary)
-        frames.extend(frame_list)
-
-    # 미리보기 정보
-    all_ts = sorted({p["timestamp_ms"] for p in raw_points})
-    duration_sec = (all_ts[-1] - all_ts[0]) / 1000 if len(all_ts) > 1 else 0
-    teams = {p.get("team", "home") for p in raw_points}
-
-    preview = {
-        "total_points":  len(raw_points),
-        "total_players": len(players),
-        "duration_sec":  round(duration_sec, 1),
-        "teams":         sorted(teams),
-        "players": [
-            {
-                "player_id":      pid,
-                "player_name":    pts[0].get("player_name", pid),
-                "jersey_number":  pts[0].get("jersey_number", 0),
-                "team":           pts[0].get("team", "home"),
-                "point_count":    len(pts),
-            }
-            for pid, pts in grouped.items()
-        ],
+    players = []
+    for pid, track in grouped.items():
+        st = physical_stats(track, length, width, max_gap_s=5.0)
+        p0 = info[pid]
+        team = p0.get("team") if p0.get("team") in ("home", "away") else "home"
+        players.append({
+            "track_id": f"gps_{pid}",
+            "team": team,
+            "label": team,
+            "color_hex": None,
+            "thumbnail": None,
+            "minor": False,
+            "display_name": p0.get("player_name") or None,
+            "jersey_number": p0.get("jersey_number") or None,
+            "stats": st,
+        })
+    duration = (pts[-1]["timestamp_ms"] - t0) / 1000.0
+    return {
+        "version": 2,
+        "meta": {"source": "gps", "duration_s": round(duration, 1), "calibrated": True,
+                 "field": {"type": field_type, "length": length, "width": width},
+                 "warnings": ["GPS 데이터에는 공 정보가 없어 볼 터치·패스·슈팅 기록은 비어 있습니다."]},
+        "players": players,
+        "events": [],
     }
-
-    return {"players": players, "frames": frames, "preview": preview}
-
 
 def get_gps_preview(filename: str, content: bytes) -> Dict[str, Any]:
     """DB 저장 없이 파일 미리보기 정보만 반환 (업로드 검증용)."""
