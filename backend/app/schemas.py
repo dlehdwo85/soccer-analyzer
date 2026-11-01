@@ -1,18 +1,60 @@
 from __future__ import annotations
+
+import re
 from datetime import datetime
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, ConfigDict
+from typing import List, Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _hex(v: Optional[str]) -> Optional[str]:
+    if v in (None, ""):
+        return None
+    if not HEX.match(v):
+        raise ValueError("색상은 #RRGGBB 형식이어야 합니다")
+    return v.lower()
 
 
 class MatchCreate(BaseModel):
-    title: str
+    title: str = Field(min_length=1, max_length=255)
     date: Optional[str] = None
-    field_type: str = "soccer"
+    field_type: Literal["soccer", "futsal"] = "soccer"
     home_team_name: str = "홈팀"
     away_team_name: str = "원정팀"
     home_team_color: str = "#ef4444"
     away_team_color: str = "#3b82f6"
-    referee_color: str = "#facc15"
+    referee_color: Optional[str] = "#facc15"
+    home_gk_color: Optional[str] = None
+    away_gk_color: Optional[str] = None
+    home_attacks: Literal["auto", "right", "left"] = "auto"
+    halftime_s: Optional[float] = Field(default=None, ge=0)
+
+    @field_validator("home_team_color", "away_team_color", "referee_color", "home_gk_color", "away_gk_color")
+    @classmethod
+    def check_colors(cls, v):
+        return _hex(v)
+
+
+class MatchUpdate(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    date: Optional[str] = None
+    field_type: Optional[Literal["soccer", "futsal"]] = None
+    home_team_name: Optional[str] = None
+    away_team_name: Optional[str] = None
+    home_team_color: Optional[str] = None
+    away_team_color: Optional[str] = None
+    referee_color: Optional[str] = None
+    home_gk_color: Optional[str] = None
+    away_gk_color: Optional[str] = None
+    home_attacks: Optional[Literal["auto", "right", "left"]] = None
+    halftime_s: Optional[float] = Field(default=None, ge=0)
+
+    @field_validator("home_team_color", "away_team_color", "referee_color", "home_gk_color", "away_gk_color")
+    @classmethod
+    def check_colors(cls, v):
+        return _hex(v)
 
 
 class MatchOut(BaseModel):
@@ -25,128 +67,83 @@ class MatchOut(BaseModel):
     away_team_name: str
     home_team_color: str
     away_team_color: str
-    referee_color: str
+    referee_color: Optional[str]
+    home_gk_color: Optional[str] = None
+    away_gk_color: Optional[str] = None
+    home_attacks: Optional[str] = "auto"
+    halftime_s: Optional[float] = None
     video_filename: Optional[str]
+    video_url: Optional[str] = None
     status: str
-    data_source: str = "sample"
+    data_source: Optional[str] = "sample"
+    analysis_progress: Optional[float] = 0
+    analysis_message: Optional[str] = ""
+    analysis_error: Optional[str] = None
+    analysis_version: Optional[int] = 0
+    calibrated: bool = False
     created_at: datetime
 
 
-class PlayerOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    match_id: int
-    track_id: str
-    team_side: str
-    total_distance_m: float
-    avg_position_x: float
-    avg_position_y: float
-    active_area_score: float
-    first_half_distance_m: float
-    second_half_distance_m: float
-    comment: str
-    style_badge: str
-    fatigue_index: float
-    press_count: int
-    zone_left_pct: float
-    zone_center_pct: float
-    zone_right_pct: float
-    role_type: str
-    sprint_count: int
-
-
-class FramePointOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    frame_index: int
-    timestamp_ms: int
-    x: float
-    y: float
-
-
-class PlayerDetailOut(PlayerOut):
-    frames: List[FramePointOut] = []
-
-
-class MatchAnalyticsOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    home_formation: str
-    away_formation: str
-    home_zone_map: str
-    away_zone_map: str
-    home_centroid_timeline: str
-    away_centroid_timeline: str
-    home_fatigue_timeline: str
-    away_fatigue_timeline: str
-    home_total_distance_m: float
-    away_total_distance_m: float
-    home_avg_press_dist: float
-    away_avg_press_dist: float
-    match_summary_text: str
-
-
-class MatchSummaryOut(BaseModel):
-    match: MatchOut
-    players: List[PlayerOut]
-    home_avg_x: float
-    home_avg_y: float
-    away_avg_x: float
-    away_avg_y: float
-    total_distance_km: float
-    analytics: Optional[MatchAnalyticsOut] = None
+class StatusOut(BaseModel):
+    status: str
+    progress: float
+    message: str
+    error: Optional[str]
+    has_result: bool
 
 
 class AnalyzeRequest(BaseModel):
-    use_sample: bool = False
+    mode: Literal["video", "sample"] = "video"
+    use_sample: bool = False  # 이전 클라이언트 호환
+    start_seconds: float = Field(default=0, ge=0)
+    max_seconds: Optional[float] = Field(default=None, gt=0)
 
 
-# ── GPS 관련 스키마 ────────────────────────────────────────────────────────
+class CalibrationIn(BaseModel):
+    preset: Literal["full", "left_half", "right_half", "custom"]
+    image_points: List[List[float]] = Field(min_length=4, max_length=4)
+    pitch_points: Optional[List[List[float]]] = None  # custom일 때
+    length: Optional[float] = Field(default=None, gt=10, le=130)
+    width: Optional[float] = Field(default=None, gt=5, le=100)
 
-class GpsPlayerPreview(BaseModel):
-    player_id:     str
-    player_name:   str
-    jersey_number: int
-    team:          str
-    point_count:   int
-    time_range_sec: float = 0.0
-
-
-class GpsPreviewOut(BaseModel):
-    total_points:  int
-    total_players: int
-    duration_sec:  float
-    teams:         List[str]
-    lat_range:     List[float] = []
-    lng_range:     List[float] = []
-    players:       List[GpsPlayerPreview]
+    @field_validator("image_points")
+    @classmethod
+    def _norm(cls, pts):
+        for p in pts:
+            if len(p) != 2 or not all(-0.5 <= v <= 1.5 for v in p):
+                raise ValueError("image_points는 화면 대비 0~1 비율 좌표 4개여야 합니다")
+        return pts
 
 
-class GpsUploadResult(BaseModel):
-    message:       str
-    total_points:  int
-    total_players: int
-    duration_sec:  float
-    preview:       GpsPreviewOut
+class PlayerUpdate(BaseModel):
+    display_name: Optional[str] = Field(default=None, max_length=100)
+    jersey_number: Optional[int] = Field(default=None, ge=0, le=999)
+    team: Optional[Literal["home", "away"]] = None
+    excluded: Optional[bool] = None
 
 
-# ── 선수 프로필 스키마 ─────────────────────────────────────────────────────
-
-class PlayerProfileOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id:              int
-    jersey_number:   int
-    player_name:     str
-    team_name:       str
-    total_matches:   int
-    total_distance_m: float
-    total_sprints:   int
-    avg_fatigue:     float
+class MergeRequest(BaseModel):
+    target: str
+    sources: List[str] = Field(min_length=1)
 
 
-class PlayerMatchHistoryItem(BaseModel):
-    match_id:        int
-    match_title:     str
-    match_date:      Optional[str]
-    total_distance_m: float
-    sprint_count:    int
-    fatigue_index:   float
-    data_source:     str
+class VideoUrlBody(BaseModel):
+    video_url: str
+    filename: str
+
+
+class EventUpdate(BaseModel):
+    """이벤트 검수. result — 패스: completed|intercepted|out, 슈팅: on_target|off_target|blocked."""
+    player: Optional[str] = None
+    target: Optional[str] = None
+    result: Optional[str] = None
+    t: Optional[float] = Field(default=None, ge=0)
+    deleted: Optional[bool] = None
+
+
+class EventCreate(BaseModel):
+    kind: Literal["pass", "shot", "recovery"]
+    t: float = Field(ge=0)
+    player: str
+    target: Optional[str] = None
+    result: Optional[str] = None

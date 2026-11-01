@@ -1,0 +1,27 @@
+# RunPod Serverless GPU 워커 이미지
+#   docker build -f backend/Dockerfile.worker -t <registry>/soccer-analyzer-worker backend
+# RunPod 콘솔 → Serverless → New Endpoint 에서 이 이미지를 지정한다.
+FROM pytorch/pytorch:2.4.1-cuda12.1-cudnn9-runtime
+
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1 \
+    YOLO_MODEL=yolov8m.pt \
+    YOLO_IMGSZ=1280 \
+    YOLO_CONFIG_DIR=/app/.ultralytics
+
+RUN apt-get update && apt-get install -y --no-install-recommends libglib2.0-0 ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-worker.txt .
+RUN pip install --no-cache-dir -r requirements-worker.txt \
+    && pip uninstall -y opencv-python \
+    && pip install --no-cache-dir --force-reinstall --no-deps "opencv-python-headless>=4.9"
+
+# 모델 가중치를 이미지에 미리 받아 둔다 (콜드스타트 단축)
+RUN python -c "from ultralytics import YOLO; YOLO('${YOLO_MODEL}')"
+
+COPY app/__init__.py app/__init__.py
+COPY app/vision app/vision
+COPY worker_handler.py .
+
+CMD ["python", "-u", "worker_handler.py"]

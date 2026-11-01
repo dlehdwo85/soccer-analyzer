@@ -107,3 +107,43 @@ def delete_video(match_id: int, filename: str):
         logger.info(f"R2 파일 삭제: {object_key}")
     except Exception as e:
         logger.warning(f"R2 파일 삭제 실패: {e}")
+
+
+VIDEO_EXTS = (".mp4", ".mov", ".m4v", ".mkv", ".avi")
+
+
+def is_configured() -> bool:
+    return bool(R2_ACCESS_KEY_ID and R2_ENDPOINT)
+
+
+def list_videos(prefix: str = "matches/", limit: int = 500) -> list:
+    """R2 버킷에 올라가 있는 영상 목록 (최근 것 먼저). 설정이 없거나 실패하면 빈 목록."""
+    if not is_configured():
+        return []
+    out = []
+    try:
+        client = _get_client()
+        token = None
+        while len(out) < limit:
+            kw = {"Bucket": R2_BUCKET, "Prefix": prefix, "MaxKeys": 1000}
+            if token:
+                kw["ContinuationToken"] = token
+            res = client.list_objects_v2(**kw)
+            for obj in res.get("Contents", []):
+                key = obj["Key"]
+                if not key.lower().endswith(VIDEO_EXTS):
+                    continue
+                out.append({
+                    "key": key,
+                    "filename": key.rsplit("/", 1)[-1],
+                    "url": f"{R2_PUBLIC_URL}/{key}",
+                    "size_mb": round(obj.get("Size", 0) / 1024 / 1024, 1),
+                    "last_modified": obj["LastModified"].isoformat() if obj.get("LastModified") else None,
+                })
+            if not res.get("IsTruncated"):
+                break
+            token = res.get("NextContinuationToken")
+    except Exception as e:  # noqa: BLE001 — 목록 조회 실패는 화면에서 '없음'으로 보인다
+        logger.warning(f"R2 목록 조회 실패: {e}")
+    out.sort(key=lambda o: o["last_modified"] or "", reverse=True)
+    return out[:limit]

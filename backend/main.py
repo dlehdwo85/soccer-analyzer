@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from app.database import create_tables
 from app.routers import matches as matches_router
-from app.routers.matches import players_router
+from app.routers.matches import players_router, videos_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,47 +14,27 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting up — creating DB tables...")
+    logger.info("Starting up — creating/upgrading DB tables...")
     create_tables()
-    _run_safe_migrations()
+    from app.services.analysis_service import recover_interrupted
+    n = recover_interrupted()
+    if n:
+        logger.warning("중단된 분석 %d건을 실패로 표시", n)
     logger.info("DB ready.")
     yield
     logger.info("Shutdown.")
 
 
-def _run_safe_migrations():
-    """앱 시작 시 안전하게 새 컬럼을 추가 (이미 있으면 무시)."""
-    from app.database import engine
-    from sqlalchemy import text
-    try:
-        with engine.begin() as conn:
-            if engine.dialect.name == "postgresql":
-                conn.execute(text(
-                    "ALTER TABLE matches ADD COLUMN IF NOT EXISTS data_source VARCHAR(20) DEFAULT 'sample'"
-                ))
-            else:
-                try:
-                    conn.execute(text(
-                        "ALTER TABLE matches ADD COLUMN data_source VARCHAR(20) DEFAULT 'sample'"
-                    ))
-                except Exception:
-                    pass  # 이미 존재
-        logger.info("마이그레이션 완료")
-    except Exception as e:
-        logger.warning(f"마이그레이션 스킵 (무시 가능): {e}")
-
-
 app = FastAPI(
     title="Football Analyzer API",
-    version="1.0.0",
+    version="2.0.0",
     description="""
-## 조기축구 경기 분석 API
+## 조기축구 경기 영상 분석 API
 
-### 주요 기능
-- 경기 생성 / 조회 / 삭제
-- 영상 업로드 (MP4, MOV)
-- 색상 + 위치 기반 선수 추적 분석
-- 샘플 데이터로 즉시 실행 가능
+- 유니폼 색으로 선수 팀 구분 (골키퍼·심판 포함)
+- 선수별 볼 터치·점유·패스 성공/실패·키패스·유효 슈팅·xG·가로채기·볼 탈취
+- 이벤트 검수(수정·삭제·추가), 전반/후반 나눠 보기
+- 트랙 병합/이름 지정/제외, CSV 내보내기, 예전에 올린 영상 다시 분석
 """,
     lifespan=lifespan,
 )
@@ -78,14 +58,18 @@ app.add_middleware(
 
 app.include_router(matches_router.router)
 app.include_router(players_router)
+app.include_router(videos_router)
 
 
 @app.get("/api/health", tags=["system"])
 def health():
+    from app.services.analysis_service import engines
     return {
         "status": "ok",
         "service": "Football Analyzer API",
-        "allowed_origins": ALLOWED_ORIGINS,
+        "version": app.version,
+        "engines": engines(),
+        "r2": bool(os.environ.get("R2_ACCESS_KEY_ID") and os.environ.get("R2_ENDPOINT")),
     }
 
 
