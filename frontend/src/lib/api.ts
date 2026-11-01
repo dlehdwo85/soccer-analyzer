@@ -47,6 +47,20 @@ function uploadWithProgress(method: 'PUT' | 'POST', url: string, body: Blob | Fo
 
 export const api = {
   health: () => req<Health>('/api/health'),
+  /** 무료 서버(Hugging Face Space)는 오래 안 쓰면 잠든다 — 깨어날 때까지 최대 maxSec초 기다린다 */
+  waitForBackend: async (onWaiting?: (sec: number) => void, maxSec = 150): Promise<Health> => {
+    const started = Date.now()
+    for (;;) {
+      try {
+        return await req<Health>('/api/health')
+      } catch (e) {
+        const sec = Math.round((Date.now() - started) / 1000)
+        if (sec >= maxSec) throw e
+        onWaiting?.(sec)
+        await new Promise(r => setTimeout(r, 5000))
+      }
+    }
+  },
 
   // ── 경기 ───────────────────────────────────────────────────────
   getMatches: () => req<Match[]>('/api/matches'),

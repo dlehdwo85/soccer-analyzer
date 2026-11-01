@@ -1,0 +1,31 @@
+name: deploy-backend-hf
+
+# main에 백엔드가 바뀌면 Hugging Face Space(무료 CPU)로 자동 배포한다.
+# 저장소 Settings → Secrets and variables → Actions 에
+#   비밀값 HF_TOKEN (쓰기 권한), 변수 HF_SPACE (예: dlehdwo85/soccer-analyzer-api) 를 넣으면 동작한다.
+on:
+  push:
+    branches: [main]
+    paths: ["backend/**", "deploy/huggingface/**", ".github/workflows/deploy-hf.yml"]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_SPACE: ${{ vars.HF_SPACE }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip when not configured
+        if: env.HF_TOKEN == '' || env.HF_SPACE == ''
+        run: echo "HF_TOKEN / HF_SPACE 가 설정되지 않아 배포를 건너뜁니다."
+      - uses: actions/setup-python@v5
+        if: env.HF_TOKEN != '' && env.HF_SPACE != ''
+        with:
+          python-version: "3.11"
+      - name: Deploy to Hugging Face Space
+        if: env.HF_TOKEN != '' && env.HF_SPACE != ''
+        run: |
+          pip install -q "huggingface_hub>=0.24"
+          python deploy/huggingface/deploy.py

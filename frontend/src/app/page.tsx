@@ -9,14 +9,17 @@ import MatchCard from '@/components/match/MatchCard'
 export default function HomePage() {
   const [matches, setMatches] = useState<Match[] | null>(null)
   const [backendOk, setBackendOk] = useState<boolean | null>(null)
+  const [waking, setWaking] = useState<number | null>(null)
 
   const load = async () => {
     setMatches(null)
     try {
-      await api.health()
+      await api.waitForBackend(setWaking)
+      setWaking(null)
       setBackendOk(true)
       setMatches(await api.getMatches())
     } catch {
+      setWaking(null)
       setBackendOk(false)
       setMatches([])
     }
@@ -59,6 +62,13 @@ export default function HomePage() {
           })}
         </div>
       </section>
+
+      {waking !== null && (
+        <div className="card p-4 mb-6 flex items-center gap-3 border-sky-500/30 bg-sky-500/5 text-sm text-sky-200">
+          <span className="w-4 h-4 rounded-full border-2 border-sky-300 border-t-transparent animate-spin shrink-0" />
+          무료 서버를 깨우는 중입니다. 오래 쉬었다면 1분 정도 걸릴 수 있어요. <span className="num text-sky-400">{waking}초</span>
+        </div>
+      )}
 
       {backendOk === false && (
         <div className="card p-4 mb-6 border-amber-500/30 bg-amber-500/5 text-sm text-amber-200">

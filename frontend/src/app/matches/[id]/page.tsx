@@ -34,7 +34,7 @@ export default function MatchDetailPage() {
 
   useEffect(() => {
     load()
-    api.health().then(setHealth).catch(() => setHealth(null))
+    api.waitForBackend().then(setHealth).catch(() => setHealth(null))
   }, [load])
 
   const remove = async () => {

@@ -72,7 +72,34 @@
 
 ---
 
-## 배포 (GitHub → Railway + Vercel + RunPod)
+## 무료 배포 (권장): Vercel + Hugging Face Spaces + Neon + Cloudflare R2
+
+결제 없이 영상 분석까지 돌리는 조합입니다. 무료 한도는 각 서비스 정책에 따라 바뀔 수 있습니다.
+
+| 역할 | 서비스 | 무료 조건(작성 시점) |
+|------|--------|------|
+| 화면 | Vercel Hobby | 개인·비상업 용도만 (상업 용도면 Cloudflare Pages 고려) |
+| 백엔드 + 영상 분석 | Hugging Face Spaces (Docker, CPU basic) | CPU 2코어·메모리 16GB, 오래 안 쓰면 잠듦 → 첫 접속 때 1분가량 깨어남 |
+| 데이터베이스 | Neon Postgres | 0.5GB |
+| 영상 저장 | Cloudflare R2 | 월 10GB 저장, 내려받기 무료 |
+
+1. **Neon**: 프로젝트를 만들고 연결 주소(`postgresql://...?sslmode=require`)를 복사합니다.
+2. **R2**: 버킷 `soccer-videos`의 API 토큰(Object Read & Write)과 공개 주소(`https://pub-....r2.dev`)를 준비하고, 버킷 CORS에 Vercel 주소의 `PUT`/`GET`을 허용합니다.
+3. **Hugging Face**: 쓰기 권한 토큰을 만든 뒤 아래를 한 번 실행하면 Space가 만들어지고 비밀값이 저장됩니다.
+   ```bash
+   pip install huggingface_hub
+   HF_TOKEN=... HF_SPACE=<사용자명>/soccer-analyzer-api \
+   DATABASE_URL=... ALLOWED_ORIGINS=https://<vercel 주소> \
+   R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=... R2_ENDPOINT=... R2_BUCKET=soccer-videos R2_PUBLIC_URL=... \
+   python deploy/huggingface/deploy.py --secrets
+   ```
+   이후에는 GitHub 저장소 Settings → Actions에 비밀값 `HF_TOKEN`, 변수 `HF_SPACE`를 넣어 두면 `main`에 백엔드가 바뀔 때마다 자동 배포됩니다(`.github/workflows/deploy-hf.yml`).
+4. **Vercel**: 환경변수 `NEXT_PUBLIC_API_URL`을 `https://<사용자명>-soccer-analyzer-api.hf.space`로 바꾸고 재배포합니다.
+
+Space 이미지는 CPU용 PyTorch와 YOLO를 포함하므로 영상 분석이 바로 켜집니다(`/api/health`의 `engines.local: true`).
+Space의 디스크는 재시작 때 비워지므로 영상은 R2, 데이터는 Neon에 둡니다.
+
+## 유료 배포 (GitHub → Railway + Vercel + RunPod)
 
 ### 1. Railway — 백엔드
 
