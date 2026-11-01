@@ -75,32 +75,33 @@
 
 ---
 
-## 무료 배포 (권장): Vercel + Hugging Face Spaces + Neon + Cloudflare R2
+## 무료 배포 (권장): Vercel(화면 + API) + Neon + Cloudflare R2, 분석은 내 컴퓨터
 
-결제 없이 영상 분석까지 돌리는 조합입니다. 무료 한도는 각 서비스 정책에 따라 바뀔 수 있습니다.
+결제 없이 운영하는 조합입니다. 무료 한도는 각 서비스 정책에 따라 바뀔 수 있습니다.
+2026년 11월 기준 Hugging Face Docker Space는 유료(PRO)가 되었고, Fly.io·Railway·Cloudflare 컨테이너도 무료 구간이 없어
+API 서버는 Vercel의 Python 런타임에 올립니다. 영상 분석(PyTorch·YOLO, 영상 1GB)은 무료 서버에서 돌릴 수 없으므로
+내 컴퓨터에서 돌려 결과만 DB에 넣습니다.
 
 | 역할 | 서비스 | 무료 조건(작성 시점) |
 |------|--------|------|
-| 화면 | Vercel Hobby | 개인·비상업 용도만 (상업 용도면 Cloudflare Pages 고려) |
-| 백엔드 + 영상 분석 | Hugging Face Spaces (Docker, CPU basic) | CPU 2코어·메모리 16GB, 오래 안 쓰면 잠듦 → 첫 접속 때 1분가량 깨어남 |
-| 데이터베이스 | Neon Postgres | 0.5GB |
+| 화면 | Vercel (프로젝트 1, Root `frontend`) | 개인·비상업 용도만 (상업 용도면 Cloudflare Pages 고려) |
+| API 서버 | Vercel (프로젝트 2, Root `backend`, FastAPI 자동 감지) | 함수 60초, 요청 없으면 비용 없음, 분석 엔진 없음(`engines.local: false`) |
+| 데이터베이스 | Neon Postgres (Vercel 통합) | 사용량 과금, 5분 미사용 시 꺼짐 |
 | 영상 저장 | Cloudflare R2 | 월 10GB 저장, 내려받기 무료 |
+| 영상 분석 | 내 컴퓨터 (`backend/import_result.py`) | CPU 기준 영상 1분당 약 5~15분 |
 
-1. **Neon**: 프로젝트를 만들고 연결 주소(`postgresql://...?sslmode=require`)를 복사합니다.
-2. **R2**: 버킷 `soccer-videos`의 API 토큰(Object Read & Write)과 공개 주소(`https://pub-....r2.dev`)를 준비하고, 버킷 CORS에 Vercel 주소의 `PUT`/`GET`을 허용합니다.
-3. **Hugging Face**: 쓰기 권한 토큰을 만든 뒤 아래를 한 번 실행하면 Space가 만들어지고 비밀값이 저장됩니다.
-   ```bash
-   pip install huggingface_hub
-   HF_TOKEN=... HF_SPACE=<사용자명>/soccer-analyzer-api \
-   DATABASE_URL=... ALLOWED_ORIGINS=https://<vercel 주소> \
-   R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=... R2_ENDPOINT=... R2_BUCKET=soccer-videos R2_PUBLIC_URL=... \
-   python deploy/huggingface/deploy.py --secrets
-   ```
-   이후에는 GitHub 저장소 Settings → Actions에 비밀값 `HF_TOKEN`, 변수 `HF_SPACE`를 넣어 두면 `main`에 백엔드가 바뀔 때마다 자동 배포됩니다(`.github/workflows/deploy-hf.yml`).
-4. **Vercel**: 환경변수 `NEXT_PUBLIC_API_URL`을 `https://<사용자명>-soccer-analyzer-api.hf.space`로 바꾸고 재배포합니다.
+1. **R2**: 버킷 `soccer-videos`의 API 토큰(Object Read & Write)과 공개 주소(`https://pub-....r2.dev`)를 준비하고, 버킷 CORS에 Vercel 주소의 `PUT`/`GET`을 허용합니다.
+2. **Vercel API 프로젝트**: Add New Project → 이 저장소 → `backend`를 단일 프로젝트로 가져오기(FastAPI로 감지됨) →
+   환경변수 `ALLOWED_ORIGINS=https://<화면 주소>` → Deploy. 그다음 프로젝트의 Storage 탭에서 Neon DB를 만들거나 연결하면
+   `DATABASE_URL`이 자동으로 들어갑니다. R2 키(`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_PUBLIC_URL`)도
+   환경변수에 넣습니다. 환경변수를 바꾼 뒤에는 새 배포가 있어야 반영됩니다(`main`에 푸시하거나 Redeploy).
+   `backend/vercel.json`(함수 시간·메모리), `backend/.vercelignore`(테스트·Docker 파일 제외), `backend/.python-version`(3.12)이 설정 파일입니다.
+3. **Vercel 화면 프로젝트**: 환경변수 `NEXT_PUBLIC_API_URL`을 `https://<API 프로젝트>.vercel.app`으로 바꾸고 재배포합니다.
+4. **영상 분석**: 내 컴퓨터에 Python 3.11 가상환경을 만들고 `requirements.txt`, CPU용 torch, `requirements-worker.txt`를 설치한 뒤
+   R2 공개 주소로 영상을 내려받아 `app.vision.pipeline.analyze_video`로 분석하고(`YOLO_BALL_MODEL`에 `fetch_ball_model.py`로 받은 공 모델 지정),
+   결과 JSON을 `python import_result.py result.json --title ... --video-url ...`(환경변수 `DATABASE_URL` 필요)로 DB에 넣으면 화면에 바로 나타납니다.
 
-Space 이미지는 CPU용 PyTorch와 YOLO를 포함하므로 영상 분석이 바로 켜집니다(`/api/health`의 `engines.local: true`).
-Space의 디스크는 재시작 때 비워지므로 영상은 R2, 데이터는 Neon에 둡니다.
+같은 Space 기반 배포 스크립트(`deploy/huggingface/deploy.py`)는 PRO 구독이 있을 때만 쓸 수 있습니다.
 
 ## 유료 배포 (GitHub → Railway + Vercel + RunPod)
 
