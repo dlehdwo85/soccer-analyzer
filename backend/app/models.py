@@ -23,7 +23,7 @@ class Match(Base):
     video_filename    = Column(String(512), nullable=True)
     video_url         = Column(String(1024), nullable=True)  # R2 공개 URL 또는 local:{id}/{파일명}
     status            = Column(String(20), default="created")  # created|uploaded|analyzing|done|failed
-    data_source       = Column(String(20), default="sample")   # video|gps|sample
+    data_source       = Column(String(20), default="sample")   # video|sample (예전 gps)
     created_at        = Column(DateTime, default=datetime.utcnow)
 
     # 분석 설정
@@ -40,7 +40,6 @@ class Match(Base):
 
     players    = relationship("MatchPlayer", back_populates="match", cascade="all, delete-orphan")
     events     = relationship("MatchEvent", back_populates="match", cascade="all, delete-orphan")
-    gps_tracks = relationship("GpsTrackPoint", back_populates="match", cascade="all, delete-orphan")
 
 
 class MatchPlayer(Base):
@@ -83,25 +82,8 @@ class MatchEvent(Base):
     y2          = Column(Float, nullable=True)
     success     = Column(Boolean, nullable=True)
     detail_json = Column(Text, default="{}")
+    deleted     = Column(Boolean, default=False)              # 사용자가 잘못 잡힌 이벤트로 지움
+    manual      = Column(Boolean, default=False)              # 사용자가 직접 추가
+    edited      = Column(Boolean, default=False)              # 사용자가 선수·결과를 고침
 
     match = relationship("Match", back_populates="events")
-
-
-class GpsTrackPoint(Base):
-    """GPS 원본 좌표 (시각화·재분석용)."""
-    __tablename__ = "gps_track_points"
-
-    id             = Column(Integer, primary_key=True, index=True)
-    match_id       = Column(Integer, ForeignKey("matches.id"), nullable=False, index=True)
-    player_id      = Column(String(50), nullable=False, index=True)
-    player_name    = Column(String(100), default="")
-    jersey_number  = Column(Integer, default=0)
-    team_side      = Column(String(10), default="home")
-    timestamp_ms   = Column(Integer, nullable=False)
-    lat            = Column(Float, nullable=False)
-    lng            = Column(Float, nullable=False)
-    speed_mps      = Column(Float, default=0.0)
-    norm_x         = Column(Float, default=0.5)
-    norm_y         = Column(Float, default=0.5)
-
-    match = relationship("Match", back_populates="gps_tracks")

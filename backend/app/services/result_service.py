@@ -2,7 +2,7 @@
 
 DB에는 원시값만 저장한다 — 트랙별 합산 가능한 통계(stats_json)와 이벤트.
 팀 통계·패스 네트워크·점유율 추이·파생 지표는 조회할 때마다 다시 계산하므로
-사용자가 트랙을 병합/제외하거나 팀을 바꿔도 모든 수치가 일관되게 반영된다.
+사용자가 트랙을 병합/제외하거나 팀을 바꾸거나 이벤트를 고쳐도 모든 수치가 일관되게 반영된다.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -80,9 +80,12 @@ def _heads(rows: List[MatchPlayer]) -> Dict[str, str]:
 
 
 def _remap_events(ev_rows: List[MatchEvent], head: Dict[str, str], team_of: Dict[str, str],
-                  excluded: set) -> List[Event]:
-    out: List[Event] = []
+                  excluded: set) -> List[Tuple[MatchEvent, Event]]:
+    """DB 이벤트 → 병합/제외/팀 변경을 반영한 이벤트. (원본 행, 이벤트) 쌍."""
+    out: List[Tuple[MatchEvent, Event]] = []
     for r in ev_rows:
+        if r.deleted:
+            continue
         p = head.get(r.player, r.player)
         if p in excluded or p not in team_of:
             continue
@@ -97,11 +100,8 @@ def _remap_events(ev_rows: List[MatchEvent], head: Dict[str, str], team_of: Dict
                 continue  # 병합으로 자기 자신에게 한 패스가 됨 → 점유 지속
             if tgt is not None and detail.get("reason") != "out":
                 success = team_of[tgt] == team
-                if success:
-                    detail.pop("reason", None)
-                else:
-                    detail["reason"] = "intercepted"
-            elif tgt is None and detail.get("reason") == "intercepted":
+                detail["reason"] = "completed" if success else "intercepted"
+            elif tgt is None and detail.get("reason") in ("intercepted", "completed", None):
                 success = False
                 detail["reason"] = "lost"
         elif r.kind == "recovery":
@@ -110,8 +110,9 @@ def _remap_events(ev_rows: List[MatchEvent], head: Dict[str, str], team_of: Dict
         elif r.kind == "shot":
             if tgt is not None and team_of[tgt] == team:
                 tgt = None
-        out.append(Event(r.kind, r.t, team, p, t_end=r.t_end, target=tgt, x=r.x, y=r.y,
-                         x2=r.x2, y2=r.y2, success=success, detail=detail))
+            success = detail.get("outcome") == "on_target"
+        out.append((r, Event(r.kind, r.t, team, p, t_end=r.t_end, target=tgt, x=r.x, y=r.y,
+                             x2=r.x2, y2=r.y2, success=success, detail=detail)))
     return out
 
 
@@ -121,10 +122,22 @@ def _spells_from_events(events: List[Event]) -> List[Spell]:
             for e in events if e.kind == "possession"]
 
 
-def build_view(db: Session, match: Match, include_events: bool = True) -> Dict:
+def halftime_rel(match: Match, meta: Dict) -> Optional[float]:
+    """후반 시작 시각을 이벤트 시각 기준(분석 시작점 기준)으로."""
+    if match.halftime_s is None:
+        return None
+    return match.halftime_s - float(meta.get("start_s") or 0.0)
+
+
+def load_event_rows(db: Session, match_id: int) -> List[MatchEvent]:
+    return (db.query(MatchEvent).filter(MatchEvent.match_id == match_id)
+            .order_by(MatchEvent.t, MatchEvent.seq).all())
+
+
+def build_view(db: Session, match: Match, include_events: bool = True, period: Optional[int] = None) -> Dict:
+    """period: None=전체, 1=전반, 2=후반 (경기 설정에 후반 시작 시각이 있어야 함)."""
     rows = db.query(MatchPlayer).filter(MatchPlayer.match_id == match.id).all()
-    ev_rows = (db.query(MatchEvent).filter(MatchEvent.match_id == match.id)
-               .order_by(MatchEvent.seq).all())
+    ev_rows = load_event_rows(db, match.id)
     meta = _loads(match.result_meta_json, {})
     head = _heads(rows)
     by_tid = {r.track_id: r for r in rows}
@@ -132,9 +145,20 @@ def build_view(db: Session, match: Match, include_events: bool = True) -> Dict:
     excluded = {r.track_id for r in heads if r.excluded}
     team_of = {r.track_id: r.team for r in heads if not r.excluded}
 
-    events = _remap_events(ev_rows, head, team_of, excluded)
+    pairs = _remap_events(ev_rows, head, team_of, excluded)
+    ht = halftime_rel(match, meta)
+    duration = meta.get("duration_s") or (max((e.t_end or e.t) for _, e in pairs) if pairs else 0)
+    t_from, t_to = 0.0, float(duration or 0)
+    if period in (1, 2) and ht is not None:
+        if period == 1:
+            pairs = [(r, e) for r, e in pairs if e.t < ht]
+            t_to = min(t_to, ht)
+        else:
+            pairs = [(r, e) for r, e in pairs if e.t >= ht]
+            t_from = max(0.0, ht)
+    events = [e for _, e in pairs]
 
-    # 활동량은 병합된 트랙의 원시값을 더하고, 볼 기록은 이벤트에서 다시 센다
+    # 출전 시간·평균 위치는 병합된 트랙의 원시값을 더하고, 볼 기록은 이벤트에서 다시 센다
     members: Dict[str, List[Dict]] = {}
     for r in rows:
         members.setdefault(head[r.track_id], []).append(_loads(r.stats_json, {}))
@@ -152,7 +176,6 @@ def build_view(db: Session, match: Match, include_events: bool = True) -> Dict:
             raw[tid]["team"] = team_of[tid]
 
     spells = _spells_from_events(events)
-    duration = meta.get("duration_s") or (max((e.t_end or e.t) for e in events) if events else 0)
 
     players = []
     for r in heads:
@@ -161,7 +184,6 @@ def build_view(db: Session, match: Match, include_events: bool = True) -> Dict:
         for k, v in list(st.items()):
             if isinstance(v, float):
                 st[k] = round(v, 3)
-        st["heat"] = [round(v, 2) for v in st["heat"]]
         merged_from = sorted(t for t, h in head.items() if h == r.track_id and t != r.track_id)
         players.append({
             "track_id": r.track_id,
@@ -178,17 +200,23 @@ def build_view(db: Session, match: Match, include_events: bool = True) -> Dict:
         })
     players.sort(key=lambda p: (p["team"], p["excluded"], p["minor"], p["jersey_number"] or 999, p["track_id"]))
 
-    active_stats = {tid: st for tid, st in raw.items()}
+    timeline = possession_timeline([Spell(sp.tid, sp.team, sp.t0 - t_from, sp.t1 - t_from, 0, 0, 0, 0)
+                                    for sp in spells], max(0.0, t_to - t_from))
+    for b in timeline:
+        b["start_s"] = round(b["start_s"] + t_from, 1)
+        b["end_s"] = round(b["end_s"] + t_from, 1)
     out = {
         "version": match.analysis_version or 0,
-        "meta": meta,
+        "meta": dict(meta, halftime_rel_s=ht),
+        "period": period if (period in (1, 2) and ht is not None) else None,
         "players": players,
-        "team_stats": team_stats(active_stats, spells),
-        "pass_network": pass_network(events, active_stats),
-        "possession_timeline": possession_timeline(spells, duration),
+        "team_stats": team_stats(raw, spells),
+        "pass_network": pass_network(events, raw),
+        "possession_timeline": timeline,
     }
     if include_events:
-        out["events"] = [dict(e.to_dict(), id=i) for i, e in enumerate(events) if e.kind != "possession"]
+        out["events"] = [dict(e.to_dict(), id=r.id, manual=bool(r.manual), edited=bool(r.edited))
+                         for r, e in pairs if e.kind != "possession"]
         out["possessions"] = [[round(e.t, 2), round(e.t_end or e.t, 2), e.team, e.player]
                               for e in events if e.kind == "possession"]
     return out
@@ -221,6 +249,7 @@ CSV_COLUMNS = [
     ("패스실패", lambda p, s, m: s["passes_failed"]),
     ("패스성공률(%)", lambda p, s, m: s["pass_accuracy"] if s["pass_accuracy"] is not None else ""),
     ("전진패스", lambda p, s, m: s["forward_passes"]),
+    ("키패스", lambda p, s, m: s["key_passes"]),
     ("받은패스", lambda p, s, m: s["passes_received"]),
     ("슈팅", lambda p, s, m: s["shots"]),
     ("유효슈팅", lambda p, s, m: s["shots_on_target"]),
@@ -228,10 +257,6 @@ CSV_COLUMNS = [
     ("가로채기", lambda p, s, m: s["interceptions"]),
     ("볼탈취", lambda p, s, m: s["recoveries"]),
     ("볼뺏김", lambda p, s, m: s["dispossessed"]),
-    ("이동거리(m)", lambda p, s, m: round(s["distance_m"])),
-    ("스프린트거리(m)", lambda p, s, m: round(s["sprint_m"])),
-    ("스프린트횟수", lambda p, s, m: s["sprint_count"]),
-    ("최고속도(km/h)", lambda p, s, m: s["top_speed_kmh"]),
 ]
 
 

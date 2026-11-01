@@ -351,7 +351,6 @@ def postprocess(frames: Sequence[Frame], cfg: AnalysisConfig, length: float, wid
     players = []
     for tid, st in sorted(ps.items(), key=lambda kv: (kv[1]["team"], kv[0])):
         st = {k: (round(v, 3) if isinstance(v, float) else v) for k, v in st.items()}
-        st["heat"] = [round(v, 2) for v in st["heat"]]
         players.append({
             "track_id": tid,
             "team": st.pop("team"),

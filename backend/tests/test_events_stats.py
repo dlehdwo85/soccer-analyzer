@@ -5,7 +5,7 @@ from app.vision.events import EventConfig, Frame, PlayerObs, detect_events
 from app.vision.simulate import simulate_match
 from app.vision.stats import (
     add_event_stats, compute_player_stats, empty_stats, finalize, merge_player_stats,
-    pass_network, physical_stats, possession_timeline, team_stats,
+    pass_network, possession_timeline, presence_stats, team_stats,
 )
 
 R = 1.6
@@ -160,45 +160,45 @@ def test_detector_accuracy_on_simulated_match(seed):
     assert rec[0] >= 0.7
 
 
-def test_physical_stats_constant_speed_and_zones():
-    # 6 m/s로 20초 직선 달리기 → 120m, 전부 스프린트 구간
-    pts = [(i * 0.2, 10 + 6 * i * 0.2, 30.0, 1.0) for i in range(101)]
-    st = physical_stats(pts, 105, 68)
-    assert st["distance_m"] == pytest.approx(120, rel=0.03)
-    assert st["sprint_m"] >= 0.9 * st["distance_m"]  # 시작/끝은 평활화로 약간 느리게 잡힘
-    assert st["sprint_count"] == 1
-    assert finalize(st)["top_speed_kmh"] == pytest.approx(21.6, abs=0.5)
-    assert sum(st["heat"]) == pytest.approx(20, abs=0.01)
-
-
-def test_physical_stats_ignores_teleport_and_jitter():
-    pts = [(i * 0.2, 50.0, 30.0, 1.0) for i in range(50)]
-    pts[25] = (5.0, 90.0, 30.0, 1.0)  # ID 스위치로 인한 순간이동
-    st = physical_stats(pts, 105, 68)
-    assert st["distance_m"] < 1.0
-    # 제자리 흔들림은 거리로 거의 잡히지 않는다
-    import random
-    rng = random.Random(0)
-    jit = [(i * 0.2, 50 + rng.gauss(0, 0.2), 30 + rng.gauss(0, 0.2), 1.0) for i in range(300)]
-    assert physical_stats(jit, 105, 68)["distance_m"] < 10   # 60초 동안 서 있음
-
-
-def test_uncalibrated_scale_is_applied():
-    pts = [(i * 0.5, i * 1.0, 30.0, 0.5) for i in range(11)]  # 좌표 1 = 0.5m
-    st = physical_stats(pts, 105, 68)
-    assert st["distance_m"] == pytest.approx(5.0, rel=0.05)
+def test_presence_stats_time_and_average_position():
+    pts = [(i * 0.2, 52.5, 34.0, 1.0) for i in range(101)]  # 20초 동안 센터서클
+    st = presence_stats(pts, 105, 68)
+    assert st["seconds_tracked"] == pytest.approx(20, abs=0.01)
+    fin = finalize(st)
+    assert fin["avg_x"] == pytest.approx(0.5) and fin["avg_y"] == pytest.approx(0.5)
+    assert fin["minutes_tracked"] == pytest.approx(0.3, abs=0.01)
+    # 추적이 끊긴 구간은 출전 시간에 넣지 않는다
+    gap = [(0, 10.0, 10.0, 1.0), (1, 10.0, 10.0, 1.0), (10, 10.0, 10.0, 1.0), (11, 10.0, 10.0, 1.0)]
+    assert presence_stats(gap, 105, 68)["seconds_tracked"] == pytest.approx(2)
+    assert "distance_m" not in st and "heat" not in st
 
 
 def test_merge_is_additive():
-    a = physical_stats([(i, i * 3.0, 10.0, 1.0) for i in range(10)], 105, 68)
-    b = physical_stats([(20 + i, 50 + i * 4.0, 10.0, 1.0) for i in range(10)], 105, 68)
+    a = presence_stats([(i, i * 3.0, 10.0, 1.0) for i in range(10)], 105, 68)
+    b = presence_stats([(20 + i, 50 + i * 4.0, 10.0, 1.0) for i in range(10)], 105, 68)
     a["touches"], b["touches"] = 3, 4
+    a["xg"], b["xg"] = 0.25, 0.5
     m = merge_player_stats([a, b])
-    assert m["distance_m"] == pytest.approx(a["distance_m"] + b["distance_m"])
-    assert m["touches"] == 7
-    assert m["top_speed_ms"] == max(a["top_speed_ms"], b["top_speed_ms"])
+    assert m["seconds_tracked"] == pytest.approx(a["seconds_tracked"] + b["seconds_tracked"])
+    assert m["touches"] == 7 and m["xg"] == pytest.approx(0.75)
     assert m["first_seen_s"] == 0 and m["last_seen_s"] == 29
-    assert sum(m["heat"]) == pytest.approx(sum(a["heat"]) + sum(b["heat"]))
+
+
+def test_key_pass_counts_pass_followed_by_receiver_shot():
+    from app.vision.events import Event
+    ev = [
+        Event("pass", 10, "home", "A", t_end=11, target="B", success=True, detail={"length_m": 12}),
+        Event("shot", 14, "home", "B", success=True, detail={"outcome": "on_target", "xg": 0.3}),
+        Event("pass", 30, "home", "A", t_end=31, target="C", success=True),
+        Event("recovery", 33, "away", "X", target="C"),
+        Event("shot", 35, "home", "C", success=False, detail={"outcome": "off_target"}),   # 중간에 뺏김 → 키패스 아님
+        Event("pass", 50, "home", "D", t_end=51, target="B", success=True),
+        Event("shot", 70, "home", "B", success=False, detail={"outcome": "off_target"}),   # 너무 늦음
+    ]
+    st = {}
+    add_event_stats(st, ev)
+    assert st["A"]["key_passes"] == 1 and st["D"]["key_passes"] == 0
+    assert st["B"]["shots"] == 2 and st["B"]["xg"] == pytest.approx(0.3)
 
 
 def test_full_stats_pipeline_on_simulation():
@@ -212,9 +212,11 @@ def test_full_stats_pipeline_on_simulation():
     assert ts["home"]["passes_attempted"] + ts["away"]["passes_attempted"] == total_pass
     fin = finalize(ps["H7"])
     assert fin["passes_attempted"] == fin["passes_completed"] + fin["passes_failed"]
-    assert 0 <= fin["avg_x"] <= 1 and fin["distance_m"] > 100
-    # 골키퍼는 필드 플레이어보다 훨씬 적게 뛴다
-    assert ps["H1"]["distance_m"] < 0.6 * ps["H7"]["distance_m"]
+    assert 0 <= fin["avg_x"] <= 1 and fin["minutes_tracked"] > 9
+    # 골키퍼 평균 위치는 자기 골문 근처
+    gk = finalize(ps["H1"])
+    assert min(gk["avg_x"], 1 - gk["avg_x"]) < 0.2
+    assert ts["home"]["key_passes"] + ts["away"]["key_passes"] >= 1
     net = pass_network(events, ps)
     assert net["home"]["nodes"] and net["home"]["edges"]
     tl = possession_timeline(spells, sim.duration_s)

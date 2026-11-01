@@ -69,9 +69,11 @@ def test_sample_result_shape_and_consistency(client, analyzed):
     ph, pa = res["team_stats"]["home"]["possession_pct"], res["team_stats"]["away"]["possession_pct"]
     assert abs(ph + pa - 100) < 0.2
     p = players[0]["stats"]
-    for k in ("touches", "passes_completed", "passes_failed", "shots_on_target", "xg", "distance_m",
-              "sprint_m", "top_speed_kmh", "heat", "pass_accuracy"):
+    for k in ("touches", "passes_completed", "passes_failed", "key_passes", "shots_on_target", "xg",
+              "interceptions", "recoveries", "pass_accuracy", "minutes_tracked"):
         assert k in p
+    for k in ("distance_m", "sprint_m", "top_speed_kmh", "heat"):
+        assert k not in p
     assert res["pass_network"]["home"]["nodes"]
     assert res["possession_timeline"]
     assert res["possessions"]
@@ -82,7 +84,7 @@ def test_merge_unmerge_exclude_and_team_change(client, analyzed):
     before = client.get(f"{url}/result").json()
     home = [p for p in before["players"] if p["team"] == "home" and p["label"] == "home"]
     a, b = home[0], home[1]
-    dist_sum = a["stats"]["distance_m"] + b["stats"]["distance_m"]
+    time_sum = a["stats"]["seconds_tracked"] + b["stats"]["seconds_tracked"]
 
     r = client.post(f"{url}/players/merge", json={"target": a["track_id"], "sources": [b["track_id"]]})
     assert r.status_code == 200
@@ -90,7 +92,7 @@ def test_merge_unmerge_exclude_and_team_change(client, analyzed):
     assert len(after["players"]) == len(before["players"]) - 1
     merged = next(p for p in after["players"] if p["track_id"] == a["track_id"])
     assert merged["merged_from"] == [b["track_id"]]
-    assert merged["stats"]["distance_m"] == pytest.approx(dist_sum, abs=0.01)
+    assert merged["stats"]["seconds_tracked"] == pytest.approx(time_sum, abs=0.01)
     assert all(e["player"] != b["track_id"] for e in after["events"])
     assert client.patch(f"{url}/players/{b['track_id']}", json={"display_name": "x"}).status_code == 400
 
@@ -188,22 +190,89 @@ def test_video_analysis_failure_is_reported_not_faked(client, monkeypatch):
     assert st["status"] == "failed" and "열 수 없습니다" in st["error"] and not st["has_result"]
 
 
-def test_gps_upload(client):
-    mid = client.post("/api/matches", json={"title": "gps"}).json()["id"]
-    rows = ["timestamp_ms,player_id,player_name,jersey_number,lat,lng,speed_mps,team"]
-    for i in range(600):  # 1Hz 10분, 두 선수
-        rows.append(f"{i * 1000},p1,김철수,10,{37.5 + i * 0.00002:.7f},{127.0 + (i % 60) * 0.00003:.7f},3,home")
-        rows.append(f"{i * 1000},p2,이영희,4,{37.5003:.7f},{127.0 + (i % 30) * 0.00001:.7f},1,away")
-    content = "\n".join(rows).encode()
-    pv = client.post(f"/api/matches/{mid}/gps-preview", files={"file": ("g.csv", content, "text/csv")})
-    assert pv.status_code == 200 and pv.json()["total_players"] == 2
-    r = client.post(f"/api/matches/{mid}/upload-gps", files={"file": ("g.csv", content, "text/csv")})
+def test_event_review_edit_delete_add(client, analyzed):
+    url = f"/api/matches/{analyzed}"
+    res = client.get(f"{url}/result").json()
+    ts0 = res["team_stats"]
+    home = [p for p in res["players"] if p["team"] == "home" and not p["minor"]]
+    away = [p for p in res["players"] if p["team"] == "away" and not p["minor"]]
+    ok_pass = next(e for e in res["events"] if e["kind"] == "pass" and e["success"] and e["team"] == "home")
+
+    # 성공 패스를 '아웃'으로 고치면 실패가 하나 늘고 성공이 하나 준다
+    r = client.patch(f"{url}/events/{ok_pass['id']}", json={"result": "out"})
     assert r.status_code == 200, r.text
-    res = client.get(f"/api/matches/{mid}/result").json()
-    assert res["match"]["data_source"] == "gps"
-    p1 = next(p for p in res["players"] if p["display_name"] == "김철수")
-    assert p1["jersey_number"] == 10 and p1["stats"]["distance_m"] > 300
-    assert p1["stats"]["touches"] == 0 and res["events"] == []
+    res1 = client.get(f"{url}/result").json()
+    assert res1["team_stats"]["home"]["passes_completed"] == ts0["home"]["passes_completed"] - 1
+    assert res1["team_stats"]["home"]["passes_failed"] == ts0["home"]["passes_failed"] + 1
+    e1 = next(e for e in res1["events"] if e["id"] == ok_pass["id"])
+    assert e1["edited"] and e1["detail"]["reason"] == "out" and e1["target"] is None
+
+    # 상대 선수에게 간 것으로 고치면 차단(가로채기)
+    r = client.patch(f"{url}/events/{ok_pass['id']}", json={"target": away[0]["track_id"], "result": "intercepted"})
+    res2 = client.get(f"{url}/result").json()
+    e2 = next(e for e in res2["events"] if e["id"] == ok_pass["id"])
+    assert e2["success"] is False and e2["detail"]["reason"] == "intercepted"
+    assert next(p for p in res2["players"] if p["track_id"] == away[0]["track_id"])["stats"]["interceptions"] >= 1
+
+    # 지우기 → 시도 수에서 빠진다
+    client.patch(f"{url}/events/{ok_pass['id']}", json={"deleted": True})
+    res3 = client.get(f"{url}/result").json()
+    assert res3["team_stats"]["home"]["passes_attempted"] == ts0["home"]["passes_attempted"] - 1
+    assert all(e["id"] != ok_pass["id"] for e in res3["events"])
+
+    # 놓친 유효 슈팅 추가 (누가 슈팅했는지만 알면 된다)
+    shooter = home[1]["track_id"]
+    before = next(p for p in res3["players"] if p["track_id"] == shooter)["stats"]
+    r = client.post(f"{url}/events", json={"kind": "shot", "t": 100.0, "player": shooter, "result": "on_target"})
+    assert r.status_code == 201, r.text
+    res4 = client.get(f"{url}/result").json()
+    after = next(p for p in res4["players"] if p["track_id"] == shooter)["stats"]
+    assert after["shots"] == before["shots"] + 1 and after["shots_on_target"] == before["shots_on_target"] + 1
+    assert any(e["manual"] for e in res4["events"])
+
+    assert client.patch(f"{url}/events/{ok_pass['id']}", json={"player": "없는트랙"}).status_code == 422
+    assert client.post(f"{url}/events", json={"kind": "shot", "t": 1, "player": shooter, "result": "goal"}).status_code == 422
+
+    # 초기화: 추가한 것은 지우고 지운 것은 되살린다
+    client.post(f"{url}/events/reset")
+    res5 = client.get(f"{url}/result").json()
+    assert not any(e["manual"] for e in res5["events"])
+    assert any(e["id"] == ok_pass["id"] for e in res5["events"])
+
+
+def test_period_filter(client, analyzed):
+    url = f"/api/matches/{analyzed}"
+    full = client.get(f"{url}/result").json()
+    assert full["period"] is None
+    # 후반 시작 시각이 없으면 전체로 응답
+    assert client.get(f"{url}/result?period=1").json()["period"] is None
+    client.patch(url, json={"halftime_s": 150})
+    h1 = client.get(f"{url}/result?period=1").json()
+    h2 = client.get(f"{url}/result?period=2").json()
+    assert h1["period"] == 1 and h2["period"] == 2
+    assert all(e["t"] < 150 for e in h1["events"]) and all(e["t"] >= 150 for e in h2["events"])
+    for team in ("home", "away"):
+        assert (h1["team_stats"][team]["passes_attempted"] + h2["team_stats"][team]["passes_attempted"]
+                == full["team_stats"][team]["passes_attempted"])
+    assert h2["possession_timeline"][0]["start_s"] >= 150
+    assert client.get(f"{url}/export.csv?period=2").status_code == 200
+    assert client.get(f"{url}/result?period=3").status_code == 422
+
+
+def test_video_library(client, monkeypatch):
+    from app.services import storage_service
+    mid = client.post("/api/matches", json={"title": "예전 영상 경기"}).json()["id"]
+    client.post(f"/api/matches/{mid}/set-video-url", json={"video_url": "https://pub-x.r2.dev/matches/9/a.mp4", "filename": "a.mp4"})
+    monkeypatch.setattr(storage_service, "is_configured", lambda: True)
+    monkeypatch.setattr(storage_service, "list_videos", lambda: [
+        {"key": "matches/9/a.mp4", "url": "https://pub-x.r2.dev/matches/9/a.mp4", "filename": "a.mp4", "size_mb": 1, "last_modified": None},
+        {"key": "matches/3/old.mov", "url": "https://pub-x.r2.dev/matches/3/old.mov", "filename": "old.mov", "size_mb": 900, "last_modified": None},
+    ])
+    lib = client.get("/api/videos").json()
+    me = next(v for v in lib["matches"] if v["match_id"] == mid)
+    assert me["needs_analysis"] is True
+    assert [o["filename"] for o in lib["orphans"]] == ["old.mov"]
+    assert lib["storage"] is True
 
 
 def test_health_and_old_db_upgrade(client):

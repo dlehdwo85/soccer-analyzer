@@ -130,3 +130,20 @@ class MergeRequest(BaseModel):
 class VideoUrlBody(BaseModel):
     video_url: str
     filename: str
+
+
+class EventUpdate(BaseModel):
+    """이벤트 검수. result — 패스: completed|intercepted|out, 슈팅: on_target|off_target|blocked."""
+    player: Optional[str] = None
+    target: Optional[str] = None
+    result: Optional[str] = None
+    t: Optional[float] = Field(default=None, ge=0)
+    deleted: Optional[bool] = None
+
+
+class EventCreate(BaseModel):
+    kind: Literal["pass", "shot", "recovery"]
+    t: float = Field(ge=0)
+    player: str
+    target: Optional[str] = None
+    result: Optional[str] = None

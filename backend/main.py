@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from app.database import create_tables
 from app.routers import matches as matches_router
-from app.routers.matches import players_router
+from app.routers.matches import players_router, videos_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,9 +32,9 @@ app = FastAPI(
 ## 조기축구 경기 영상 분석 API
 
 - 유니폼 색으로 선수 팀 구분 (골키퍼·심판 포함)
-- 선수별 볼 터치·점유·패스 성공/실패·유효 슈팅·xG·가로채기·볼 탈취
-- 이동거리·속도 구간·스프린트·최고 속도·히트맵 (경기장 보정 시 실제 m 단위)
-- 트랙 병합/이름 지정/제외, CSV 내보내기, GPS 파일 분석
+- 선수별 볼 터치·점유·패스 성공/실패·키패스·유효 슈팅·xG·가로채기·볼 탈취
+- 이벤트 검수(수정·삭제·추가), 전반/후반 나눠 보기
+- 트랙 병합/이름 지정/제외, CSV 내보내기, 예전에 올린 영상 다시 분석
 """,
     lifespan=lifespan,
 )
@@ -58,6 +58,7 @@ app.add_middleware(
 
 app.include_router(matches_router.router)
 app.include_router(players_router)
+app.include_router(videos_router)
 
 
 @app.get("/api/health", tags=["system"])

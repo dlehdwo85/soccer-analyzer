@@ -4,18 +4,18 @@ import logging
 import os
 import re
 import shutil
-from typing import Dict, List
+from typing import Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Match, MatchPlayer
-from app.schemas import (AnalyzeRequest, CalibrationIn, MatchCreate, MatchOut, MatchUpdate, MergeRequest,
-                         PlayerUpdate, StatusOut, VideoUrlBody)
+from app.models import Match, MatchEvent, MatchPlayer
+from app.schemas import (AnalyzeRequest, CalibrationIn, EventCreate, EventUpdate, MatchCreate, MatchOut, MatchUpdate,
+                         MergeRequest, PlayerUpdate, StatusOut, VideoUrlBody)
 from app.services import analysis_service
-from app.services.result_service import CURRENT_VERSION, build_view, export_csv, save_result, thumbnail_for
+from app.services.result_service import CURRENT_VERSION, build_view, export_csv, thumbnail_for
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/matches", tags=["matches"])
@@ -264,19 +264,22 @@ def _require_result(m: Match):
 
 
 @router.get("/{match_id}/result")
-def get_result(match_id: int, db: Session = Depends(get_db)):
+def get_result(match_id: int, period: Optional[int] = Query(default=None, ge=1, le=2),
+               db: Session = Depends(get_db)):
+    """period=1 전반, 2 후반 (경기 설정의 후반 시작 시각 기준)."""
     m = _get(db, match_id)
     _require_result(m)
-    view = build_view(db, m)
+    view = build_view(db, m, period=period)
     view["match"] = _out(m).model_dump(mode="json")
     return view
 
 
 @router.get("/{match_id}/export.csv")
-def export_players_csv(match_id: int, db: Session = Depends(get_db)):
+def export_players_csv(match_id: int, period: Optional[int] = Query(default=None, ge=1, le=2),
+                       db: Session = Depends(get_db)):
     m = _get(db, match_id)
     _require_result(m)
-    data = export_csv(m, build_view(db, m, include_events=False))
+    data = export_csv(m, build_view(db, m, include_events=False, period=period))
     return Response(data, media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="match_{match_id}_players.csv"'})
 
@@ -350,53 +353,124 @@ def unmerge_player(match_id: int, track_id: str, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
-# ── GPS ─────────────────────────────────────────────────────────────────────
+# ── 이벤트 검수 (잘못 잡힌 기록 고치기·지우기·추가) ────────────────────────
 
-async def _read_gps(file: UploadFile) -> bytes:
-    ext = (file.filename or "").rsplit(".", 1)[-1].lower()
-    if ext not in ("csv", "json", "gpx"):
-        raise HTTPException(400, "CSV, JSON, GPX 파일만 지원합니다")
-    content = await file.read()
-    if len(content) > 50 * 1024 * 1024:
-        raise HTTPException(413, "GPS 파일은 50MB 이하만 지원합니다")
-    return content
+def _track_ids(db: Session, match_id: int) -> set:
+    return {tid for (tid,) in db.query(MatchPlayer.track_id).filter(MatchPlayer.match_id == match_id).all()}
 
 
-@router.post("/{match_id}/gps-preview")
-async def gps_preview(match_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    _get(db, match_id)
-    content = await _read_gps(file)
-    from app.services.gps_service import get_gps_preview
-    try:
-        return get_gps_preview(file.filename, content)
-    except ValueError as e:
-        raise HTTPException(422, str(e))
+def _apply_result(ev: MatchEvent, result: Optional[str], target_given: bool, target: Optional[str]):
+    detail = json.loads(ev.detail_json or "{}")
+    if target_given:
+        ev.target = target
+    if ev.kind == "pass":
+        if result == "out":
+            ev.target, ev.success = None, False
+            detail["reason"] = "out"
+        elif result in ("completed", "intercepted"):
+            if not ev.target:
+                raise HTTPException(422, "패스를 받은(가로챈) 선수를 지정하세요")
+            detail["reason"] = result
+            ev.success = result == "completed"
+        elif target_given and ev.target and detail.get("reason") == "out":
+            detail["reason"] = "completed"
+    elif ev.kind == "shot":
+        if result:
+            if result not in ("on_target", "off_target", "blocked"):
+                raise HTTPException(422, "슈팅 결과는 on_target / off_target / blocked 중 하나입니다")
+            detail["outcome"] = result
+            ev.success = result == "on_target"
+            if result != "blocked" and not target_given:
+                ev.target = None
+    elif result:
+        raise HTTPException(422, "볼 탈취에는 결과를 지정하지 않습니다")
+    ev.detail_json = json.dumps(detail)
 
 
-@router.post("/{match_id}/upload-gps")
-async def upload_gps(match_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+@router.patch("/{match_id}/events/{event_id}")
+def update_event(match_id: int, event_id: int, body: EventUpdate, db: Session = Depends(get_db)):
     m = _get(db, match_id)
-    if m.status == "analyzing":
-        raise HTTPException(409, "이미 분석 중입니다")
-    content = await _read_gps(file)
-    from app.services.gps_service import build_gps_result, parse_gps_file
-    try:
-        points = parse_gps_file(file.filename, content)
-        result = build_gps_result(points, m.field_type or "soccer")
-    except ValueError as e:
-        raise HTTPException(422, str(e))
-    save_result(db, m, result, "gps")
+    _require_result(m)
+    ev = db.get(MatchEvent, event_id)
+    if not ev or ev.match_id != match_id or ev.kind == "possession":
+        raise HTTPException(404, "이벤트를 찾을 수 없습니다")
+    data = body.model_dump(exclude_unset=True)
+    ids = _track_ids(db, match_id)
+    for key in ("player", "target"):
+        if data.get(key) and data[key] not in ids:
+            raise HTTPException(422, f"없는 선수(트랙)입니다: {data[key]}")
+    if data.get("deleted") is not None:
+        ev.deleted = data["deleted"]
+    if data.get("player"):
+        ev.player = data["player"]
+    if data.get("t") is not None:
+        ev.t = data["t"]
+    _apply_result(ev, data.get("result"), "target" in data, data.get("target"))
+    ev.edited = True
     db.commit()
-    return {"message": "GPS 분석 완료", "players": len(result["players"]), "points": len(points),
-            "duration_s": result["meta"]["duration_s"]}
+    return {"ok": True, "id": ev.id}
+
+
+@router.post("/{match_id}/events", status_code=201)
+def create_event(match_id: int, body: EventCreate, db: Session = Depends(get_db)):
+    """자동 분석이 놓친 패스·슈팅·탈취를 직접 추가."""
+    m = _get(db, match_id)
+    _require_result(m)
+    ids = _track_ids(db, match_id)
+    for tid in (body.player, body.target):
+        if tid and tid not in ids:
+            raise HTTPException(422, f"없는 선수(트랙)입니다: {tid}")
+    p = _player(db, match_id, body.player)
+    last = db.query(MatchEvent.seq).filter(MatchEvent.match_id == match_id).order_by(MatchEvent.seq.desc()).first()
+    ev = MatchEvent(match_id=match_id, seq=(last[0] + 1) if last else 0, kind=body.kind, t=body.t, t_end=body.t,
+                    team=p.team, player=body.player, target=body.target, success=None, detail_json="{}",
+                    manual=True, edited=True)
+    default = {"pass": "completed" if body.target else "out", "shot": "off_target"}.get(body.kind)
+    _apply_result(ev, body.result or default, False, None)
+    db.add(ev)
+    db.commit()
+    return {"ok": True, "id": ev.id}
+
+
+@router.post("/{match_id}/events/reset")
+def reset_events(match_id: int, db: Session = Depends(get_db)):
+    """직접 추가한 이벤트를 지우고 지운 이벤트를 되살린다 (선수·결과 수정은 유지)."""
+    _get(db, match_id)
+    db.query(MatchEvent).filter(MatchEvent.match_id == match_id, MatchEvent.manual.is_(True)).delete()
+    db.query(MatchEvent).filter(MatchEvent.match_id == match_id).update({MatchEvent.deleted: False})
+    db.commit()
+    return {"ok": True}
+
+
+# ── 업로드된 영상 목록 (예전에 올린 영상 찾아 다시 분석) ──────────────────────
+
+videos_router = APIRouter(prefix="/api/videos", tags=["videos"])
+
+
+@videos_router.get("")
+def list_videos(db: Session = Depends(get_db)):
+    """영상이 연결된 경기 + 저장소(R2)에는 있지만 어느 경기에도 연결되지 않은 영상."""
+    matches = db.query(Match).filter(Match.video_url.isnot(None)).order_by(Match.created_at.desc()).all()
+    out = []
+    for m in matches:
+        out.append({
+            "match_id": m.id, "title": m.title, "date": m.date, "video_filename": m.video_filename,
+            "video_url": m.video_url, "status": m.status, "analysis_version": m.analysis_version or 0,
+            "data_source": m.data_source,
+            "needs_analysis": (m.analysis_version or 0) != CURRENT_VERSION or m.data_source != "video",
+        })
+    from app.services import storage_service
+    linked = {m.video_url for m in matches}
+    orphans = [o for o in storage_service.list_videos() if o["url"] not in linked]
+    return {"matches": out, "orphans": orphans, "storage": storage_service.is_configured()}
 
 
 # ── 선수 프로필 (여러 경기 누적, 이름 기준) ─────────────────────────────────
 
 players_router = APIRouter(prefix="/api/players", tags=["players"])
 
-PROFILE_SUM = ("touches", "passes_attempted", "passes_completed", "shots", "shots_on_target", "xg",
-               "interceptions", "recoveries", "distance_m", "sprint_count", "seconds_tracked")
+PROFILE_SUM = ("touches", "passes_attempted", "passes_completed", "passes_failed", "forward_passes", "key_passes",
+               "shots", "shots_on_target", "xg", "interceptions", "recoveries", "dispossessed", "seconds_tracked")
 
 
 def _collect_profiles(db: Session) -> Dict[str, Dict]:
@@ -421,15 +495,13 @@ def _collect_profiles(db: Session) -> Dict[str, Dict]:
                 "match_id": m.id, "title": m.title, "date": m.date, "data_source": m.data_source,
                 "team_name": m.home_team_name if p["team"] == "home" else m.away_team_name,
                 "track_id": p["track_id"], "stats": {k: s.get(k) for k in PROFILE_SUM + (
-                    "pass_accuracy", "top_speed_kmh", "minutes_tracked")},
+                    "pass_accuracy", "minutes_tracked")},
             })
     for prof in profiles.values():
         t = prof["totals"]
         t["pass_accuracy"] = round(t["passes_completed"] / t["passes_attempted"] * 100, 1) if t["passes_attempted"] else None
         t["xg"] = round(t["xg"], 2)
-        t["distance_m"] = round(t["distance_m"])
         t["minutes"] = round(t["seconds_tracked"] / 60, 1)
-        t["top_speed_kmh"] = max((mm["stats"]["top_speed_kmh"] or 0) for mm in prof["matches"])
         prof["match_count"] = len(prof["matches"])
         prof["matches"].sort(key=lambda mm: mm["match_id"], reverse=True)
     return profiles
