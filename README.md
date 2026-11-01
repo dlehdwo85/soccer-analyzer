@@ -60,7 +60,7 @@
 | 모드 | 설명 | 필요한 것 |
 |------|------|-----------|
 | 영상 분석 (RunPod) | GPU 서버에서 영상 분석. 90분 경기 약 15~30분 | `RUNPOD_API_KEY`, `RUNPOD_ENDPOINT_ID`, 영상이 R2에 있어야 함 |
-| 영상 분석 (서버 직접) | 백엔드 서버에 `requirements-worker.txt` 설치 시. CPU는 매우 느림 | GPU 서버 또는 짧은 영상 |
+| 영상 분석 (서버 직접) | Railway 변수 `ENABLE_VIDEO_ANALYSIS=1`로 빌드하면 백엔드가 CPU로 직접 분석 (별도 GPU 서비스 불필요) | 시간 여유 (아래 속도 참고) |
 | 샘플 분석 | 가상 경기로 결과 화면 미리보기. **업로드 영상과 무관**하며 결과 화면에 명시됨 | 없음 |
 
 영상 분석 엔진이 설정되지 않았으면 분석 버튼이 비활성화되고 API는 503을 돌려줍니다. 예전처럼 샘플 데이터로 몰래 대체하지 않습니다.
@@ -88,7 +88,13 @@ DB 테이블과 새 컬럼은 시작할 때 자동으로 만들어집니다(이�
 
 Add New Project → 이 저장소 → **Root Directory `frontend`** → 환경변수 `NEXT_PUBLIC_API_URL` = Railway 주소 → Deploy
 
-### 3. RunPod — GPU 분석 워커
+### 3-a. GPU 없이 Railway에서 바로 분석 (가장 간단)
+
+Railway 백엔드 서비스 Variables에 `ENABLE_VIDEO_ANALYSIS=1`을 추가하고 재배포하면 CPU용 PyTorch와 YOLO가 함께 설치되어
+백엔드가 직접 영상을 분석합니다. 별도 서비스가 필요 없지만 느립니다 — 4코어 CPU 기준 480p 영상은 실제 길이의 약 2~3배,
+1080p는 그보다 더 걸립니다. 처음에는 '일부 구간만 분석'으로 5~10분만 돌려 확인하세요. Railway 사용량(CPU·메모리 시간) 요금이 늘어납니다.
+
+### 3-b. RunPod — GPU 분석 워커 (빠름)
 
 ```bash
 docker build -f backend/Dockerfile.worker -t <레지스트리>/soccer-analyzer-worker:latest backend
