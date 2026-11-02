@@ -60,11 +60,17 @@ class AnalysisConfig:
     start_seconds: float = 0.0
     color_calib_s: float = 30.0
     minor_track_s: float = 10.0
+    # standard: CPU에서도 돌 수 있는 설정 / max: GPU 전용 고정밀 (초당 15장면, 대형 선수 모델, 공 4분할 검출)
+    quality: str = "standard"
 
     @classmethod
     def from_dict(cls, d: Dict) -> "AnalysisConfig":
         keys = cls.__dataclass_fields__.keys()
         return cls(**{k: v for k, v in (d or {}).items() if k in keys})
+
+    def effective_fps(self) -> float:
+        """고정밀은 장면 수를 늘려 빠른 패스·슈팅의 공 궤적이 끊기지 않게 한다 (명시한 값이 더 크면 그 값)."""
+        return max(self.analysis_fps, QUALITY_PRESETS.get(self.quality, {}).get("analysis_fps", 0.0))
 
     def event_config(self, length: float, width: float, calibrated: bool = False) -> EventConfig:
         return EventConfig(length=length, width=width,
@@ -72,6 +78,13 @@ class AnalysisConfig:
                            home_attacks=self.home_attacks, calibrated=calibrated,
                            # halftime_s는 영상 전체 기준 시각, 이벤트 시각은 분석 시작점 기준
                            halftime_s=(self.halftime_s - self.start_seconds) if self.halftime_s is not None else None)
+
+
+# 품질 단계별 검출 설정. 표준은 환경변수(YOLO_MODEL 등)를 따르고, 고정밀은 이 값이 우선한다.
+QUALITY_PRESETS: Dict[str, Dict] = {
+    "standard": {},
+    "max": {"analysis_fps": 15.0, "model": "yolov8x.pt", "imgsz": 1280, "ball_tiles": 2, "ball_full_every": 1},
+}
 
 
 # ── 검출기 ──────────────────────────────────────────────────────────────────
@@ -125,6 +138,18 @@ class YoloDetector:
             names = self.ball_model.names
             self.ball_classes = [k for k, v in names.items() if "ball" in str(v).lower()] or list(names)
             self.ball_min_conf_new = self.BALL_MODEL_MIN_CONF_NEW
+
+    @classmethod
+    def for_quality(cls, quality: str = "standard") -> "YoloDetector":
+        """품질 단계에 맞춘 검출기. 표준은 환경변수(YOLO_MODEL 등) 그대로, 고정밀은 단계 설정이 우선한다."""
+        p = QUALITY_PRESETS.get(quality or "standard", {})
+        det = cls(model=p.get("model") or os.environ.get("YOLO_MODEL"),
+                  imgsz=p.get("imgsz") or (int(os.environ["YOLO_IMGSZ"]) if os.environ.get("YOLO_IMGSZ") else None))
+        if "ball_tiles" in p and not os.environ.get("YOLO_BALL_TILES"):
+            det.ball_tiles = p["ball_tiles"]
+        if "ball_full_every" in p:
+            det.BALL_FULL_EVERY = p["ball_full_every"]
+        return det
 
     def _ball_predict(self, img, x0: int = 0, y0: int = 0) -> List[Tuple[float, float, float]]:
         rb = self.ball_model.predict(img, imgsz=self.ball_imgsz, classes=self.ball_classes, conf=self.BALL_CONF,
@@ -182,7 +207,8 @@ class YoloDetector:
             cands: List[Tuple[float, float, float]] = []
             # 추적 중이면 확대 영역만 보고, 전체 화면은 가끔 확인한다 (공이 멀리 튀었을 때 대비).
             if not tracking or self._frame_no % self.BALL_FULL_EVERY == 0:
-                if self.ball_tiles >= 2 and not tracking:
+                # 고정밀(BALL_FULL_EVERY=1)은 추적 중에도 매 장면 4분할로 본다 (GPU 전제)
+                if self.ball_tiles >= 2 and (not tracking or self.BALL_FULL_EVERY == 1):
                     n, ov = self.ball_tiles, 0.12
                     tw, th = int(w / n * (1 + ov)), int(h / n * (1 + ov))
                     for iy in range(n):
@@ -313,7 +339,7 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    a_fps = max(MIN_ANALYSIS_FPS, min(cfg.analysis_fps, fps_video))
+    a_fps = max(MIN_ANALYSIS_FPS, min(cfg.effective_fps(), fps_video))
     stride = max(1, int(round(fps_video / a_fps)))
     eff_fps = fps_video / stride
     start_f = int(cfg.start_seconds * fps_video)
@@ -326,7 +352,7 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
     cam = None if mapper.calibrated else CameraMotion(frame_w, frame_h)
     clf = C.TeamColorClassifier.from_match(cfg.home_color, cfg.away_color, cfg.referee_color,
                                            cfg.home_gk_color, cfg.away_gk_color)
-    detector = detector or YoloDetector()
+    detector = detector or YoloDetector.for_quality(cfg.quality)
     # 검출 캐시: ANALYSIS_CACHE_DIR가 있으면 프레임별 검출을 저장해 두고, 같은 영상·구간이면 YOLO 없이 재생한다.
     # 규칙(점유·패스·세트피스)을 바꿀 때 몇 시간짜리 재검출 없이 몇 초 만에 다시 계산하기 위한 것.
     det_cache = _DetectionCache.for_run(source, start_f, end_f, stride, detector)
