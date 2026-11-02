@@ -210,6 +210,69 @@ class YoloDetector:
         return persons, balls
 
 
+# ── 검출 캐시 ────────────────────────────────────────────────────────────────
+
+class _DetectionCache:
+    """프레임별 (사람, 공) 검출을 pickle로 저장/재생한다. 파일 이름에 영상·구간·stride가 들어간다."""
+
+    def __init__(self, path: str, detector: Detector, log: Optional[List] = None, meta: Optional[Dict] = None):
+        self.path = path
+        self._inner = detector
+        self._log: List = log if log is not None else []
+        self._replay = log is not None
+        self._meta: Dict = meta or {}
+        self._i = 0
+        # 뒤 단계가 참고하는 검출기 속성은 그대로 흉내 낸다
+        self.ball_min_conf_new = getattr(detector, "ball_min_conf_new", 0.3)
+        self.ball_model = getattr(detector, "ball_model", None)
+        if self._replay:
+            self.ball_min_conf_new = self._meta.get("ball_min_conf_new", self.ball_min_conf_new)
+            self.ball_model = True if self._meta.get("dedicated_ball") else None
+
+    @property
+    def detector(self) -> "Detector":
+        return self
+
+    @classmethod
+    def for_run(cls, source: str, start_f: int, end_f: Optional[int], stride: int,
+                detector: Detector) -> Optional["_DetectionCache"]:
+        cache_dir = os.environ.get("ANALYSIS_CACHE_DIR")
+        if not cache_dir or not isinstance(source, str) or not os.path.exists(source):
+            return None
+        import pickle
+        os.makedirs(cache_dir, exist_ok=True)
+        base = os.path.splitext(os.path.basename(source))[0]
+        size = os.path.getsize(source)
+        path = os.path.join(cache_dir, f"{base}_{size}_{start_f}_{end_f or 0}_{stride}.det.pkl")
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                data = pickle.load(f)
+            obj = cls(path, detector, log=data["log"], meta=data.get("meta", {}))
+            logger.info("검출 캐시 재생: %s (%d프레임)", path, len(data["log"]))
+            return obj
+        return cls(path, detector)
+
+    def detect(self, frame_rgb):
+        if self._replay:
+            if self._i >= len(self._log):
+                raise RuntimeError("검출 캐시가 영상보다 짧습니다 — 캐시 파일을 지우고 다시 분석하세요")
+            out = self._log[self._i]
+            self._i += 1
+            return out
+        out = self._inner.detect(frame_rgb)
+        self._log.append(out)
+        return out
+
+    def save(self) -> None:
+        if self._replay:
+            return
+        import pickle
+        meta = {"ball_min_conf_new": self.ball_min_conf_new, "dedicated_ball": self.ball_model is not None}
+        with open(self.path, "wb") as f:
+            pickle.dump({"meta": meta, "log": self._log}, f)
+        logger.info("검출 캐시 저장: %s (%d프레임)", self.path, len(self._log))
+
+
 # ── 실제 영상 ────────────────────────────────────────────────────────────────
 
 @dataclass
@@ -264,6 +327,11 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
     clf = C.TeamColorClassifier.from_match(cfg.home_color, cfg.away_color, cfg.referee_color,
                                            cfg.home_gk_color, cfg.away_gk_color)
     detector = detector or YoloDetector()
+    # 검출 캐시: ANALYSIS_CACHE_DIR가 있으면 프레임별 검출을 저장해 두고, 같은 영상·구간이면 YOLO 없이 재생한다.
+    # 규칙(점유·패스·세트피스)을 바꿀 때 몇 시간짜리 재검출 없이 몇 초 만에 다시 계산하기 위한 것.
+    det_cache = _DetectionCache.for_run(source, start_f, end_f, stride, detector)
+    if det_cache is not None:
+        detector = det_cache.detector
     tracker = IoUTracker(team_of=lambda pl: (C.TEAM_OF_LABEL.get(pl[0]), pl[1]) if pl else (None, 0.0))
     info: Dict[int, _TrackInfo] = defaultdict(_TrackInfo)
     times: List[float] = []
@@ -395,6 +463,9 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
         if info[tid].thumb and info[tid].best_area > thumb_area.get(pid, 0):
             thumbs[pid], thumb_area[pid] = info[tid].thumb, info[tid].best_area
         color_by_player[pid].extend(info[tid].labs[:50])
+
+    if det_cache is not None:
+        det_cache.save()
 
     # 공 전용 모델은 검출이 촘촘해 궤적 기억·보간 구간을 더 길게 잡아도 엉뚱한 점을 잇지 않는다.
     # 실측(1080p 조기축구 1분): 보간 0.8초 → 공 위치 파악 66%, 2.5초 → 91%. 발밑에 가려진 공이 대부분이라

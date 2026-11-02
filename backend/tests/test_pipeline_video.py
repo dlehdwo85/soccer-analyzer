@@ -125,3 +125,22 @@ def test_pipeline_uncalibrated_and_missing_file(rendered):
     assert res["meta"]["duration_s"] <= 41
     with pytest.raises(RuntimeError):
         analyze_video(os.path.join(os.path.dirname(path), "nope.mp4"), cfg, detector=BlobDetector())
+
+
+def test_detection_cache_replays_without_detector(rendered, tmp_path, monkeypatch):
+    sim, path, w, h = rendered
+    monkeypatch.setenv("ANALYSIS_CACHE_DIR", str(tmp_path / "cache"))
+    cfg = AnalysisConfig(home_color="#3b9fd0", away_color="#d62020", analysis_fps=5.0,
+                         color_calib_s=10, max_seconds=30)
+    first = analyze_video(path, cfg, detector=BlobDetector())
+    files = list((tmp_path / "cache").glob("*.det.pkl"))
+    assert len(files) == 1
+
+    class Boom:
+        def detect(self, frame_rgb):
+            raise AssertionError("캐시가 있으면 검출기를 부르면 안 된다")
+
+    second = analyze_video(path, cfg, detector=Boom())
+    assert second["events"] == first["events"]
+    assert second["meta"]["ball_detected_pct"] == first["meta"]["ball_detected_pct"]
+    assert len(second["players"]) == len(first["players"])
