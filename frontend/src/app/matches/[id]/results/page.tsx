@@ -16,12 +16,13 @@ import Compare from '@/components/results/Compare'
 import TrackEditor from '@/components/results/TrackEditor'
 import LineupBoard from '@/components/results/LineupBoard'
 import VideoDock, { VideoDockHandle } from '@/components/results/VideoDock'
+import VideoReview from '@/components/results/VideoReview'
 
-type Tab = 'overview' | 'players' | 'highlights' | 'events' | 'network' | 'compare' | 'lineup' | 'edit'
+type Tab = 'overview' | 'review' | 'players' | 'highlights' | 'events' | 'network' | 'compare' | 'lineup' | 'edit'
 type Period = 1 | 2 | null
 
 const TABS: [Tab, string][] = [
-  ['overview', '개요'], ['players', '선수 기록'], ['highlights', '하이라이트'], ['events', '이벤트 검수'],
+  ['overview', '개요'], ['review', '영상 검수'], ['players', '선수 기록'], ['highlights', '하이라이트'], ['events', '이벤트 검수'],
   ['network', '패스 네트워크'], ['compare', '선수 비교'], ['lineup', '라인업'], ['edit', '선수 정리'],
 ]
 
@@ -92,6 +93,9 @@ export default function ResultsPage() {
           {fmtDateShort(match.date) || fmtDateShort(match.created_at)} · {SOURCE_LABEL[meta.source] ?? meta.source} 분석 · {fmtClock(meta.duration_s)}{periodLabel}
         </p>
         <Link href={`/matches/${matchId}`} className="btn-ghost !px-2.5" aria-label="경기 설정"><Settings2 className="w-4 h-4" /></Link>
+        {videoSrc && (
+          <button type="button" className="btn-secondary !py-1.5" onClick={() => dock.current?.open()}>영상 보기</button>
+        )}
         <a href={api.exportCsvUrl(matchId, period)} className="btn-secondary !py-1.5" download>
           <Download className="w-4 h-4" /><span className="hidden sm:inline">CSV</span>
         </a>
@@ -186,6 +190,7 @@ export default function ResultsPage() {
           <div className="lg:col-span-2"><ShotMap result={result} players={players} onSeek={seek ? t => seek(t, '슈팅') : undefined} /></div>
         </div>
       )}
+      {tab === 'review' && <VideoReview matchId={matchId} result={result} players={players} src={videoSrc} />}
       {tab === 'players' && <PlayerTable matchId={matchId} match={match} players={result.players} onSelect={p => setSelected(p.track_id)} />}
       {tab === 'highlights' && (
         <Highlights result={result} players={players} canPlay={!!videoSrc} onPlay={clips => dock.current?.playClips(clips)} />

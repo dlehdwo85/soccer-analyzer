@@ -12,6 +12,8 @@ export interface VideoDockHandle {
   playClips: (clips: Clip[]) => void
   /** 지금 영상 위치를 분석 기준 시각으로 (영상이 열려 있지 않으면 null) */
   currentTime: () => number | null
+  /** 장면 이동 없이 플레이어만 연다 — 처음 열 때는 분석 시작 지점에서 */
+  open: () => void
 }
 
 const PRE = 3
@@ -27,8 +29,10 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number }>(
   const queue = useRef<Clip[]>([])
   const [qInfo, setQInfo] = useState<{ i: number; n: number } | null>(null)
   const clipEnd = useRef<number | null>(null)
+  const startAtOffset = useRef(false)
 
   const go = useCallback((t: number) => {
+    startAtOffset.current = false
     const run = () => {
       const v = video.current
       if (!v) return
@@ -64,6 +68,16 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number }>(
       playIndex(0)
     },
     currentTime: () => (open && video.current ? Math.max(0, video.current.currentTime - offset) : null),
+    open: () => {
+      queue.current = []
+      setQInfo(null)
+      clipEnd.current = null
+      if (!open) {
+        startAtOffset.current = true
+        setTitle('경기 영상')
+      }
+      setOpen(true)
+    },
   }), [go, playIndex, open, offset])
 
   if (!open) return null
@@ -90,6 +104,11 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number }>(
       ) : (
         <video ref={video} src={src} controls playsInline preload="metadata" className="w-full aspect-video bg-black"
           onError={() => setError(true)}
+          onLoadedMetadata={e => {
+            if (!startAtOffset.current) return
+            startAtOffset.current = false
+            if (e.currentTarget.currentTime < offset) e.currentTarget.currentTime = offset
+          }}
           onTimeUpdate={e => {
             if (clipEnd.current !== null && qInfo && e.currentTarget.currentTime >= clipEnd.current) playIndex(qInfo.i + 1)
           }} />

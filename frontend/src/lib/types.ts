@@ -19,6 +19,8 @@ export interface Match {
   halftime_s: number | null
   video_filename: string | null
   video_url: string | null
+  /** 브라우저 재생용 사본 (720p H.264) — 있으면 원본 대신 재생한다 */
+  web_video_url?: string | null
   status: MatchStatus
   data_source: 'video' | 'gps' | 'sample' | null  // gps는 예전 버전 데이터
   analysis_progress: number
@@ -173,6 +175,25 @@ export interface MatchResult {
   team_stats: Record<Team, TeamStats>
   pass_network: Record<Team, PassNetworkTeam>
   possession_timeline: { start_s: number; end_s: number; home_pct: number | null }[]
+}
+
+/** 영상 검수용 선수 박스 한 행: [분석 프레임 번호, x1, y1, x2, y2] (원본 영상 픽셀) */
+export type OverlayBox = [k: number, x1: number, y1: number, x2: number, y2: number]
+/** 공 위치 한 행: [분석 프레임 번호, x, y, 검출 여부(1) / 보간(0)] */
+export type OverlayBall = [k: number, x: number, y: number, detected: 0 | 1]
+
+/** GET /api/matches/{id}/overlay — 프레임 k의 영상 시각 = start_s + k * step (원본 영상 기준 초) */
+export interface Overlay {
+  v: number
+  /** 원본 영상 프레임 크기(픽셀) */
+  w: number
+  h: number
+  start_s: number
+  step: number
+  n: number
+  /** track_id → 프레임 순으로 정렬된 박스 (추적된 프레임에만 있다) */
+  tracks: Record<string, OverlayBox[]>
+  ball: OverlayBall[]
 }
 
 export interface CalibrationInput {

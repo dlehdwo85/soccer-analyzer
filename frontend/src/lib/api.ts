@@ -1,6 +1,6 @@
 import {
   AnalysisStatus, Calibration, CalibrationInput, EventCreate, EventPatch, Health, Match, MatchInput, MatchResult,
-  PlayerProfile, PlayerProfileDetail, Team, VideoLibrary,
+  Overlay, PlayerProfile, PlayerProfileDetail, Team, VideoLibrary,
 } from './types'
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
@@ -86,8 +86,10 @@ export const api = {
     form.append('file', file)
     return JSON.parse(await uploadWithProgress('POST', `${API_BASE}/api/matches/${id}/upload`, form, onProgress))
   },
+  /** 브라우저 재생용 사본이 있으면 그것을, 없으면 원본 영상 */
   videoSrc: (m: Match) =>
-    !m.video_url ? null : m.video_url.startsWith('local:') ? `${API_BASE}/api/matches/${m.id}/video` : m.video_url,
+    m.web_video_url && !m.web_video_url.startsWith('local:') ? m.web_video_url
+      : !m.video_url ? null : m.video_url.startsWith('local:') ? `${API_BASE}/api/matches/${m.id}/video` : m.video_url,
 
   getCalibration: (id: number) => req<Calibration | null>(`/api/matches/${id}/calibration`),
   setCalibration: (id: number, body: CalibrationInput) => req<Match>(`/api/matches/${id}/calibration`, json('PUT', body)),
@@ -98,6 +100,13 @@ export const api = {
   getStatus: (id: number) => req<AnalysisStatus>(`/api/matches/${id}/status`),
   getResult: (id: number, period?: 1 | 2 | null) =>
     req<MatchResult>(`/api/matches/${id}/result${period ? `?period=${period}` : ''}`),
+  /** 영상 검수용 프레임별 선수 박스·공 위치. 이 분석에 데이터가 없으면(404) null */
+  getOverlay: async (id: number): Promise<Overlay | null> => {
+    const res = await fetch(`${API_BASE}/api/matches/${id}/overlay`)
+    if (res.status === 404) return null
+    if (!res.ok) throw new Error(`영상 검수 데이터를 불러오지 못했습니다 (${res.status})`)
+    return res.json()
+  },
   exportCsvUrl: (id: number, period?: 1 | 2 | null) =>
     `${API_BASE}/api/matches/${id}/export.csv${period ? `?period=${period}` : ''}`,
   thumbnailUrl: (id: number, trackId: string) =>
