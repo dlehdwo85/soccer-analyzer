@@ -81,6 +81,33 @@ export interface PlayerRow {
   jersey_number: number | null
   merged_from: string[]
   stats: PlayerStats
+  /** AI 분석을 만든 시각 (없으면 null) */
+  ai_report_at?: string | null
+  /** AI 분석 뒤 기록이 바뀌었으면 true, 분석이 없으면 null */
+  ai_report_stale?: boolean | null
+}
+
+/** AI 선수 분석 본문 — 기록된 수치·이벤트만 근거로 만든다 */
+export interface AIPlayerReport {
+  summary: string
+  /** 1~10, 데이터가 부족하면 null (판단 보류) */
+  rating: number | null
+  strengths: string[]
+  improvements: string[]
+  next_match_tips: string[]
+  data_caveats: string[]
+}
+
+/** GET/POST /api/matches/{id}/players/{track_id}/ai-report — 전체 경기 기록 기준 */
+export interface PlayerReport {
+  /** 병합 대표 트랙 */
+  track_id: string
+  report: AIPlayerReport
+  model: string
+  usage: { input_tokens: number; output_tokens: number }
+  generated_at: string
+  /** 분석 뒤 기록(이벤트 검수·트랙 병합 등)이 바뀌었으면 true */
+  stale: boolean
 }
 
 export type EventKind = 'pass' | 'shot' | 'recovery' | 'set_piece'

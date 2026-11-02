@@ -148,3 +148,53 @@ class EventCreate(BaseModel):
     player: str
     target: Optional[str] = None
     result: Optional[str] = None
+
+
+# ── AI 선수 분석 ────────────────────────────────────────────────────────────
+
+class AIPlayerReport(BaseModel):
+    """Claude가 돌려준 선수 분석 (구조화 출력 스키마와 같은 모양)."""
+    summary: str
+    rating: Optional[int] = None  # 1~10, 데이터가 부족하면 None(판단 보류)
+    strengths: List[str] = Field(default_factory=list)
+    improvements: List[str] = Field(default_factory=list)
+    next_match_tips: List[str] = Field(default_factory=list)
+    data_caveats: List[str] = Field(default_factory=list)
+
+    @field_validator("summary")
+    @classmethod
+    def _summary(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("summary가 비어 있습니다")
+        return v
+
+    @field_validator("rating", mode="before")
+    @classmethod
+    def _rating(cls, v):
+        if v is None or isinstance(v, bool):
+            return None
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            return None
+        return n if 1 <= n <= 10 else None
+
+    @field_validator("strengths", "improvements", "next_match_tips", "data_caveats")
+    @classmethod
+    def _items(cls, v: List[str]) -> List[str]:
+        return [s.strip() for s in v if s and s.strip()]
+
+
+class AIReportUsage(BaseModel):
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+class AIReportOut(BaseModel):
+    track_id: str
+    report: AIPlayerReport
+    model: str
+    usage: AIReportUsage
+    generated_at: datetime
+    stale: bool = False  # 분석 후 기록(이벤트·병합 등)이 바뀌었으면 True

@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import shutil
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
@@ -12,10 +13,12 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Match, MatchEvent, MatchPlayer
-from app.schemas import (AnalyzeRequest, CalibrationIn, EventCreate, EventUpdate, MatchCreate, MatchOut, MatchUpdate,
-                         MergeRequest, PlayerUpdate, StatusOut, VideoUrlBody)
-from app.services import analysis_service
-from app.services.result_service import CURRENT_VERSION, build_view, export_csv, overlay_gzip_bytes, thumbnail_for
+from app.schemas import (AIReportOut, AnalyzeRequest, CalibrationIn, EventCreate, EventUpdate, MatchCreate, MatchOut,
+                         MatchUpdate, MergeRequest, PlayerUpdate, StatusOut, VideoUrlBody)
+from app.services import ai_report_service, analysis_service
+from app.services.ai_report_service import build_player_context, context_basis
+from app.services.result_service import (CURRENT_VERSION, build_view, export_csv, head_player, overlay_gzip_bytes,
+                                         thumbnail_for)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/matches", tags=["matches"])
@@ -271,6 +274,7 @@ def get_result(match_id: int, period: Optional[int] = Query(default=None, ge=1, 
     _require_result(m)
     view = build_view(db, m, period=period)
     view["match"] = _out(m).model_dump(mode="json")
+    _annotate_ai_reports(db, m, view)
     return view
 
 
@@ -367,6 +371,99 @@ def unmerge_player(match_id: int, track_id: str, db: Session = Depends(get_db)):
     p.merged_into = None
     db.commit()
     return {"ok": True}
+
+
+# ── AI 선수 분석 ────────────────────────────────────────────────────────────
+
+def _utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """DB에는 UTC naive로 저장 → 응답에는 시간대를 붙여 브라우저가 현지 시각으로 바꾸게 한다."""
+    return dt.replace(tzinfo=timezone.utc) if dt is not None and dt.tzinfo is None else dt
+
+
+def _full_view(db: Session, m: Match) -> Dict:
+    view = build_view(db, m)
+    view["match"] = _out(m).model_dump(mode="json")
+    return view
+
+
+def _head_player(db: Session, match_id: int, track_id: str) -> MatchPlayer:
+    p = head_player(db, match_id, track_id)
+    if not p:
+        raise HTTPException(404, "선수(트랙)를 찾을 수 없습니다")
+    return p
+
+
+def _current_basis(view: Dict, track_id: str) -> Optional[str]:
+    try:
+        return context_basis(build_player_context(view, track_id))
+    except KeyError:
+        return None
+
+
+def _report_out(p: MatchPlayer, basis: Optional[str]) -> Optional[AIReportOut]:
+    try:
+        data = json.loads(p.ai_report_json or "")
+        return AIReportOut(track_id=p.track_id, report=data["report"], model=data.get("model") or "",
+                           usage=data.get("usage") or {}, generated_at=_utc(p.ai_report_at),
+                           stale=basis is not None and basis != p.ai_report_basis)
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def _annotate_ai_reports(db: Session, m: Match, view: Dict) -> None:
+    """결과 뷰의 선수마다 ai_report_at·ai_report_stale. 분석이 있는 선수만 기록 해시를 다시 계산한다."""
+    rows = {r.track_id: r for r in db.query(MatchPlayer).filter(MatchPlayer.match_id == m.id,
+                                                                MatchPlayer.ai_report_at.isnot(None)).all()}
+    full = None
+    for p in view["players"]:
+        r = rows.get(p["track_id"])
+        p["ai_report_at"] = _utc(r.ai_report_at).isoformat() if r else None
+        p["ai_report_stale"] = None
+        if r is None:
+            continue
+        if full is None:  # 분석은 항상 전체 경기 기록 기준 — 전반/후반 뷰면 전체 뷰를 따로 만든다
+            full = view if view.get("period") is None else _full_view(db, m)
+        basis = _current_basis(full, p["track_id"])
+        p["ai_report_stale"] = None if basis is None else basis != r.ai_report_basis
+
+
+@router.get("/{match_id}/players/{track_id}/ai-report", response_model=AIReportOut)
+def get_ai_report(match_id: int, track_id: str, db: Session = Depends(get_db)):
+    """저장된 AI 분석. 없으면 404. stale = 분석 뒤 기록이 바뀜."""
+    m = _get(db, match_id)
+    _require_result(m)
+    p = _head_player(db, match_id, track_id)
+    if not p.ai_report_json or not p.ai_report_at:
+        raise HTTPException(404, "아직 AI 분석이 없습니다")
+    out = _report_out(p, _current_basis(_full_view(db, m), p.track_id))
+    if out is None:
+        raise HTTPException(404, "저장된 AI 분석을 읽을 수 없습니다. 다시 분석해 주세요.")
+    return out
+
+
+@router.post("/{match_id}/players/{track_id}/ai-report", response_model=AIReportOut)
+def create_ai_report(match_id: int, track_id: str, db: Session = Depends(get_db)):
+    """전체 경기 기록으로 AI 분석을 새로 만들어 저장한다 (있으면 덮어쓴다). 수십 초 걸릴 수 있다."""
+    m = _get(db, match_id)
+    _require_result(m)
+    p = _head_player(db, match_id, track_id)
+    if p.excluded:
+        raise HTTPException(400, "제외된 선수는 AI 분석을 받을 수 없습니다")
+    if not ai_report_service.is_configured():
+        raise HTTPException(503, ai_report_service.NO_KEY_MESSAGE)
+    head_id = p.track_id
+    ctx = build_player_context(_full_view(db, m), head_id)
+    db.rollback()  # AI 응답을 기다리는 동안 DB 연결을 붙잡지 않는다
+    try:
+        out = ai_report_service.generate_player_report(ctx)
+    except ai_report_service.AIReportError as e:
+        raise HTTPException(e.status_code, e.message)
+    p = _head_player(db, match_id, head_id)
+    p.ai_report_json = json.dumps({**out, "context_version": ai_report_service.CONTEXT_VERSION}, ensure_ascii=False)
+    p.ai_report_at = datetime.utcnow()
+    p.ai_report_basis = ctx["basis"]
+    db.commit()
+    return _report_out(p, ctx["basis"])
 
 
 # ── 이벤트 검수 (잘못 잡힌 기록 고치기·지우기·추가) ────────────────────────

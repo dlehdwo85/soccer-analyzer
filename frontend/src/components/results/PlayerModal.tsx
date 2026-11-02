@@ -1,8 +1,9 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Play, X } from 'lucide-react'
-import { isPlaced, MatchEvent, MatchResult, PlayerRow } from '@/lib/types'
-import { cn, eventLabel, eventTone, fmtClock, isGk, playerName, teamInfo } from '@/lib/utils'
+import { api, ApiError } from '@/lib/api'
+import { isPlaced, MatchEvent, MatchResult, PlayerReport, PlayerRow } from '@/lib/types'
+import { cn, eventLabel, eventTone, fmtClock, fmtDateTime, isGk, playerName, teamInfo } from '@/lib/utils'
 import Pitch, { Arrow } from '@/components/pitch/Pitch'
 import PlayerAvatar from './PlayerAvatar'
 
@@ -127,8 +128,117 @@ export default function PlayerModal({ matchId, result, player, players, onClose,
               </div>
             </div>
           </div>
+
+          <AIReportSection key={player.track_id} matchId={matchId} trackId={player.track_id} />
         </div>
       </div>
+    </div>
+  )
+}
+
+/** AI 분석 — 저장된 분석을 보여 주고, 없거나 기록이 바뀌었으면 새로 받는다 (항상 전체 경기 기록 기준) */
+function AIReportSection({ matchId, trackId }: { matchId: number; trackId: string }) {
+  const [report, setReport] = useState<PlayerReport | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)  // 서버에 키가 없음 (503)
+  const [error, setError] = useState<string | null>(null)
+  const alive = useRef(true)
+  useEffect(() => () => { alive.current = false }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    api.getPlayerReport(matchId, trackId)
+      .then(r => { if (!cancelled) setReport(r) })
+      .catch(e => { if (!cancelled) setError((e as Error).message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [matchId, trackId])
+
+  const generate = async () => {
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const r = await api.createPlayerReport(matchId, trackId)
+      if (alive.current) setReport(r)
+    } catch (e) {
+      if (!alive.current) return
+      if (e instanceof ApiError && e.status === 503) setNotice(e.message)
+      else setError((e as Error).message)
+    } finally {
+      if (alive.current) setBusy(false)
+    }
+  }
+
+  const r = report?.report
+  return (
+    <section className="border-t border-ink-800 pt-5" aria-labelledby={`ai-report-${trackId}`} aria-busy={busy || loading}>
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+        <div className="min-w-0">
+          <p id={`ai-report-${trackId}`} className="label">AI 분석</p>
+          <p className="text-[11px] text-ink-500 mt-1">
+            전체 경기 기록의 수치와 이벤트만으로 정리한 분석입니다
+            {report && <> · <span className="num">{fmtDateTime(report.generated_at)}</span> 분석</>}
+          </p>
+        </div>
+        <button type="button" onClick={generate} disabled={busy || loading}
+          className={report ? 'btn-secondary' : 'btn-primary'}>
+          {busy ? '분석 중… 최대 1분' : report ? '다시 분석' : 'AI 분석 받기'}
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        {notice && <p className="note">{notice}</p>}
+        {error && <p className="note-warn">{error}</p>}
+        {report?.stale && !busy && <p className="note-warn">기록이 바뀌어 다시 분석이 필요합니다</p>}
+        {loading && <p className="text-xs text-ink-500">불러오는 중…</p>}
+        {!loading && !report && (
+          <p className="text-xs text-ink-500">
+            {busy ? '분석하는 동안 창을 닫아도 됩니다. 끝난 뒤 다시 열면 결과가 보입니다.'
+              : '아직 분석이 없습니다. 기록을 바탕으로 강점, 개선점, 다음 경기 제안을 정리합니다.'}
+          </p>
+        )}
+
+        {r && (
+          <div className={cn('space-y-4 transition-opacity', busy && 'opacity-50')}>
+            <div className="flex gap-3">
+              <div className="rounded-lg bg-ink-850 border border-ink-800 px-3.5 py-3 w-28 shrink-0">
+                <p className="text-[11px] text-ink-400">평점</p>
+                {r.rating != null
+                  ? <p className="text-xl font-semibold text-ink-100 num">{r.rating}<span className="text-sm text-ink-400">/10</span></p>
+                  : <p className="text-base font-semibold text-ink-200 mt-0.5">판단 보류</p>}
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] text-ink-400 mb-1">요약</p>
+                <p className="text-sm text-ink-200 leading-relaxed">{r.summary}</p>
+              </div>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-x-6 gap-y-4">
+              <ReportList title="강점" items={r.strengths} />
+              <ReportList title="개선점" items={r.improvements} />
+              <ReportList title="다음 경기 제안" items={r.next_match_tips} />
+              <ReportList title="데이터 주의사항" items={r.data_caveats} empty="특별한 주의사항이 없습니다" />
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function ReportList({ title, items, empty = '해당 없음' }: { title: string; items: string[]; empty?: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[11px] text-ink-400 mb-1.5">{title}</p>
+      {items.length === 0
+        ? <p className="text-xs text-ink-500">{empty}</p>
+        : (
+          <ul className="list-disc pl-4 space-y-1.5 text-sm text-ink-200 leading-relaxed marker:text-ink-600">
+            {items.map((t, i) => <li key={i}>{t}</li>)}
+          </ul>
+        )}
     </div>
   )
 }

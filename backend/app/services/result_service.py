@@ -244,6 +244,15 @@ def build_view(db: Session, match: Match, include_events: bool = True, period: O
     return out
 
 
+def head_player(db: Session, match_id: int, track_id: str) -> Optional[MatchPlayer]:
+    """track_id가 다른 트랙에 병합돼 있으면 최종 병합 대상(대표) 트랙의 행. 없는 트랙이면 None."""
+    rows = db.query(MatchPlayer).filter(MatchPlayer.match_id == match_id).all()
+    by_tid = {r.track_id: r for r in rows}
+    if track_id not in by_tid:
+        return None
+    return by_tid[_heads(rows)[track_id]]
+
+
 def thumbnail_for(db: Session, match_id: int, track_id: str) -> Optional[str]:
     rows = db.query(MatchPlayer).filter(MatchPlayer.match_id == match_id).all()
     head = _heads(rows)

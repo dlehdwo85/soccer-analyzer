@@ -1,9 +1,19 @@
 import {
   AnalysisStatus, Calibration, CalibrationInput, EventCreate, EventPatch, Health, Match, MatchInput, MatchResult,
-  Overlay, PlayerProfile, PlayerProfileDetail, Team, VideoLibrary,
+  Overlay, PlayerProfile, PlayerProfileDetail, PlayerReport, Team, VideoLibrary,
 } from './types'
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
+
+/** 서버가 오류 상태로 응답함 — message는 서버의 detail */
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -13,7 +23,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     const detail = Array.isArray(err.detail) ? err.detail.map((d: { msg: string }) => d.msg).join(', ') : err.detail
-    throw new Error(detail || `요청 실패 (${res.status})`)
+    throw new ApiError(detail || `요청 실패 (${res.status})`, res.status)
   }
   if (res.status === 204) return undefined as T
   return res.json()
@@ -120,6 +130,20 @@ export const api = {
     req<{ ok: boolean }>(`/api/matches/${id}/players/merge`, json('POST', { target, sources })),
   unmergePlayer: (id: number, trackId: string) =>
     req<{ ok: boolean }>(`/api/matches/${id}/players/${encodeURIComponent(trackId)}/unmerge`, json('POST')),
+
+  // ── AI 선수 분석 ───────────────────────────────────────────────
+  /** 저장된 분석. 아직 없으면(404) null */
+  getPlayerReport: async (id: number, trackId: string): Promise<PlayerReport | null> => {
+    try {
+      return await req<PlayerReport>(`/api/matches/${id}/players/${encodeURIComponent(trackId)}/ai-report`)
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null
+      throw e
+    }
+  },
+  /** 새로 분석해 저장 (있으면 덮어씀). 수십 초 걸린다. 서버에 키가 없으면 ApiError(503) */
+  createPlayerReport: (id: number, trackId: string) =>
+    req<PlayerReport>(`/api/matches/${id}/players/${encodeURIComponent(trackId)}/ai-report`, json('POST')),
 
   // ── 이벤트 검수 ────────────────────────────────────────────────
   updateEvent: (id: number, eventId: number, body: EventPatch) =>

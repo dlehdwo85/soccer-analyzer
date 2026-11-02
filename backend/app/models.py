@@ -62,6 +62,11 @@ class MatchPlayer(Base):
     jersey_number = Column(Integer, nullable=True)
     stats_json    = Column(Text, nullable=False, default="{}")
 
+    # AI 선수 분석 (병합 대표 트랙에 저장). basis = 분석에 쓴 기록의 해시 — 기록이 바뀌면 달라진다
+    ai_report_json  = Column(Text, nullable=True)
+    ai_report_at    = Column(DateTime, nullable=True)
+    ai_report_basis = Column(String(64), nullable=True)
+
     match = relationship("Match", back_populates="players")
 
 

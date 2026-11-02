@@ -20,6 +20,13 @@ export function fmtDateShort(v: string | null | undefined): string {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
+/** ISO 시각 → "11월 2일 오후 3:04" (현지 시각) */
+export function fmtDateTime(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
 /** 초 → m:ss (1시간 이상이면 h:mm:ss) */
 export function fmtClock(sec: number): string {
   const s = Math.max(0, Math.floor(sec))
