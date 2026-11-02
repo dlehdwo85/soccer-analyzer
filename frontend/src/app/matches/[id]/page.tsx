@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -148,6 +148,7 @@ function AnalysisSteps({ match, health, onMatch, reload }:
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploadPct, setUploadPct] = useState<number | null>(null)
+  const [dragOver, setDragOver] = useState(false)
   const [calOpen, setCalOpen] = useState(false)
   const [partial, setPartial] = useState(false)
   const [quality, setQuality] = useState<'standard' | 'max'>('standard')
@@ -216,9 +217,37 @@ function AnalysisSteps({ match, health, onMatch, reload }:
 
   const pct = status?.progress ?? match.analysis_progress
 
+  // 탐색기에서 영상 파일을 끌어다 놓아도 올라가게 한다 (업로드·분석 중에는 받지 않는다)
+  const canDrop = uploadPct === null && !analyzing
+  // 놓을 곳을 조금 빗나가도 브라우저가 영상을 열며 사이트를 떠나지 않게 한다
+  useEffect(() => {
+    const block = (e: globalThis.DragEvent) => {
+      if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault()
+    }
+    window.addEventListener('dragover', block)
+    window.addEventListener('drop', block)
+    return () => { window.removeEventListener('dragover', block); window.removeEventListener('drop', block) }
+  }, [])
+  const onDragOver = (e: DragEvent) => {
+    if (!canDrop || !Array.from(e.dataTransfer.types).includes('Files')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+    setDragOver(true)
+  }
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    if (!canDrop) return
+    const f = e.dataTransfer.files?.[0]
+    if (f) upload(f)
+  }
+
   return (
     <div className="space-y-4">
       <Step n={1} title="경기 영상" done={!!match.video_url}>
+        <div onDragOver={onDragOver} onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false) }}
+          onDrop={onDrop}
+          className={cn('rounded-lg transition-colors', dragOver && 'ring-2 ring-volt bg-volt/5')}>
         <p className="text-xs text-ink-400 mb-3">
           <b className="text-ink-200">1080p 이상</b>, 높은 곳에서 경기장을 넓게 담은 영상이 가장 정확합니다.
           480p처럼 화질이 낮거나 멀리서 찍어 공이 몇 픽셀밖에 안 되면 공을 놓쳐 볼 기록이 크게 줄어듭니다 — 이때는 &lsquo;이벤트 검수&rsquo;에서 보완하세요.
@@ -234,19 +263,22 @@ function AnalysisSteps({ match, health, onMatch, reload }:
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-ink-100">영상 준비됨</p>
               <p className="text-xs text-ink-400 truncate">{match.video_filename}</p>
+              {dragOver && <p className="text-xs text-volt font-semibold mt-0.5">놓으면 이 영상으로 교체합니다</p>}
             </div>
             <button className="btn-secondary !py-1.5 text-xs" onClick={() => fileRef.current?.click()} disabled={analyzing}>교체</button>
           </div>
         ) : (
           <button type="button" onClick={() => fileRef.current?.click()}
-            className="w-full border-2 border-dashed border-ink-700 hover:border-volt/60 hover:bg-volt/5 rounded-lg p-8 text-center transition-colors">
-            <Upload className="w-8 h-8 text-ink-500 mx-auto mb-2" />
-            <p className="font-bold text-ink-200">영상 파일 선택</p>
+            className={cn('w-full border-2 border-dashed hover:border-volt/60 hover:bg-volt/5 rounded-lg p-8 text-center transition-colors',
+              dragOver ? 'border-volt' : 'border-ink-700')}>
+            <Upload className={cn('w-8 h-8 mx-auto mb-2', dragOver ? 'text-volt' : 'text-ink-500')} />
+            <p className="font-bold text-ink-200">{dragOver ? '여기에 놓으면 올라갑니다' : '영상 파일을 끌어다 놓거나 눌러서 선택'}</p>
             <p className="text-xs text-ink-500 mt-1">MP4 · MOV · M4V · MKV · AVI {health?.r2 ? '· 대용량은 저장소로 바로 올라갑니다' : ''}</p>
           </button>
         )}
         <input ref={fileRef} type="file" accept="video/*,.mp4,.mov,.m4v,.mkv,.avi" className="hidden"
           onChange={e => { const f = e.target.files?.[0]; if (f) upload(f) }} />
+        </div>
       </Step>
 
       <section className="card">
