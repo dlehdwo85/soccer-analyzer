@@ -216,7 +216,8 @@ def possession_timeline(spells: Sequence[Spell], duration_s: float, bins: Option
         t = sp.t0
         while t < sp.t1:
             i = min(n - 1, int(t // bin_s))
-            seg_end = min(sp.t1, (i + 1) * bin_s)
+            # 마지막 구간은 남은 시간을 모두 받는다 — 점유가 영상 끝(duration_s)을 조금 넘어도 끝나도록
+            seg_end = sp.t1 if i == n - 1 else min(sp.t1, (i + 1) * bin_s)
             (home if sp.team == "home" else away)[i] += seg_end - t
             t = seg_end
     out = []

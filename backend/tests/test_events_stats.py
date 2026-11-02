@@ -288,3 +288,12 @@ def test_set_piece_free_kick_and_throw_in_by_location():
 
     assert scenario((50.0, 30.0)) == [("A1", "free_kick")]
     assert scenario((50.0, 0.8)) == [("A1", "throw_in")]
+
+
+def test_possession_timeline_spell_past_duration_terminates():
+    """점유 구간이 경기 길이를 넘어도(반올림 차이) 끝나야 한다 — 예전에는 무한 반복에 빠졌다."""
+    from app.vision.events import Spell
+    sp = [Spell("H1", "home", 590.0, 600.4, 0, 0, 0, 0, 1.0), Spell("A1", "away", 10.0, 70.0, 0, 0, 0, 0, 1.0)]
+    out = possession_timeline(sp, 600.0)
+    assert out and out[-1]["home_pct"] == 100.0
+    assert [b["home_pct"] for b in out[:3]] == [0.0, 0.0, None]  # 10~70초 원정 점유는 두 구간에 걸친다
