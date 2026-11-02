@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Download, Settings2 } from 'lucide-react'
+import { ArrowLeft, Download, Settings2, Share2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { MatchResult, Team, TeamStats } from '@/lib/types'
 import { cn, fmtClock, fmtDateShort, isDark, SOURCE_LABEL, teamInfo } from '@/lib/utils'
@@ -12,6 +13,7 @@ import PlayerModal from '@/components/results/PlayerModal'
 import PassNetwork from '@/components/results/PassNetwork'
 import EventReview from '@/components/results/EventReview'
 import Highlights from '@/components/results/Highlights'
+import MatchSummaryCard from '@/components/results/MatchSummaryCard'
 import Compare from '@/components/results/Compare'
 import TrackEditor from '@/components/results/TrackEditor'
 import LineupBoard from '@/components/results/LineupBoard'
@@ -65,6 +67,28 @@ export default function ResultsPage() {
 
   const players = useMemo(() => new Map((result?.players ?? []).map(p => [p.track_id, p])), [result])
 
+  // 공유 링크(?player=트랙)로 들어오면 그 선수 창을 바로 연다
+  const opened = useRef(false)
+  useEffect(() => {
+    if (opened.current || !result) return
+    opened.current = true
+    const want = new URLSearchParams(window.location.search).get('player')
+    if (want && players.has(want)) setSelected(want)
+  }, [result, players])
+
+  const shareMatch = async () => {
+    const url = `${window.location.origin}/matches/${matchId}/results`
+    try {
+      if (navigator.share) await navigator.share({ title: result?.match.title ?? '경기 기록', url })
+      else {
+        await navigator.clipboard.writeText(url)
+        toast.success('경기 기록 링크를 복사했습니다')
+      }
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') toast.error('링크를 공유하지 못했습니다')
+    }
+  }
+
   if (error) return (
     <div className="max-w-3xl mx-auto px-4 py-16 text-center">
       <p className="text-ink-200 mb-3">{error}</p>
@@ -96,6 +120,9 @@ export default function ResultsPage() {
         {videoSrc && (
           <button type="button" className="btn-secondary !py-1.5" onClick={() => dock.current?.open()}>영상 보기</button>
         )}
+        <button type="button" className="btn-secondary !py-1.5" onClick={shareMatch}>
+          <Share2 className="w-4 h-4" /><span className="hidden sm:inline">공유</span>
+        </button>
         <a href={api.exportCsvUrl(matchId, period)} className="btn-secondary !py-1.5" download>
           <Download className="w-4 h-4" /><span className="hidden sm:inline">CSV</span>
         </a>
@@ -182,6 +209,9 @@ export default function ResultsPage() {
 
       {tab === 'overview' && (
         <div className="grid lg:grid-cols-2 gap-4">
+          <div className="lg:col-span-2">
+            <MatchSummaryCard matchId={matchId} result={result} players={players} onSelect={p => setSelected(p.track_id)} />
+          </div>
           <TeamComparison result={result} />
           <div className="space-y-4">
             <Leaders matchId={matchId} result={result} onSelect={p => setSelected(p.track_id)} />
@@ -209,7 +239,8 @@ export default function ResultsPage() {
 
       {sel && (
         <PlayerModal matchId={matchId} result={result} player={sel} players={players}
-          onClose={() => setSelected(null)} onSeek={seek} />
+          onClose={() => setSelected(null)} onSeek={seek}
+          onPlayClips={videoSrc ? clips => dock.current?.playClips(clips) : undefined} />
       )}
       {videoSrc && <VideoDock ref={dock} src={videoSrc} offset={meta.start_s ?? 0} />}
     </div>

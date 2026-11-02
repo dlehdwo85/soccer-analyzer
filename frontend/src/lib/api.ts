@@ -1,5 +1,5 @@
 import {
-  AnalysisStatus, Calibration, CalibrationInput, EventCreate, EventPatch, Health, Match, MatchInput, MatchResult,
+  AnalysisStatus, Calibration, CalibrationInput, EventCreate, EventPatch, Health, Match, MatchInput, MatchResult, MatchSummary,
   Overlay, PlayerProfile, PlayerProfileDetail, PlayerReport, Team, VideoLibrary,
 } from './types'
 
@@ -144,6 +144,18 @@ export const api = {
   /** 새로 분석해 저장 (있으면 덮어씀). 수십 초 걸린다. 서버에 키가 없으면 ApiError(503) */
   createPlayerReport: (id: number, trackId: string) =>
     req<PlayerReport>(`/api/matches/${id}/players/${encodeURIComponent(trackId)}/ai-report`, json('POST')),
+
+  // ── AI 경기 요약 ───────────────────────────────────────────────
+  /** 저장된 요약. 아직 없으면(404) null */
+  getMatchSummary: async (id: number): Promise<MatchSummary | null> => {
+    try {
+      return await req<MatchSummary>(`/api/matches/${id}/ai-summary`)
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null
+      throw e
+    }
+  },
+  createMatchSummary: (id: number) => req<MatchSummary>(`/api/matches/${id}/ai-summary`, json('POST')),
 
   // ── 이벤트 검수 ────────────────────────────────────────────────
   updateEvent: (id: number, eventId: number, body: EventPatch) =>

@@ -390,6 +390,12 @@ def _fallback_used(response) -> bool:
 
 def generate_player_report(context: Dict) -> Dict:
     """Claude로 선수 분석을 만든다. {report, model, usage, fallback_used} 반환. 실패하면 AIReportError."""
+    return create_structured(SYSTEM_PROMPT, _user_message(context), REPORT_SCHEMA, AIPlayerReport)
+
+
+def create_structured(system: str, user: str, schema: Dict, model_cls) -> Dict:
+    """Claude에 JSON 스키마 형식으로 답을 받아 model_cls로 검증한다. {report, model, usage, fallback_used}.
+    선수 분석과 경기 요약이 함께 쓴다. 실패하면 AIReportError."""
     if not is_configured():
         raise AIReportNotConfigured(NO_KEY_MESSAGE)
     client = get_client()
@@ -399,9 +405,9 @@ def generate_player_report(context: Dict) -> Dict:
             max_tokens=MAX_TOKENS,
             betas=[FALLBACK_BETA],
             fallbacks="default",
-            output_config={"effort": EFFORT, "format": {"type": "json_schema", "schema": REPORT_SCHEMA}},
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": _user_message(context)}],
+            output_config={"effort": EFFORT, "format": {"type": "json_schema", "schema": schema}},
+            system=system,
+            messages=[{"role": "user", "content": user}],
         )
     except anthropic.AuthenticationError as e:
         logger.error("AI 분석 인증 실패: %s", e)
@@ -431,7 +437,7 @@ def generate_player_report(context: Dict) -> Dict:
 
     text = _response_text(response)
     try:
-        report = AIPlayerReport.model_validate(json.loads(text))
+        report = model_cls.model_validate(json.loads(text))
     except (ValueError, ValidationError) as e:
         logger.error("AI 분석 응답 형식 오류: %s / %r", e, text[:500])
         raise AIReportError("AI 응답 형식이 올바르지 않습니다. 다시 시도해 주세요")

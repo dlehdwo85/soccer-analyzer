@@ -200,3 +200,39 @@ class AIReportOut(BaseModel):
     usage: AIReportUsage
     generated_at: datetime
     stale: bool = False  # 분석 후 기록(이벤트·병합 등)이 바뀌었으면 True
+
+
+# ── AI 경기 요약 ────────────────────────────────────────────────────────────
+
+class AIMomPick(BaseModel):
+    track_id: str
+    reason: str
+
+
+class AIMatchSummary(BaseModel):
+    """Claude가 돌려준 경기 요약 — '무엇이 승부를 갈랐나'와 경기 최우수 선수(MOM) 후보."""
+    headline: str
+    key_points: List[str] = Field(default_factory=list)
+    mom: List[AIMomPick] = Field(default_factory=list)  # 앞에서부터 추천 순
+    data_caveats: List[str] = Field(default_factory=list)
+
+    @field_validator("headline")
+    @classmethod
+    def _headline(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("headline이 비어 있습니다")
+        return v
+
+    @field_validator("key_points", "data_caveats")
+    @classmethod
+    def _items(cls, v: List[str]) -> List[str]:
+        return [s.strip() for s in v if s and s.strip()]
+
+
+class AIMatchSummaryOut(BaseModel):
+    summary: AIMatchSummary
+    model: str
+    usage: AIReportUsage
+    generated_at: datetime
+    stale: bool = False

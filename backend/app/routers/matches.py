@@ -13,9 +13,9 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Match, MatchEvent, MatchPlayer
-from app.schemas import (AIReportOut, AnalyzeRequest, CalibrationIn, EventCreate, EventUpdate, MatchCreate, MatchOut,
+from app.schemas import (AIMatchSummaryOut, AIReportOut, AnalyzeRequest, CalibrationIn, EventCreate, EventUpdate, MatchCreate, MatchOut,
                          MatchUpdate, MergeRequest, PlayerUpdate, StatusOut, VideoUrlBody)
-from app.services import ai_report_service, analysis_service
+from app.services import ai_match_service, ai_report_service, analysis_service
 from app.services.ai_report_service import build_player_context, context_basis
 from app.services.result_service import (CURRENT_VERSION, build_view, export_csv, head_player, overlay_gzip_bytes,
                                          thumbnail_for)
@@ -518,6 +518,50 @@ def create_ai_report(match_id: int, track_id: str, db: Session = Depends(get_db)
     p.ai_report_basis = ctx["basis"]
     db.commit()
     return _report_out(p, ctx["basis"])
+
+
+def _summary_out(m: Match, basis: Optional[str]) -> Optional[AIMatchSummaryOut]:
+    try:
+        data = json.loads(m.ai_summary_json or "")
+        return AIMatchSummaryOut(summary=data["report"], model=data.get("model") or "", usage=data.get("usage") or {},
+                                 generated_at=_utc(m.ai_summary_at),
+                                 stale=basis is not None and basis != m.ai_summary_basis)
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+@router.get("/{match_id}/ai-summary", response_model=AIMatchSummaryOut)
+def get_ai_summary(match_id: int, db: Session = Depends(get_db)):
+    """저장된 AI 경기 요약. 없으면 404. stale = 요약 뒤 기록이 바뀜."""
+    m = _get(db, match_id)
+    _require_result(m)
+    if not m.ai_summary_json or not m.ai_summary_at:
+        raise HTTPException(404, "아직 AI 경기 요약이 없습니다")
+    out = _summary_out(m, ai_match_service.build_match_context(_full_view(db, m))["basis"])
+    if out is None:
+        raise HTTPException(404, "저장된 AI 경기 요약을 읽을 수 없습니다. 다시 요약해 주세요.")
+    return out
+
+
+@router.post("/{match_id}/ai-summary", response_model=AIMatchSummaryOut)
+def create_ai_summary(match_id: int, db: Session = Depends(get_db)):
+    """두 팀 기록으로 AI 경기 요약(무엇이 승부를 갈랐나 + MOM 후보)을 새로 만들어 저장한다."""
+    m = _get(db, match_id)
+    _require_result(m)
+    if not ai_report_service.is_configured():
+        raise HTTPException(503, ai_report_service.NO_KEY_MESSAGE)
+    ctx = ai_match_service.build_match_context(_full_view(db, m))
+    db.rollback()  # AI 응답을 기다리는 동안 DB 연결을 붙잡지 않는다
+    try:
+        out = ai_match_service.generate_match_summary(ctx)
+    except ai_report_service.AIReportError as e:
+        raise HTTPException(e.status_code, e.message)
+    m = _get(db, match_id)
+    m.ai_summary_json = json.dumps({**out, "context_version": ai_match_service.CONTEXT_VERSION}, ensure_ascii=False)
+    m.ai_summary_at = datetime.utcnow()
+    m.ai_summary_basis = ctx["basis"]
+    db.commit()
+    return _summary_out(m, ctx["basis"])
 
 
 # ── 이벤트 검수 (잘못 잡힌 기록 고치기·지우기·추가) ────────────────────────

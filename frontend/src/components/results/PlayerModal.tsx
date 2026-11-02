@@ -1,11 +1,14 @@
 'use client'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Play, X } from 'lucide-react'
+import { Clapperboard, Contact, Play, Share2, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { api, ApiError } from '@/lib/api'
 import { isPlaced, MatchEvent, MatchResult, PlayerReport, PlayerRow } from '@/lib/types'
 import { cn, eventLabel, eventTone, fmtClock, fmtDateTime, isGk, playerName, teamInfo } from '@/lib/utils'
 import Pitch, { Arrow } from '@/components/pitch/Pitch'
 import PlayerAvatar from './PlayerAvatar'
+import PlayerCard from './PlayerCard'
+import { Clip } from './VideoDock'
 
 type View = 'pass' | 'shot'
 
@@ -16,10 +19,16 @@ interface Props {
   players: Map<string, PlayerRow>
   onClose: () => void
   onSeek?: (t: number) => void
+  /** 장면 여러 개 이어 보기 — 영상이 연결된 경기에서만 */
+  onPlayClips?: (clips: Clip[]) => void
 }
 
-export default function PlayerModal({ matchId, result, player, players, onClose, onSeek }: Props) {
+const KEY_PASS_WINDOW_S = 8
+
+export default function PlayerModal({ matchId, result, player, players, onClose, onSeek, onPlayClips }: Props) {
   const [view, setView] = useState<View>('pass')
+  const [cardOpen, setCardOpen] = useState(false)
+  const [rating, setRating] = useState<number | null>(null)
   const { length, width } = result.meta.field
   const s = player.stats
   const team = teamInfo(result.match, player.team)
@@ -36,14 +45,42 @@ export default function PlayerModal({ matchId, result, player, players, onClose,
   const shots = mine.filter(e => e.kind === 'shot' && e.player === player.track_id)
   const recov = mine.filter(e => e.kind === 'recovery' && e.player === player.track_id)
   const inter = mine.filter(e => e.kind === 'pass' && e.target === player.track_id && !e.success)
+  // 받은 선수가 8초 안에 슈팅한 패스 (서버의 키패스 기준과 같다)
+  const keyPasses = useMemo(() => {
+    const shotsAll = result.events.filter(e => e.kind === 'shot')
+    return passes.filter(p => p.success && p.target && shotsAll.some(sh =>
+      sh.player === p.target && sh.t >= p.t && sh.t - (p.t_end ?? p.t) <= KEY_PASS_WINDOW_S))
+  }, [passes, result.events])
 
-  const tiles: [string, string, string?][] = [
-    ['볼 터치', `${s.touches}`, `점유 ${Math.round(s.possession_s)}초`],
-    ['패스', `${s.passes_completed}/${s.passes_attempted}`, s.pass_accuracy !== null ? `성공률 ${s.pass_accuracy.toFixed(0)}%` : '시도 없음'],
-    ['패스 실패', `${s.passes_failed}`, `전진 패스 ${s.forward_passes}`],
-    ['키패스', `${s.key_passes}`, `받은 패스 ${s.passes_received}`],
-    ['슈팅 · 유효', `${s.shots} · ${s.shots_on_target}`, `xG ${s.xg.toFixed(2)}`],
-    ['가로채기 · 탈취', `${s.interceptions} · ${s.recoveries}`, `볼 뺏김 ${s.dispossessed}`],
+  const clipsOf = (evs: MatchEvent[], label: (e: MatchEvent) => string): Clip[] =>
+    [...evs].sort((a, b) => a.t - b.t).map(e => ({ t: e.t, label: label(e) }))
+  const name = playerName(player)
+  // 하이라이트 = 슈팅 · 키패스 · 성공한 전진 패스 · 가로채기 · 볼 탈취
+  const reel = useMemo(() => {
+    const keyIds = new Set(keyPasses.map(e => e.id))
+    const picked = mine.filter(e => (e.kind === 'shot' && e.player === player.track_id) || keyIds.has(e.id)
+      || (e.kind === 'pass' && e.player === player.track_id && e.success && e.detail.forward)
+      || (e.kind === 'recovery' && e.player === player.track_id)
+      || (e.kind === 'pass' && e.target === player.track_id && !e.success))
+    return [...picked].sort((a, b) => a.t - b.t).map(e => ({
+      t: e.t,
+      label: `${name} · ${keyIds.has(e.id) ? '키패스' : e.target === player.track_id && e.player !== player.track_id ? '가로채기' : eventLabel(e)}`,
+    }))
+  }, [mine, keyPasses, player.track_id, name])
+
+  const tiles: { label: string; value: string; sub?: string; clips?: Clip[] }[] = [
+    { label: '볼 터치', value: `${s.touches}`, sub: `점유 ${Math.round(s.possession_s)}초` },
+    { label: '패스', value: `${s.passes_completed}/${s.passes_attempted}`,
+      sub: s.pass_accuracy !== null ? `성공률 ${s.pass_accuracy.toFixed(0)}%` : '시도 없음',
+      clips: clipsOf(passes, e => `${name} · ${eventLabel(e)}`) },
+    { label: '패스 실패', value: `${s.passes_failed}`, sub: `전진 패스 ${s.forward_passes}`,
+      clips: clipsOf(passes.filter(e => !e.success), e => `${name} · ${eventLabel(e)}`) },
+    { label: '키패스', value: `${s.key_passes}`, sub: `받은 패스 ${s.passes_received}`,
+      clips: clipsOf(keyPasses, () => `${name} · 키패스`) },
+    { label: '슈팅 · 유효', value: `${s.shots} · ${s.shots_on_target}`, sub: `xG ${s.xg.toFixed(2)}`,
+      clips: clipsOf(shots, e => `${name} · ${eventLabel(e)}`) },
+    { label: '가로채기 · 탈취', value: `${s.interceptions} · ${s.recoveries}`, sub: `볼 뺏김 ${s.dispossessed}`,
+      clips: clipsOf([...inter, ...recov], e => `${name} · ${e.kind === 'recovery' ? '볼 탈취' : '가로채기'}`) },
   ]
 
   return (
@@ -65,15 +102,38 @@ export default function PlayerModal({ matchId, result, player, players, onClose,
         </div>
 
         <div className="p-5 space-y-5">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {tiles.map(([label, value, sub]) => (
-              <div key={label} className="rounded-lg bg-ink-850 border border-ink-800 px-3.5 py-3">
-                <p className="text-[11px] text-ink-400">{label}</p>
-                <p className="text-xl font-semibold text-ink-100 num">{value}</p>
-                {sub && <p className="text-[11px] text-ink-500">{sub}</p>}
-              </div>
-            ))}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-primary" disabled={!onPlayClips || reel.length === 0}
+              onClick={() => onPlayClips?.(reel)}>
+              <Clapperboard className="w-4 h-4" />내 하이라이트 {reel.length}장면 이어보기
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => setCardOpen(true)}>
+              <Contact className="w-4 h-4" />선수 카드 만들기
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => sharePlayerLink(matchId, player.track_id, name)}>
+              <Share2 className="w-4 h-4" />링크 공유
+            </button>
           </div>
+          {!onPlayClips && <p className="text-[11px] text-ink-500 -mt-3">영상이 연결된 경기에서 장면을 재생할 수 있습니다.</p>}
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {tiles.map(t => {
+              const playable = !!onPlayClips && !!t.clips?.length
+              return (
+                <button key={t.label} type="button" disabled={!playable} onClick={() => t.clips && onPlayClips?.(t.clips)}
+                  title={playable ? `${t.label} 장면 ${t.clips!.length}개 이어보기` : undefined}
+                  className="rounded-lg bg-ink-850 border border-ink-800 px-3.5 py-3 text-left group enabled:hover:border-volt/50 disabled:cursor-default">
+                  <p className="text-[11px] text-ink-400 flex items-center gap-1">
+                    {t.label}
+                    {playable && <Play className="w-3 h-3 ml-auto text-ink-600 group-hover:text-volt" aria-hidden />}
+                  </p>
+                  <p className="text-xl font-semibold text-ink-100 num">{t.value}</p>
+                  {t.sub && <p className="text-[11px] text-ink-500">{t.sub}</p>}
+                </button>
+              )
+            })}
+          </div>
+          {onPlayClips && <p className="text-[11px] text-ink-500 -mt-3">기록 칸을 누르면 해당 장면을 차례로 보여 줍니다.</p>}
 
           <div className="grid md:grid-cols-5 gap-5">
             <div className="md:col-span-3">
@@ -129,15 +189,31 @@ export default function PlayerModal({ matchId, result, player, players, onClose,
             </div>
           </div>
 
-          <AIReportSection key={player.track_id} matchId={matchId} trackId={player.track_id} />
+          <AIReportSection key={player.track_id} matchId={matchId} trackId={player.track_id} onRating={setRating} />
         </div>
       </div>
+      {cardOpen && <PlayerCard matchId={matchId} result={result} player={player} rating={rating} onClose={() => setCardOpen(false)} />}
     </div>
   )
 }
 
+/** 이 선수를 바로 열어 주는 결과 페이지 링크 — 휴대폰이면 공유 창(카카오톡 등), 아니면 복사 */
+async function sharePlayerLink(matchId: number, trackId: string, name: string) {
+  const url = `${window.location.origin}/matches/${matchId}/results?player=${encodeURIComponent(trackId)}`
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: `${name} 경기 기록`, url })
+      return
+    }
+    await navigator.clipboard.writeText(url)
+    toast.success('링크를 복사했습니다')
+  } catch (e) {
+    if ((e as Error).name !== 'AbortError') toast.error('링크를 공유하지 못했습니다')
+  }
+}
+
 /** AI 분석 — 저장된 분석을 보여 주고, 없거나 기록이 바뀌었으면 새로 받는다 (항상 전체 경기 기록 기준) */
-function AIReportSection({ matchId, trackId }: { matchId: number; trackId: string }) {
+function AIReportSection({ matchId, trackId, onRating }: { matchId: number; trackId: string; onRating?: (r: number | null) => void }) {
   const [report, setReport] = useState<PlayerReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -173,6 +249,7 @@ function AIReportSection({ matchId, trackId }: { matchId: number; trackId: strin
   }
 
   const r = report?.report
+  useEffect(() => { onRating?.(r?.rating ?? null) }, [r?.rating, onRating])
   return (
     <section className="border-t border-ink-800 pt-5" aria-labelledby={`ai-report-${trackId}`} aria-busy={busy || loading}>
       <div className="flex flex-wrap items-start justify-between gap-3 mb-3">

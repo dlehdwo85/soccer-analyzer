@@ -110,6 +110,21 @@ export interface PlayerReport {
   stale: boolean
 }
 
+/** GET/POST /api/matches/{id}/ai-summary — 무엇이 승부를 갈랐나 + MOM 후보 */
+export interface MatchSummary {
+  summary: {
+    headline: string
+    key_points: string[]
+    /** 앞에서부터 추천 순 */
+    mom: { track_id: string; reason: string }[]
+    data_caveats: string[]
+  }
+  model: string
+  usage: { input_tokens: number; output_tokens: number }
+  generated_at: string
+  stale: boolean
+}
+
 export type EventKind = 'pass' | 'shot' | 'recovery' | 'set_piece'
 /** 세트피스 종류 — 경기장 지정(보정)이 있을 때만 나뉘고, 없으면 'restart' */
 export type SetPieceType = 'corner' | 'free_kick' | 'throw_in' | 'goal_kick' | 'kick_off' | 'restart'

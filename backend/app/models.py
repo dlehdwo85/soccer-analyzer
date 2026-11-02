@@ -41,6 +41,9 @@ class Match(Base):
     web_video_url     = Column(String(1024), nullable=True)    # 브라우저 재생용 사본 (720p H.264, faststart)
     runpod_job_id     = Column(String(64), nullable=True)      # GPU 서버(RunPod)에 맡긴 작업 번호 — 상태 조회 때 확인
     analysis_quality  = Column(String(20), nullable=True)      # standard | max
+    ai_summary_json   = Column(Text, nullable=True)            # AI 경기 요약 + MOM 후보
+    ai_summary_at     = Column(DateTime, nullable=True)
+    ai_summary_basis  = Column(String(64), nullable=True)      # 요약에 쓴 기록 해시 — 기록이 바뀌면 다시 요약
 
     players    = relationship("MatchPlayer", back_populates="match", cascade="all, delete-orphan")
     events     = relationship("MatchEvent", back_populates="match", cascade="all, delete-orphan")
