@@ -15,7 +15,7 @@ from app.models import Match, MatchEvent, MatchPlayer
 from app.schemas import (AnalyzeRequest, CalibrationIn, EventCreate, EventUpdate, MatchCreate, MatchOut, MatchUpdate,
                          MergeRequest, PlayerUpdate, StatusOut, VideoUrlBody)
 from app.services import analysis_service
-from app.services.result_service import CURRENT_VERSION, build_view, export_csv, thumbnail_for
+from app.services.result_service import CURRENT_VERSION, build_view, export_csv, overlay_gzip_bytes, thumbnail_for
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/matches", tags=["matches"])
@@ -272,6 +272,22 @@ def get_result(match_id: int, period: Optional[int] = Query(default=None, ge=1, 
     view = build_view(db, m, period=period)
     view["match"] = _out(m).model_dump(mode="json")
     return view
+
+
+@router.get("/{match_id}/overlay")
+def get_overlay(match_id: int, db: Session = Depends(get_db)):
+    """영상 검수용 프레임별 선수 박스·공 위치. 저장된 gzip을 그대로 보낸다(브라우저가 풀어 읽는다).
+
+    형식: {v, w, h, start_s, step, n, tracks: {track_id: [[k, x1, y1, x2, y2], ...]}, ball: [[k, x, y, detected], ...]}
+    k는 분석 프레임 번호(시각 = start_s + k*step), 좌표는 원본 영상 픽셀.
+    """
+    m = _get(db, match_id)
+    _require_result(m)
+    gz = overlay_gzip_bytes(m)
+    if gz is None:
+        raise HTTPException(404, "이 분석에는 영상 검수 데이터가 없습니다. 최신 엔진으로 다시 분석하세요.")
+    return Response(content=gz, media_type="application/json",
+                    headers={"Content-Encoding": "gzip", "Cache-Control": "private, max-age=60"})
 
 
 @router.get("/{match_id}/export.csv")

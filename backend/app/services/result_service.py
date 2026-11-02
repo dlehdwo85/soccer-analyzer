@@ -31,6 +31,26 @@ def _loads(s: Optional[str], default):
         return default
 
 
+# ── 영상 검수 오버레이 ───────────────────────────────────────────────────────
+
+def pack_overlay(overlay: Dict) -> str:
+    import base64
+    import gzip
+    raw = json.dumps(overlay, separators=(",", ":")).encode()
+    return base64.b64encode(gzip.compress(raw, 6)).decode()
+
+
+def overlay_gzip_bytes(match: Match) -> Optional[bytes]:
+    """저장된 오버레이를 gzip 바이트 그대로 돌려준다 (응답에 Content-Encoding: gzip으로 실어 보낸다)."""
+    import base64
+    if not match.overlay_gz:
+        return None
+    try:
+        return base64.b64decode(match.overlay_gz)
+    except (ValueError, TypeError):
+        return None
+
+
 # ── 저장 ────────────────────────────────────────────────────────────────────
 
 def save_result(db: Session, match: Match, result: Dict, source: str) -> None:
@@ -56,6 +76,8 @@ def save_result(db: Session, match: Match, result: Dict, source: str) -> None:
         ))
     db.add_all(rows)
     match.result_meta_json = json.dumps(result.get("meta") or {}, ensure_ascii=False)
+    overlay = result.get("overlay")
+    match.overlay_gz = pack_overlay(overlay) if overlay else None
     match.analysis_version = CURRENT_VERSION
     match.data_source = source
     match.status = "done"

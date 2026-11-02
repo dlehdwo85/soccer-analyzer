@@ -289,3 +289,25 @@ def test_health_and_old_db_upgrade(client):
     with eng.connect() as conn:
         assert conn.execute(text("SELECT analysis_version, home_attacks FROM matches")).one() == (0, "auto")
     assert add_missing_columns(eng) == []
+
+
+def test_overlay_endpoint_roundtrip(client):
+    from app.database import SessionLocal
+    from app.models import Match
+    from app.services.result_service import save_result
+    from app.vision.pipeline import AnalysisConfig, analyze_simulated
+
+    r = client.post("/api/matches", json={"title": "오버레이 확인"})
+    mid = r.json()["id"]
+    res = analyze_simulated(AnalysisConfig(), duration_s=60, seed=3)
+    res["overlay"] = {"v": 1, "w": 1920, "h": 1080, "start_s": 0.0, "step": 0.2, "n": 3,
+                      "tracks": {"P1": [[0, 10, 20, 30, 80]]}, "ball": [[0, 100, 200, 1]]}
+    db = SessionLocal()
+    save_result(db, db.get(Match, mid), res, "video")
+    db.commit(); db.close()
+    o = client.get(f"/api/matches/{mid}/overlay")
+    assert o.status_code == 200
+    body = o.json() if o.headers.get("content-encoding") != "gzip" or isinstance(o.content, bytes) and o.content[:1] == b"{" \
+        else json.loads(gzip.decompress(o.content))
+    assert body["tracks"]["P1"][0] == [0, 10, 20, 30, 80] and body["ball"][0] == [0, 100, 200, 1]
+    assert client.get(f"/api/matches/{mid}").json().get("web_video_url") is None

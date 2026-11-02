@@ -29,6 +29,7 @@ def main() -> int:
     ap.add_argument("--away-color", default="#ef4444")
     ap.add_argument("--referee-color", default="#facc15")
     ap.add_argument("--video-url")
+    ap.add_argument("--web-video-url", help="브라우저 재생용 사본 주소 (720p H.264)")
     ap.add_argument("--video-filename")
     a = ap.parse_args()
 
@@ -49,7 +50,7 @@ def main() -> int:
         for field, val in (("title", a.title), ("date", a.date), ("home_team_name", a.home), ("away_team_name", a.away),
                            ("home_team_color", a.home_color), ("away_team_color", a.away_color),
                            ("referee_color", a.referee_color), ("video_url", a.video_url),
-                           ("video_filename", a.video_filename)):
+                           ("web_video_url", a.web_video_url), ("video_filename", a.video_filename)):
             if val:
                 setattr(m, field, val)
         save_result(db, m, result, "video")

@@ -37,6 +37,8 @@ class Match(Base):
     analysis_error    = Column(Text, nullable=True)
     analysis_version  = Column(Integer, default=0)             # 2 = 현재 엔진 결과
     result_meta_json  = Column(Text, nullable=True)            # 길이·fps·경고·공격 방향 등
+    overlay_gz        = Column(Text, nullable=True)            # 영상 검수용 프레임별 선수 박스·공 위치 (gzip+base64 JSON)
+    web_video_url     = Column(String(1024), nullable=True)    # 브라우저 재생용 사본 (720p H.264, faststart)
 
     players    = relationship("MatchPlayer", back_populates="match", cascade="all, delete-orphan")
     events     = relationship("MatchEvent", back_populates="match", cascade="all, delete-orphan")

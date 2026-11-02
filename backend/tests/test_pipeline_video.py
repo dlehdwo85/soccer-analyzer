@@ -144,3 +144,19 @@ def test_detection_cache_replays_without_detector(rendered, tmp_path, monkeypatc
     assert second["events"] == first["events"]
     assert second["meta"]["ball_detected_pct"] == first["meta"]["ball_detected_pct"]
     assert len(second["players"]) == len(first["players"])
+
+
+def test_overlay_boxes_are_raw_frame_pixels(rendered):
+    sim, path, w, h = rendered
+    cfg = AnalysisConfig(home_color="#3b9fd0", away_color="#d62020", analysis_fps=5.0,
+                         color_calib_s=10, max_seconds=30)
+    res = analyze_video(path, cfg, detector=BlobDetector())
+    ov = res["overlay"]
+    assert ov["w"] == w and ov["h"] == h and ov["n"] > 0 and ov["step"] > 0
+    pids = {p["track_id"] for p in res["players"]}
+    assert set(ov["tracks"]) <= pids and len(ov["tracks"]) >= 10
+    for rows in ov["tracks"].values():
+        for k, x1, y1, x2, y2 in rows:
+            assert 0 <= k < ov["n"] and -5 <= x1 < x2 <= w + 5 and -5 <= y1 < y2 <= h + 5
+    assert ov["ball"] and all(len(b) == 4 and b[3] in (0, 1) for b in ov["ball"])
+    assert all(-20 <= x <= w + 20 and -20 <= y <= h + 20 for _, x, y, _ in ov["ball"])

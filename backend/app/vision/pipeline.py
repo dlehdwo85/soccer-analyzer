@@ -341,6 +341,7 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
 
     # 색 보정 전까지 검출(프레임 이미지는 제외 — 메모리)을 모아 두었다가 보정 후 한꺼번에 분류
     buffered: List[Tuple[int, List]] = []
+    cam_T: List[np.ndarray] = []   # 프레임별 카메라 변환(현재→기준) — 영상 검수 오버레이에서 원래 화면 좌표로 되돌릴 때 쓴다
     calibrated_colors = False
     calib_frames = max(10, int(cfg.color_calib_s * eff_fps))
     removed_outside = 0
@@ -381,7 +382,7 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
         t = (f_idx - start_f) / fps_video
         persons, balls = detector.detect(frame_rgb)
         if cam is not None:
-            cam.update(frame_rgb, [b for b, _ in persons])
+            cam_T.append(cam.update(frame_rgb, [b for b, _ in persons]).copy())
             balls = [(*cam.point(bx, by), bc) for bx, by, bc in balls]
         dets = []
         for box, conf in persons:
@@ -471,10 +472,12 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
     # 실측(1080p 조기축구 1분): 보간 0.8초 → 공 위치 파악 66%, 2.5초 → 91%. 발밑에 가려진 공이 대부분이라
     # 양 끝 이동 속도가 화면 폭의 0.6배/초를 넘는 공백(시야 밖으로 나간 경우)만 잇지 않는다.
     dedicated_ball = getattr(detector, "ball_model", None) is not None
-    ball_px = interpolate_gaps(select_ball_positions(
+    ball_sel = select_ball_positions(
         ball_cands, times, frame_w, min_conf_new=getattr(detector, "ball_min_conf_new", 0.3),
-        memory_s=1.5 if dedicated_ball else 1.0), times,
-        max_gap_s=2.5 if dedicated_ball else 0.8, max_speed_px_s=0.6 * frame_w if dedicated_ball else None)
+        memory_s=1.5 if dedicated_ball else 1.0)
+    ball_px = interpolate_gaps(ball_sel, times,
+                               max_gap_s=2.5 if dedicated_ball else 0.8,
+                               max_speed_px_s=0.6 * frame_w if dedicated_ball else None)
     frames = []
     for i, t in enumerate(times):
         b = ball_px[i]
@@ -511,7 +514,45 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
     }
     colors = {pid: C.rgb_to_hex(C.lab_to_rgb(np.median(np.array(v), axis=0))[0])
               for pid, v in color_by_player.items() if v}
-    return postprocess(frames, cfg, mapper.length, mapper.width, meta, merged_labels, thumbs, colors, progress)
+    result = postprocess(frames, cfg, mapper.length, mapper.width, meta, merged_labels, thumbs, colors, progress)
+    try:
+        result["overlay"] = build_overlay(
+            tracker.history, {int(k[1:]): "P" + mapping.get(k, k)[1:] for k in geo},
+            ball_sel, ball_px, cam_T, frame_w, frame_h, cfg.start_seconds, stride / fps_video, len(times))
+    except Exception:  # 검수용 부가 데이터 — 실패해도 분석 결과는 살린다
+        logger.exception("영상 검수 오버레이 생성 실패")
+    return result
+
+
+def build_overlay(history: Dict[int, List], tid_to_pid: Dict[int, str], ball_sel: Sequence, ball_px: Sequence,
+                  cam_T: Sequence[np.ndarray], frame_w: int, frame_h: int, start_s: float, step: float,
+                  n: int) -> Dict:
+    """영상 위에 그릴 프레임별 선수 박스와 공 위치. 모두 원래 화면 픽셀 좌표(카메라 보정 전)로 되돌린다."""
+    tracks: Dict[str, List[List[int]]] = defaultdict(list)
+    for tid, pts in history.items():
+        pid = tid_to_pid.get(tid)
+        if pid is None:
+            continue  # 심판·관중 등 버린 트랙
+        for p in pts:
+            raw = p.payload[3] if isinstance(p.payload, tuple) and len(p.payload) > 3 else p.box
+            tracks[pid].append([int(p.frame)] + [int(round(v)) for v in raw])
+    for pid in tracks:
+        tracks[pid].sort(key=lambda r: r[0])
+
+    def to_raw(k: int, x: float, y: float) -> Tuple[float, float]:
+        if not cam_T or k >= len(cam_T):
+            return x, y
+        q = np.linalg.inv(cam_T[k]) @ np.array([x, y, 1.0])
+        return float(q[0] / q[2]), float(q[1] / q[2])
+
+    ball = []
+    for k, b in enumerate(ball_px):
+        if b is None:
+            continue
+        x, y = to_raw(k, b[0], b[1])
+        ball.append([k, int(round(x)), int(round(y)), 1 if ball_sel[k] is not None else 0])
+    return {"v": 1, "w": int(frame_w), "h": int(frame_h), "start_s": float(start_s), "step": float(step),
+            "n": int(n), "tracks": dict(tracks), "ball": ball}
 
 
 # ── 가상 경기 (샘플) ─────────────────────────────────────────────────────────

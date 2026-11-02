@@ -74,6 +74,7 @@ class MatchOut(BaseModel):
     halftime_s: Optional[float] = None
     video_filename: Optional[str]
     video_url: Optional[str] = None
+    web_video_url: Optional[str] = None
     status: str
     data_source: Optional[str] = "sample"
     analysis_progress: Optional[float] = 0
