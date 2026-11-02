@@ -297,3 +297,16 @@ def test_possession_timeline_spell_past_duration_terminates():
     out = possession_timeline(sp, 600.0)
     assert out and out[-1]["home_pct"] == 100.0
     assert [b["home_pct"] for b in out[:3]] == [0.0, 0.0, None]  # 10~70초 원정 점유는 두 구간에 걸친다
+
+
+def test_possession_timeline_fractional_bin_boundaries_terminate():
+    """구간 길이가 소수(경기 길이/10)일 때 경계에 걸친 점유도 끝나고, 시간 합이 보존돼야 한다."""
+    from app.vision.events import Spell
+    dur = 1268.3
+    bin_s = max(60.0, dur / 10)
+    sp = [Spell("H1", "home", 3 * bin_s, 3 * bin_s + 5.0, 0, 0, 0, 0, 1.0),
+          Spell("A1", "away", 2 * bin_s - 1.0, 2 * bin_s + 1.0, 0, 0, 0, 0, 1.0)]
+    out = possession_timeline(sp, dur)
+    assert len(out) == 10
+    assert out[3]["home_pct"] == 100.0
+    assert out[1]["home_pct"] == 0.0 and out[2]["home_pct"] == 0.0
