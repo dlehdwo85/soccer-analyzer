@@ -69,6 +69,7 @@ def build_config(match: Match, options: Optional[Dict] = None) -> AnalysisConfig
         halftime_s=match.halftime_s,
         start_seconds=float(options.get("start_seconds") or 0.0),
         max_seconds=options.get("max_seconds") or None,
+        quality=options.get("quality") or "standard",
     )
 
 
@@ -167,7 +168,8 @@ def recover_interrupted() -> int:
     """서버 재시작으로 끊긴 '분석 중' 경기를 실패로 표시."""
     db = SessionLocal()
     try:
-        stuck = db.query(Match).filter(Match.status == "analyzing").all()
+        # GPU 서버에 맡긴 작업은 서버가 재시작돼도 계속 돈다 — 상태 조회 때 이어서 확인한다
+        stuck = db.query(Match).filter(Match.status == "analyzing", Match.runpod_job_id.is_(None)).all()
         for m in stuck:
             m.status = "failed"
             m.analysis_error = "서버가 재시작되어 분석이 중단되었습니다. 다시 시도하세요."

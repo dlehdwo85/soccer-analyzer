@@ -98,6 +98,8 @@ class AnalyzeRequest(BaseModel):
     use_sample: bool = False  # 이전 클라이언트 호환
     start_seconds: float = Field(default=0, ge=0)
     max_seconds: Optional[float] = Field(default=None, gt=0)
+    # standard: 표준 / max: 고정밀(GPU 서버 필요 — 초당 15장면, 대형 모델, 공 4분할 검출)
+    quality: Literal["standard", "max"] = "standard"
 
 
 class CalibrationIn(BaseModel):

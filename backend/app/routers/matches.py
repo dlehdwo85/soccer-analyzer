@@ -236,27 +236,81 @@ def start_analyze(match_id: int, body: AnalyzeRequest, background_tasks: Backgro
     if m.status == "analyzing":
         raise HTTPException(409, "이미 분석 중입니다")
     mode = "sample" if body.use_sample else body.mode
+    options = {"start_seconds": body.start_seconds, "max_seconds": body.max_seconds, "quality": body.quality}
+    gpu = False
     if mode == "video":
         if not m.video_url:
             raise HTTPException(400, "먼저 영상을 업로드하세요")
         eng = analysis_service.engines()
         if not (eng["runpod"] or eng["local"]):
             raise HTTPException(503, "영상 분석 엔진이 설정되지 않았습니다. RunPod를 설정하거나 '샘플 분석'으로 화면을 체험하세요.")
+        gpu = eng["runpod"] and m.video_url.startswith("http")
+        if body.quality == "max" and not gpu:
+            raise HTTPException(400, "고정밀 분석은 GPU 서버(RunPod)가 연결되어 있고 영상이 저장소(R2)에 있어야 합니다.")
     m.status = "analyzing"
     m.analysis_progress = 0.0
     m.analysis_message = "분석 대기 중"
     m.analysis_error = None
+    m.analysis_quality = body.quality if mode == "video" else None
+    m.runpod_job_id = None
+    if gpu:
+        # GPU 서버에 맡기고 바로 돌아온다. 진행률과 결과는 상태 조회(/status) 때 확인한다.
+        import uuid
+        from app.services import runpod_service
+        cfg = analysis_service.build_config(m, options)
+        try:
+            m.runpod_job_id = runpod_service.submit_job(
+                m.video_url, cfg.__dict__, f"results/{m.id}/{uuid.uuid4().hex}.json.gz")
+        except Exception as e:  # noqa: BLE001
+            db.rollback()
+            raise HTTPException(502, f"GPU 서버에 작업을 맡기지 못했습니다: {e}")
+        m.analysis_message = "GPU 서버 준비 중"
+        db.commit()
+        return {"status": "analyzing", "mode": mode, "engine": "runpod", "quality": body.quality}
     db.commit()
-    background_tasks.add_task(analysis_service.run_analysis, match_id, mode,
-                              {"start_seconds": body.start_seconds, "max_seconds": body.max_seconds})
-    return {"status": "analyzing", "mode": mode}
+    background_tasks.add_task(analysis_service.run_analysis, match_id, mode, options)
+    return {"status": "analyzing", "mode": mode, "engine": "local" if mode == "video" else "sample"}
 
 
 @router.get("/{match_id}/status", response_model=StatusOut)
 def get_status(match_id: int, db: Session = Depends(get_db)):
     m = _get(db, match_id)
+    if m.status == "analyzing" and m.runpod_job_id:
+        _poll_gpu_job(db, m)
     return StatusOut(status=m.status, progress=m.analysis_progress or 0, message=m.analysis_message or "",
                      error=m.analysis_error, has_result=(m.analysis_version or 0) == CURRENT_VERSION)
+
+
+def _poll_gpu_job(db: Session, m: Match) -> None:
+    """GPU 작업 상태를 한 번 확인하고, 끝났으면 결과를 저장한다. 실패해도 예외를 밖으로 내지 않는다."""
+    from app.services import runpod_service
+    from app.services.result_service import save_result
+    job_id = m.runpod_job_id
+    st = runpod_service.check_job(job_id)
+    db.refresh(m)
+    if m.runpod_job_id != job_id or m.status != "analyzing":
+        return  # 다른 요청이 먼저 처리했다
+    if st["state"] == "done":
+        try:
+            save_result(db, m, st["result"], "video")
+            m.runpod_job_id = None
+            db.commit()
+        except Exception as e:  # noqa: BLE001
+            logger.exception("GPU 결과 저장 실패: match=%s", m.id)
+            db.rollback()
+            m = db.get(Match, m.id)
+            m.status, m.analysis_error, m.analysis_message = "failed", f"결과 저장 실패: {e}"[:2000], "분석 실패"
+            m.runpod_job_id = None
+            db.commit()
+    elif st["state"] == "failed":
+        m.status, m.analysis_error, m.analysis_message = "failed", (st.get("error") or "GPU 분석 실패")[:2000], "분석 실패"
+        m.runpod_job_id = None
+        db.commit()
+    else:
+        if st.get("percent") is not None:
+            m.analysis_progress = float(st["percent"])
+        m.analysis_message = st.get("message") or m.analysis_message
+        db.commit()
 
 
 def _require_result(m: Match):

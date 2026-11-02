@@ -85,3 +85,51 @@ def test_quality_presets():
     assert AnalysisConfig(quality="max").effective_fps() == QUALITY_PRESETS["max"]["analysis_fps"]
     assert AnalysisConfig(quality="max", analysis_fps=25).effective_fps() == 25
     assert AnalysisConfig.from_dict({"quality": "max", "unknown": 1}).quality == "max"
+
+
+def test_api_gpu_flow_submit_then_poll_saves_result(monkeypatch):
+    """분석 시작 → GPU 작업 제출(즉시 반환) → 상태 조회 때 진행률 → 완료 시 결과 저장."""
+    import os
+    import tempfile
+    os.environ.setdefault("DATABASE_URL", f"sqlite:///{tempfile.mkdtemp()}/gpu.db")
+    from fastapi.testclient import TestClient
+    from main import app
+    from app.vision.pipeline import analyze_simulated
+
+    monkeypatch.setenv("RUNPOD_API_KEY", "k")
+    monkeypatch.setenv("RUNPOD_ENDPOINT_ID", "ep")
+    submitted = {}
+
+    def fake_submit(video_url, config, result_key=None):
+        submitted.update(url=video_url, config=config, key=result_key)
+        return "job-9"
+    states = iter([
+        {"state": "running", "percent": 37.0, "message": "선수·공 검출 중"},
+        {"state": "done", "result": analyze_simulated(AnalysisConfig(), duration_s=60, seed=5)},
+    ])
+    monkeypatch.setattr(rs, "submit_job", fake_submit)
+    monkeypatch.setattr(rs, "check_job", lambda job_id: next(states))
+
+    with TestClient(app) as c:
+        mid = c.post("/api/matches", json={"title": "GPU 경기"}).json()["id"]
+        c.post(f"/api/matches/{mid}/set-video-url", json={"video_url": "https://pub.example/v.mp4", "filename": "v.mp4"})
+        r = c.post(f"/api/matches/{mid}/analyze", json={"mode": "video", "quality": "max"})
+        assert r.status_code == 200 and r.json()["engine"] == "runpod", r.text
+        assert submitted["config"]["quality"] == "max" and submitted["key"].startswith(f"results/{mid}/")
+        s1 = c.get(f"/api/matches/{mid}/status").json()
+        assert s1["status"] == "analyzing" and s1["progress"] == 37.0 and "검출" in s1["message"]
+        s2 = c.get(f"/api/matches/{mid}/status").json()
+        assert s2["status"] == "done" and s2["has_result"] is True
+        assert c.get(f"/api/matches/{mid}/result").status_code == 200
+
+
+def test_api_max_quality_requires_gpu(monkeypatch):
+    from fastapi.testclient import TestClient
+    from main import app
+    monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+    monkeypatch.delenv("RUNPOD_ENDPOINT_ID", raising=False)
+    with TestClient(app) as c:
+        mid = c.post("/api/matches", json={"title": "CPU 경기"}).json()["id"]
+        c.post(f"/api/matches/{mid}/set-video-url", json={"video_url": "https://pub.example/v.mp4", "filename": "v.mp4"})
+        r = c.post(f"/api/matches/{mid}/analyze", json={"mode": "video", "quality": "max"})
+        assert r.status_code in (400, 503), r.text

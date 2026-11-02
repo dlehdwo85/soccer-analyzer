@@ -150,6 +150,7 @@ function AnalysisSteps({ match, health, onMatch, reload }:
   const [uploadPct, setUploadPct] = useState<number | null>(null)
   const [calOpen, setCalOpen] = useState(false)
   const [partial, setPartial] = useState(false)
+  const [quality, setQuality] = useState<'standard' | 'max'>('standard')
   const [startMin, setStartMin] = useState('0')
   const [lenMin, setLenMin] = useState('10')
   const [status, setStatus] = useState<AnalysisStatus | null>(null)
@@ -202,8 +203,8 @@ function AnalysisSteps({ match, health, onMatch, reload }:
     setStarting(true)
     try {
       const body = partial
-        ? { mode, start_seconds: Math.max(0, Number(startMin) || 0) * 60, max_seconds: Math.max(1, Number(lenMin) || 10) * 60 }
-        : { mode }
+        ? { mode, quality, start_seconds: Math.max(0, Number(startMin) || 0) * 60, max_seconds: Math.max(1, Number(lenMin) || 10) * 60 }
+        : { mode, quality }
       await api.analyze(match.id, body)
       await reload()
     } catch (e) {
@@ -298,6 +299,18 @@ function AnalysisSteps({ match, health, onMatch, reload }:
             {match.video_url && match.analysis_version !== 2 && match.status === 'done' && (
               <p className="text-xs text-sky-300">예전 버전으로 만든 결과는 실제 영상 기반이 아니었습니다. 새 엔진으로 다시 분석하세요.</p>
             )}
+
+            <fieldset className="space-y-1.5">
+              <legend className="text-sm text-ink-200 mb-1">분석 품질</legend>
+              <label className="flex items-start gap-2 text-sm text-ink-200 cursor-pointer">
+                <input type="radio" name="quality" className="mt-1" checked={quality === 'standard'} onChange={() => setQuality('standard')} />
+                <span>표준 <span className="text-xs text-ink-500">초당 6장면. 빠르고 저렴합니다.</span></span>
+              </label>
+              <label className="flex items-start gap-2 text-sm text-ink-200 cursor-pointer">
+                <input type="radio" name="quality" className="mt-1" checked={quality === 'max'} onChange={() => setQuality('max')} />
+                <span>고정밀 (GPU) <span className="text-xs text-ink-500">초당 15장면, 대형 선수 모델, 공 4분할 검출. GPU 서버가 연결되어 있어야 하며 90분 경기 약 1~1.5시간, 약 3,000원.</span></span>
+              </label>
+            </fieldset>
 
             <label className="flex items-center gap-2 text-sm text-ink-200 cursor-pointer">
               <input type="checkbox" checked={partial} onChange={e => setPartial(e.target.checked)} />

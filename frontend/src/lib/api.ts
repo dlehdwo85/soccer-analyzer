@@ -105,7 +105,7 @@ export const api = {
   setCalibration: (id: number, body: CalibrationInput) => req<Match>(`/api/matches/${id}/calibration`, json('PUT', body)),
   clearCalibration: (id: number) => req<Match>(`/api/matches/${id}/calibration`, json('DELETE')),
 
-  analyze: (id: number, body: { mode: 'video' | 'sample'; start_seconds?: number; max_seconds?: number | null }) =>
+  analyze: (id: number, body: { mode: 'video' | 'sample'; quality?: 'standard' | 'max'; start_seconds?: number; max_seconds?: number | null }) =>
     req<{ status: string; mode: string }>(`/api/matches/${id}/analyze`, json('POST', body)),
   getStatus: (id: number) => req<AnalysisStatus>(`/api/matches/${id}/status`),
   getResult: (id: number, period?: 1 | 2 | null) =>
