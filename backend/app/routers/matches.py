@@ -256,6 +256,8 @@ def start_analyze(match_id: int, body: AnalyzeRequest, background_tasks: Backgro
     m.analysis_error = None
     m.analysis_quality = body.quality if mode == "video" else None
     m.runpod_job_id = None
+    from app.services import notify_service
+    m.notify_phone = body.notify_phone if notify_service.is_configured() else None
     if gpu:
         # GPU 서버에 맡기고 바로 돌아온다. 진행률과 결과는 상태 조회(/status) 때 확인한다.
         import uuid
@@ -298,6 +300,8 @@ def _poll_gpu_job(db: Session, m: Match) -> None:
             save_result(db, m, st["result"], "video")
             m.runpod_job_id = None
             db.commit()
+            from app.services import notify_service
+            notify_service.notify_if_requested(db, m)
         except Exception as e:  # noqa: BLE001
             logger.exception("GPU 결과 저장 실패: match=%s", m.id)
             db.rollback()
@@ -308,6 +312,7 @@ def _poll_gpu_job(db: Session, m: Match) -> None:
     elif st["state"] == "failed":
         m.status, m.analysis_error, m.analysis_message = "failed", (st.get("error") or "GPU 분석 실패")[:2000], "분석 실패"
         m.runpod_job_id = None
+        m.notify_phone = None
         db.commit()
     else:
         if st.get("percent") is not None:

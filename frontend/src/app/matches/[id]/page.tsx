@@ -154,6 +154,9 @@ function AnalysisSteps({ match, health, onMatch, reload }:
   const [quality, setQuality] = useState<'standard' | 'max'>('standard')
   const [startMin, setStartMin] = useState('0')
   const [lenMin, setLenMin] = useState('10')
+  const [phone, setPhone] = useState('')
+  const [alimtalk, setAlimtalk] = useState(false)
+  useEffect(() => { api.notifyConfig().then(c => setAlimtalk(c.alimtalk)).catch(() => setAlimtalk(false)) }, [])
   const [status, setStatus] = useState<AnalysisStatus | null>(null)
   const [starting, setStarting] = useState(false)
   const src = api.videoSrc(match)
@@ -203,9 +206,10 @@ function AnalysisSteps({ match, health, onMatch, reload }:
   const start = async (mode: 'video' | 'sample') => {
     setStarting(true)
     try {
+      const notify = alimtalk && phone.trim() ? { notify_phone: phone.trim() } : {}
       const body = partial
-        ? { mode, quality, start_seconds: Math.max(0, Number(startMin) || 0) * 60, max_seconds: Math.max(1, Number(lenMin) || 10) * 60 }
-        : { mode, quality }
+        ? { mode, quality, start_seconds: Math.max(0, Number(startMin) || 0) * 60, max_seconds: Math.max(1, Number(lenMin) || 10) * 60, ...notify }
+        : { mode, quality, ...notify }
       await api.analyze(match.id, body)
       await reload()
     } catch (e) {
@@ -354,6 +358,15 @@ function AnalysisSteps({ match, health, onMatch, reload }:
                 분부터
                 <input className="input !w-20 num" inputMode="numeric" value={lenMin} onChange={e => setLenMin(e.target.value)} aria-label="길이(분)" />
                 분 동안
+              </div>
+            )}
+
+            {alimtalk && (
+              <div>
+                <label className="label mb-1 block" htmlFor="notify-phone">분석이 끝나면 카카오톡으로 알림 (선택)</label>
+                <input id="notify-phone" className="input num" inputMode="tel" placeholder="010-1234-5678" maxLength={13}
+                  value={phone} onChange={e => setPhone(e.target.value.replace(/[^\d-]/g, ''))} />
+                <p className="text-[11px] text-ink-500 mt-1">알림을 보낸 뒤 번호는 바로 지웁니다.</p>
               </div>
             )}
 

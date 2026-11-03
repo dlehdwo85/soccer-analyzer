@@ -151,6 +151,8 @@ def run_analysis(match_id: int, mode: str = "video", options: Optional[Dict] = N
         save_result(db, match, result, source)
         db.commit()
         logger.info("분석 완료: match=%s 선수=%d 이벤트=%d", match_id, len(result["players"]), len(result["events"]))
+        from app.services import notify_service
+        notify_service.notify_if_requested(db, match)
     except Exception as e:  # noqa: BLE001 — 어떤 실패든 사용자에게 보여야 한다
         logger.exception("분석 실패: match=%s", match_id)
         db.rollback()
@@ -159,6 +161,7 @@ def run_analysis(match_id: int, mode: str = "video", options: Optional[Dict] = N
             match.status = "failed"
             match.analysis_error = str(e)[:2000]
             match.analysis_message = "분석 실패"
+            match.notify_phone = None
             db.commit()
     finally:
         db.close()

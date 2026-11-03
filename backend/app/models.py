@@ -81,6 +81,7 @@ class Match(Base):
     ai_summary_basis  = Column(String(64), nullable=True)      # 요약에 쓴 기록 해시 — 기록이 바뀌면 다시 요약
     home_team_id      = Column(Integer, nullable=True, index=True)   # 등록된 팀(teams.id) — 명단·시즌 기록
     free_trial        = Column(Boolean, default=False)                 # 팀의 첫 경기 무료 혜택을 쓴 경기
+    notify_phone      = Column(String(20), nullable=True)              # 분석이 끝나면 알림톡 받을 번호 (보내면 지운다)
     away_team_id      = Column(Integer, nullable=True, index=True)
 
     players    = relationship("MatchPlayer", back_populates="match", cascade="all, delete-orphan")

@@ -106,6 +106,14 @@ class AnalyzeRequest(BaseModel):
     max_seconds: Optional[float] = Field(default=None, gt=0)
     # standard: 표준 / max: 고정밀(GPU 서버 필요 — 초당 15장면, 대형 모델, 공 4분할 검출)
     quality: Literal["standard", "max"] = "standard"
+    # 분석이 끝나면 카카오 알림톡으로 알림 (알림톡이 설정돼 있을 때만, 보내면 번호는 지운다)
+    notify_phone: Optional[str] = Field(default=None, max_length=20)
+
+    @field_validator("notify_phone")
+    @classmethod
+    def check_phone(cls, v):
+        from app.services.notify_service import normalize_phone
+        return normalize_phone(v)
 
 
 class CalibrationIn(BaseModel):

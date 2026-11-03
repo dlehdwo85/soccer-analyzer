@@ -67,6 +67,12 @@ app.include_router(auth_router.router)
 app.include_router(billing_router.router)
 
 
+@app.get("/api/notify/config", tags=["system"])
+def notify_config():
+    from app.services import notify_service
+    return {"alimtalk": notify_service.is_configured()}
+
+
 @app.get("/api/health", tags=["system"])
 def health():
     from app.services.analysis_service import engines
