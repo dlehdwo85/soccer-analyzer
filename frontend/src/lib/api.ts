@@ -1,7 +1,9 @@
 import {
   AnalysisStatus, Calibration, CalibrationInput, Club, ClubInput, EventCreate, EventPatch, Health, Match, MatchInput, MatchResult, MatchSummary,
-  Overlay, PlayerProfile, PlayerProfileDetail, PlayerReport, Season, Team, VideoLibrary,
+  Overlay, PlayerProfile, PlayerProfileDetail, PlayerReport, Season, Team, TeamMembers, TeamRole, VideoLibrary,
 } from './types'
+
+import { getToken } from './auth'
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
 
@@ -16,9 +18,11 @@ export class ApiError extends Error {
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getToken()
+  const auth: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: init?.body instanceof FormData ? init?.headers : { 'Content-Type': 'application/json', ...init?.headers },
+    headers: init?.body instanceof FormData ? { ...auth, ...init?.headers } : { 'Content-Type': 'application/json', ...auth, ...init?.headers },
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
@@ -176,6 +180,11 @@ export const api = {
   updateClub: (id: number, body: ClubInput) => req<Club>(`/api/teams/${id}`, json('PUT', body)),
   deleteClub: (id: number) => req<void>(`/api/teams/${id}`, json('DELETE')),
   getSeason: (id: number, year?: number) => req<Season>(`/api/teams/${id}/season${year ? `?year=${year}` : ''}`),
+  getTeamMembers: (id: number) => req<TeamMembers>(`/api/teams/${id}/members`),
+  newInvite: (id: number) => req<{ invite_code: string }>(`/api/teams/${id}/invite`, json('POST')),
+  joinTeam: (code: string) => req<Club>('/api/teams/join', json('POST', { code })),
+  setMemberRole: (id: number, userId: number, role: TeamRole) => req<{ ok: boolean }>(`/api/teams/${id}/members/${userId}`, json('PATCH', { role })),
+  removeMember: (id: number, userId: number) => req<void>(`/api/teams/${id}/members/${userId}`, json('DELETE')),
   getPlayerProfiles: () => req<PlayerProfile[]>('/api/players'),
   getPlayerProfile: (name: string) => req<PlayerProfileDetail>(`/api/players/${encodeURIComponent(name)}`),
 }

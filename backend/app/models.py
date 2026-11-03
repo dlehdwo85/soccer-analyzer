@@ -15,6 +15,30 @@ class Team(Base):
     color       = Column(String(20), default="#56b4d3")
     roster_json = Column(Text, nullable=False, default="[]")   # [{"number": 10, "name": "홍길동"}]
     created_at  = Column(DateTime, default=datetime.utcnow)
+    invite_code = Column(String(24), nullable=True, index=True)  # 팀 초대 링크 코드 (관리자가 만들고 바꿀 수 있다)
+
+
+class User(Base):
+    """카카오 로그인 사용자."""
+    __tablename__ = "users"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    kakao_id      = Column(String(40), unique=True, nullable=False, index=True)
+    nickname      = Column(String(100), nullable=True)
+    profile_image = Column(String(1024), nullable=True)
+    created_at    = Column(DateTime, default=datetime.utcnow)
+    last_login_at = Column(DateTime, nullable=True)
+
+
+class TeamMember(Base):
+    """팀 소속과 권한. owner(팀장) > manager(운영진: 명단·경기 정리) > member(팀원: 보기)."""
+    __tablename__ = "team_members"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    team_id    = Column(Integer, nullable=False, index=True)
+    user_id    = Column(Integer, nullable=False, index=True)
+    role       = Column(String(10), nullable=False, default="member")
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Match(Base):

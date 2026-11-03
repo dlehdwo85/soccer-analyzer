@@ -2,10 +2,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, ArrowDown, Save, Trash2, Trophy } from 'lucide-react'
+import { ArrowLeft, ArrowDown, Copy, Link2, Lock, Save, Trash2, Trophy, UserMinus } from 'lucide-react'
 import { toast } from 'sonner'
-import { api } from '@/lib/api'
-import { Club, RosterEntry, Season, SeasonPlayer } from '@/lib/types'
+import { api, API_BASE } from '@/lib/api'
+import { loginUrl, useAuth } from '@/lib/auth'
+import { Club, RosterEntry, Season, SeasonPlayer, TeamMembers, TeamRole } from '@/lib/types'
 import { cn, fmtDateShort } from '@/lib/utils'
 import PageHeader from '@/components/layout/PageHeader'
 import ColorPicker from '@/components/match/ColorPicker'
@@ -94,7 +95,12 @@ export default function TeamPage() {
         actions={<Link href="/teams" className="btn-ghost"><ArrowLeft className="w-4 h-4" />팀 목록</Link>} />
 
       <div className="grid lg:grid-cols-[320px_1fr] gap-4 items-start">
-        <section className="card p-4 space-y-3 min-w-0" aria-label="팀 정보와 명단">
+        <div className="space-y-4 min-w-0">
+        <section className="card p-4 space-y-3" aria-label="팀 정보와 명단">
+          {club && club.can_edit === false && (
+            <p className="text-[11px] text-ink-400 flex items-center gap-1"><Lock className="w-3 h-3" />명단·팀 정보는 팀장·운영진만 고칠 수 있습니다.</p>
+          )}
+          <fieldset disabled={club?.can_edit === false} className="space-y-3 disabled:opacity-60">
           <div>
             <label className="label mb-1 block" htmlFor="tn">팀 이름</label>
             <input id="tn" className="input" value={name} maxLength={100} onChange={e => setName(e.target.value)} />
@@ -112,7 +118,10 @@ export default function TeamPage() {
             </button>
             <button className="btn-secondary" onClick={remove} aria-label="팀 지우기"><Trash2 className="w-4 h-4" /></button>
           </div>
+          </fieldset>
         </section>
+        <Members teamId={teamId} onChanged={() => api.getClub(teamId).then(setClub)} />
+        </div>
 
         <section className="space-y-4 min-w-0" aria-label="시즌 기록">
           <div className="flex items-center gap-2">
@@ -215,5 +224,79 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
       <p className="text-lg font-semibold text-ink-100 num mt-0.5">{value}</p>
       {hint && <p className="text-[10px] text-ink-500 mt-0.5">{hint}</p>}
     </div>
+  )
+}
+
+
+const ROLE_LABEL: Record<TeamRole, string> = { owner: '팀장', manager: '운영진', member: '팀원' }
+
+/** 팀원·초대 링크 (카카오 로그인이 켜져 있을 때만) */
+function Members({ teamId, onChanged }: { teamId: number; onChanged: () => void }) {
+  const auth = useAuth(API_BASE)
+  const [data, setData] = useState<TeamMembers | null>(null)
+  const load = useCallback(() => { api.getTeamMembers(teamId).then(setData).catch(() => setData(null)) }, [teamId])
+  useEffect(() => { if (auth.enabled) load() }, [auth.enabled, auth.user, load])
+  if (!auth.enabled || !data) return null
+
+  const link = data.invite_code ? `${window.location.origin}/teams/join?code=${data.invite_code}` : null
+  const isOwner = data.my_role === 'owner'
+  const canInvite = !!auth.user && (data.members.length === 0 || data.my_role === 'owner' || data.my_role === 'manager')
+  const act = async (fn: () => Promise<unknown>, ok: string) => {
+    try { await fn(); toast.success(ok); load(); onChanged() } catch (e) { toast.error((e as Error).message) }
+  }
+  const copy = async () => {
+    if (!link) return
+    try {
+      if (navigator.share) await navigator.share({ title: '팀 초대', text: '우리 팀 경기 기록에 들어오세요', url: link })
+      else { await navigator.clipboard.writeText(link); toast.success('초대 링크를 복사했습니다') }
+    } catch { /* 공유 취소 */ }
+  }
+
+  return (
+    <section className="card p-4 space-y-3" aria-label="팀원">
+      <p className="font-semibold text-ink-100 text-sm">팀원 {data.members.length}명</p>
+      {data.members.length === 0 && (
+        <p className="text-[11px] text-ink-500">아직 팀원이 없어 누구나 이 팀을 고칠 수 있습니다. 초대 링크로 처음 들어온 사람이 팀장이 됩니다.</p>
+      )}
+      <ul className="space-y-1.5">
+        {data.members.map(m => (
+          <li key={m.id} className="flex items-center gap-2 text-sm">
+            <span className="w-7 h-7 rounded-full overflow-hidden bg-ink-700 flex items-center justify-center text-[11px] shrink-0">
+              {m.profile_image ? <img src={m.profile_image} alt="" className="w-full h-full object-cover" /> : (m.nickname ?? '?').slice(0, 1)}
+            </span>
+            <span className="flex-1 truncate text-ink-200">{m.nickname ?? '카카오 사용자'}{auth.user?.id === m.id && ' (나)'}</span>
+            {isOwner ? (
+              <select className="input !w-auto !py-0.5 !px-1.5 text-xs" value={m.role} aria-label={`${m.nickname} 권한`}
+                onChange={e => act(() => api.setMemberRole(teamId, m.id, e.target.value as TeamRole), '권한을 바꿨습니다')}>
+                {(['owner', 'manager', 'member'] as TeamRole[]).map(r => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+              </select>
+            ) : <span className="text-[11px] text-ink-500">{ROLE_LABEL[m.role]}</span>}
+            {(auth.user?.id === m.id || data.my_role === 'owner' || data.my_role === 'manager') && (
+              <button className="btn-ghost !p-1" aria-label={auth.user?.id === m.id ? '팀 나가기' : '내보내기'}
+                onClick={() => confirm(auth.user?.id === m.id ? '팀에서 나갈까요?' : `${m.nickname}님을 내보낼까요?`)
+                  && act(() => api.removeMember(teamId, m.id), auth.user?.id === m.id ? '팀에서 나갔습니다' : '내보냈습니다')}>
+                <UserMinus className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {!auth.user ? (
+        <a href={loginUrl(API_BASE)} className="btn w-full bg-[#FEE500] text-[#191919] hover:bg-[#f5dc00] font-semibold">카카오로 로그인</a>
+      ) : canInvite && (
+        <div className="space-y-1.5">
+          {link && (
+            <div className="flex gap-1.5">
+              <input className="input !py-1 text-xs" readOnly value={link} aria-label="초대 링크" onFocus={e => e.currentTarget.select()} />
+              <button className="btn-secondary !px-2" onClick={copy} aria-label="초대 링크 공유"><Copy className="w-4 h-4" /></button>
+            </div>
+          )}
+          <button className="btn-secondary w-full text-xs"
+            onClick={() => act(() => api.newInvite(teamId), link ? '새 초대 링크를 만들었습니다 (예전 링크는 막힘)' : '초대 링크를 만들었습니다')}>
+            <Link2 className="w-3.5 h-3.5" />{link ? '초대 링크 새로 만들기' : '초대 링크 만들기'}
+          </button>
+        </div>
+      )}
+    </section>
   )
 }

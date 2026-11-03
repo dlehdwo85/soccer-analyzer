@@ -49,6 +49,20 @@ export interface Club {
   roster: RosterEntry[]
   match_count: number
   created_at: string
+  member_count?: number
+  /** 로그인한 사람의 권한 */
+  my_role?: TeamRole | null
+  /** 명단·팀 정보를 고칠 수 있는가 (팀원이 없는 팀은 누구나) */
+  can_edit?: boolean
+}
+
+export type TeamRole = 'owner' | 'manager' | 'member'
+
+export interface TeamMembers {
+  members: { id: number; nickname: string | null; profile_image: string | null; role: TeamRole }[]
+  my_role: TeamRole | null
+  /** 운영진(팀원이 없는 팀이면 로그인한 누구나)에게만 보인다 */
+  invite_code: string | null
 }
 
 export interface ClubInput { name: string; color: string; roster: RosterEntry[] }

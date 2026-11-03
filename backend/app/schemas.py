@@ -277,3 +277,6 @@ class TeamOut(BaseModel):
     roster: List[RosterEntry]
     match_count: int = 0
     created_at: datetime
+    member_count: int = 0
+    my_role: Optional[str] = None      # 로그인한 사람의 권한 (owner | manager | member)
+    can_edit: bool = True              # 명단·팀 정보를 고칠 수 있는가
