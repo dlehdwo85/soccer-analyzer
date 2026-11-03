@@ -6,7 +6,7 @@ import { ArrowLeft, Download, Settings2, Share2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { MatchResult, Team, TeamStats } from '@/lib/types'
-import { cn, fmtClock, fmtDateShort, isDark, SOURCE_LABEL, teamInfo } from '@/lib/utils'
+import { cn, fmtClock, fmtDateShort, isDark, playerName, SOURCE_LABEL, teamInfo } from '@/lib/utils'
 import { Leaders, PossessionChart, ShotMap, TeamComparison } from '@/components/results/Overview'
 import PlayerTable from '@/components/results/PlayerTable'
 import PlayerModal from '@/components/results/PlayerModal'
@@ -105,6 +105,7 @@ export default function ResultsPage() {
   const home = teamInfo(match, 'home'), away = teamInfo(match, 'away')
   const sel = selected ? players.get(selected) ?? null : null
   const ts = result.team_stats
+  const board = meta.scoreboard?.found ? meta.scoreboard : null
   const hasHalves = meta.halftime_rel_s != null && meta.halftime_rel_s > 0
   const warnings = meta.warnings?.filter(w => !w.includes('거리·속도')) ?? []
   const periodLabel = period === 1 ? ' · 전반' : period === 2 ? ' · 후반' : ''
@@ -136,13 +137,42 @@ export default function ResultsPage() {
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 sm:px-5 py-4">
           <TeamHead name={home.name} color={home.color} />
           <div className="text-center px-2">
-            <p className="text-4xl sm:text-5xl font-semibold num text-ink-100 tracking-tight">
-              {ts.home.shots_on_target}<span className="text-ink-600 mx-2">:</span>{ts.away.shots_on_target}
-            </p>
-            <p className="label mt-1">유효 슈팅</p>
+            {board?.score ? (
+              <>
+                <p className="text-4xl sm:text-5xl font-semibold num text-ink-100 tracking-tight">
+                  {board.score.home}<span className="text-ink-600 mx-2">:</span>{board.score.away}
+                </p>
+                <p className="label mt-1" title="영상에 박힌 점수 자막이 바뀐 횟수로 센 골입니다 (영상 시작 이후)">영상 중 골 · 점수 자막</p>
+                <p className="text-[11px] text-ink-500 mt-0.5 num">유효 슈팅 {ts.home.shots_on_target} : {ts.away.shots_on_target}</p>
+              </>
+            ) : (
+              <>
+                <p className="text-4xl sm:text-5xl font-semibold num text-ink-100 tracking-tight">
+                  {ts.home.shots_on_target}<span className="text-ink-600 mx-2">:</span>{ts.away.shots_on_target}
+                </p>
+                <p className="label mt-1">유효 슈팅</p>
+              </>
+            )}
           </div>
           <TeamHead name={away.name} color={away.color} right />
         </div>
+        {board?.goals && board.goals.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 px-4 sm:px-5 pb-3 -mt-1">
+            {board.goals.map((g, i) => {
+              const info = teamInfo(match, g.team)
+              const scorer = g.player ? result.players.find(p => p.track_id === g.player || p.merged_from.includes(g.player!)) : null
+              return (
+                <button key={i} type="button" disabled={!videoSrc}
+                  onClick={() => dock.current?.seek(g.t, `${info.name} 골`)}
+                  title={g.player ? '자막이 바뀌기 직전 이 팀의 슈팅 장면입니다' : '점수 자막이 바뀐 시각입니다'}
+                  className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full bg-ink-800 text-ink-300 hover:bg-ink-700 disabled:hover:bg-ink-800">
+                  <span className="w-2 h-2 rounded-full" style={{ background: info.color }} />
+                  <span className="num">{fmtClock(g.t)}</span> {info.name} 골{scorer && ` · ${playerName(scorer)}`}
+                </button>
+              )
+            })}
+          </div>
+        )}
         <div className="overflow-x-auto border-t border-ink-800">
           <table className="w-full text-sm num">
             <thead>

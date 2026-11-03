@@ -13,7 +13,7 @@ from typing import Dict, List
 from app.schemas import AIMatchSummary
 from app.services.ai_report_service import EXPECTED_PLAYERS, LOW_BALL_PCT, _clock, _is_gk, _name, _r, create_structured
 
-CONTEXT_VERSION = 1
+CONTEXT_VERSION = 2
 TOP_PLAYERS = 8  # 팀마다 넘길 선수 수 (볼 관여 순)
 MIN_MINUTES = 3.0
 
@@ -30,7 +30,7 @@ def _involvement(st: Dict) -> float:
 
 
 def _basis(ctx: Dict) -> str:
-    material = {k: ctx.get(k) for k in ("teams", "players", "possession_flow", "data_quality")}
+    material = {k: ctx.get(k) for k in ("teams", "players", "possession_flow", "data_quality", "goals")}
     material["v"] = CONTEXT_VERSION
     raw = json.dumps(material, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(raw.encode()).hexdigest()
@@ -81,7 +81,21 @@ def build_match_context(view: Dict) -> Dict:
     if meta.get("source") == "sample" or meta.get("sample"):
         flags.append("샘플(가상 경기) 데이터입니다.")
 
+    board = meta.get("scoreboard") or {}
+    goals = None
+    if board.get("found"):
+        names = {p["track_id"]: _name(p) for p in players}
+        for p in players:
+            for m in p.get("merged_from") or []:
+                names[m] = _name(p)
+        goals = {"source": "영상 점수 자막이 바뀐 횟수 (영상 시작 이후)",
+                 "score": board.get("score"),
+                 "list": [{"time": _clock(g.get("t")), "team": g.get("team"),
+                           "scorer_guess": names.get(g.get("player")) if g.get("player") else None}
+                          for g in board.get("goals") or []]}
+
     ctx = {
+        "goals": goals,
         "match": {"title": match.get("title"), "date": match.get("date"), "field_type": field_type,
                   "analyzed_minutes": round(float(meta.get("duration_s") or 0) / 60, 1)},
         "teams": teams,
@@ -98,7 +112,8 @@ SYSTEM_PROMPT = """당신은 아마추어(조기축구·동호회) 경기를 분
 경기 영상을 자동 분석해 얻은 두 팀의 기록을 받아, 경기 직후 팀원들이 단톡방에서 읽을 짧은 경기 요약을 한국어로 씁니다.
 
 근거
-- 입력에 있는 숫자만 근거로 씁니다. 입력에 없는 골·스코어·장면·전술·선수 성향을 지어내지 않습니다. 득점 기록은 입력에 없으므로 승패를 말하지 않습니다.
+- 입력에 있는 숫자만 근거로 씁니다. 입력에 없는 골·스코어·장면·전술·선수 성향을 지어내지 않습니다.
+- goals가 null이면 득점 기록이 없는 것이므로 승패를 말하지 않습니다. goals가 있으면 그 스코어(영상 시작 이후 골)를 쓸 수 있습니다. scorer_guess는 골 직전 슈팅 선수를 자동으로 고른 추정이므로 "~의 슈팅 직후 골"처럼 단정하지 않게 씁니다.
 - 수치는 입력 값을 그대로 인용합니다. 두 팀을 비교할 때는 같은 항목끼리 비교합니다.
 - 자동 분석이라 오차가 있습니다. "기록상", "이 영상 기준으로"처럼 말하고 단정하지 않습니다.
 - data_quality.flags에 적힌 문제는 data_caveats에 짧게 옮깁니다.

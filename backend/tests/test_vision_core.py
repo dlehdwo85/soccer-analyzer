@@ -217,3 +217,45 @@ def test_same_player_suggestions_rank_returning_player_first():
     assert "T4" not in hints.get("T1", [])
     # 가장자리로 나간 게 아니면 긴 공백은 후보로 두지 않는다
     assert "T3" not in suggest_same_player(t, {k: k for k in apps}, apps, {}, {}, C.appearance_distance)
+
+
+def _board_frame(rng, text, w=640, h=360):
+    import cv2
+    f = np.zeros((h, w, 3), np.uint8)
+    f[:] = (40, 120 + rng.integers(0, 30), 40)
+    # 카메라가 움직이는 배경: 매 장면 다른 위치의 흰 선
+    x = int(rng.integers(0, w))
+    cv2.line(f, (x, 60), (x + 80, h), (230, 230, 230), 2)
+    cv2.rectangle(f, (10, 4), (260, 30), (40, 40, 200), -1)
+    size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0][0]
+    cv2.putText(f, text, (135 - size // 2, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+    return f
+
+
+def test_scoreboard_reader_counts_goals_from_score_caption():
+    from app.vision.scoreboard import ScoreboardReader
+    rng = np.random.default_rng(0)
+    r = ScoreboardReader(640, 360)
+    for t in range(240):
+        text = "AA 0 : 0 BB" if t < 70 else ("AA 0 : 1 BB" if t < 160 else "AA 1 : 1 BB")
+        frame = _board_frame(rng, text)
+        if 100 <= t < 104:
+            frame[4:30, 10:260] = (40, 120, 40)      # 자막이 잠깐 사라진 장면 (리플레이 전환)
+        r.add(float(t), frame)
+    out = r.finish()
+    assert out["found"]
+    ch = out["changes"]
+    assert [c["side"] for c in ch] == ["right", "left"]
+    assert abs(ch[0]["t"] - 70) <= 2 and abs(ch[1]["t"] - 160) <= 2
+
+
+def test_scoreboard_goals_attach_preceding_shot():
+    from app.vision.pipeline import scoreboard_goals
+    board = {"found": True, "box": [0, 0, 1, 1], "changes": [{"t": 100.0, "side": "right"}, {"t": 300.0, "side": "left"}]}
+    events = [{"kind": "shot", "team": "away", "t": 80.0, "player": "P7"},
+              {"kind": "shot", "team": "away", "t": 20.0, "player": "P8"},     # 너무 이른 슈팅
+              {"kind": "pass", "team": "home", "t": 295.0, "player": "P1"}]
+    out = scoreboard_goals(board, events)
+    assert out["score"] == {"home": 1, "away": 1}
+    assert out["goals"][0]["player"] == "P7" and out["goals"][0]["t"] == 80.0
+    assert out["goals"][1]["player"] is None and out["goals"][1]["t"] == 300.0

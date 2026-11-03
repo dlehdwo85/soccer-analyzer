@@ -205,6 +205,12 @@ export interface ResultMeta {
   snapped_colors?: Record<string, string>
   /** 화면 밖에 있다 돌아와 따로 잡힌 같은 선수 후보 (트랙 → 가까운 순 후보 트랙) */
   merge_hints?: Record<string, string[]>
+  /** 영상에 박힌 점수 자막에서 읽은 골 (자막이 바뀐 시각, 직전 슈팅이 있으면 그 시각·선수) */
+  scoreboard?: {
+    found: boolean
+    goals?: { t: number; t_board: number; team: Team; side: 'left' | 'right'; player: string | null }[]
+    score?: Record<Team, number>
+  }
 }
 
 export interface MatchResult {
