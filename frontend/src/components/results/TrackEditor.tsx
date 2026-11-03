@@ -1,9 +1,9 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Ban, Check, Combine, RotateCcw, Undo2, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
-import { MatchResult, PlayerRow, Team } from '@/lib/types'
+import { MatchResult, PlayerRow, RosterEntry, Team } from '@/lib/types'
 import { cn, fmtClock, isGk, playerName, teamInfo } from '@/lib/utils'
 import PlayerAvatar from './PlayerAvatar'
 
@@ -18,6 +18,13 @@ export default function TrackEditor({ matchId, result, onChanged }:
   const [busy, setBusy] = useState(false)
   const [showMinor, setShowMinor] = useState(true)
   const { match } = result
+  // 경기에 연결된 팀의 명단 — 이름 칸에서 고르면 등번호가 채워지고, 같은 이름끼리는 서버가 자동으로 합친다
+  const [rosters, setRosters] = useState<Partial<Record<Team, RosterEntry[]>>>({})
+  useEffect(() => {
+    const sides = (['home', 'away'] as Team[]).filter(t => match[`${t}_team_id`])
+    Promise.all(sides.map(t => api.getClub(match[`${t}_team_id`] as number).then(c => [t, c.roster] as const).catch(() => null)))
+      .then(rs => setRosters(Object.fromEntries(rs.filter(Boolean) as (readonly [Team, RosterEntry[]])[])))
+  }, [match])
 
   const run = async (fn: () => Promise<unknown>, ok?: string) => {
     setBusy(true)
@@ -79,13 +86,37 @@ export default function TrackEditor({ matchId, result, onChanged }:
         </div>
       </div>
 
+      {(['home', 'away'] as Team[]).filter(t => rosters[t]?.length).map(t => {
+        const named = new Set(result.players.filter(p => p.team === t && !p.excluded && p.display_name).map(p => p.display_name!.trim()))
+        const list = rosters[t]!
+        return (
+          <div key={t} className="card p-3">
+            <p className="text-xs text-ink-400 mb-2">
+              <b className="text-ink-200">{teamInfo(match, t).name}</b> 명단 {list.filter(r => named.has(r.name)).length}/{list.length}명 정리됨 —
+              카드의 이름 칸에서 명단 이름을 고르세요. 같은 이름을 고른 트랙은 자동으로 합쳐집니다.
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {list.map(r => (
+                <span key={r.name} className={cn('text-[11px] px-2 py-0.5 rounded-full',
+                  named.has(r.name) ? 'bg-volt/15 text-volt' : 'bg-ink-800 text-ink-400')}>
+                  {r.number != null && `${r.number} `}{r.name}
+                </span>
+              ))}
+            </div>
+            <datalist id={`roster-${t}`}>
+              {list.map(r => <option key={r.name} value={r.name}>{r.number != null ? `${r.number}번` : ''}</option>)}
+            </datalist>
+          </div>
+        )
+      })}
+
       {sections.map(sec => (
         <div key={sec.title}>
           <h3 className="text-sm font-semibold text-ink-200 mb-2">{sec.title} · {sec.rows.length}</h3>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {sec.rows.map(p => (
               <TrackCard key={p.track_id} matchId={matchId} result={result} p={p} busy={busy}
-                candidates={suggestions.get(p.track_id) ?? []}
+                candidates={suggestions.get(p.track_id) ?? []} roster={rosters[p.team]}
                 selected={selected.includes(p.track_id)} onToggle={() => toggle(p.track_id)} run={run} />
             ))}
           </div>
@@ -138,8 +169,8 @@ function sameplayerSuggestions(result: MatchResult): Map<string, PlayerRow[]> {
   return out
 }
 
-function TrackCard({ matchId, result, p, candidates, selected, onToggle, busy, run }: {
-  matchId: number; result: MatchResult; p: PlayerRow; candidates: PlayerRow[]; selected: boolean; busy: boolean
+function TrackCard({ matchId, result, p, candidates, roster, selected, onToggle, busy, run }: {
+  matchId: number; result: MatchResult; p: PlayerRow; candidates: PlayerRow[]; roster?: RosterEntry[]; selected: boolean; busy: boolean
   onToggle: () => void; run: (fn: () => Promise<unknown>, ok?: string) => Promise<void>
 }) {
   const [name, setName] = useState(p.display_name ?? '')
@@ -148,10 +179,23 @@ function TrackCard({ matchId, result, p, candidates, selected, onToggle, busy, r
   const other: Team = p.team === 'home' ? 'away' : 'home'
   const s = p.stats
 
-  const save = () => run(() => api.updatePlayer(matchId, p.track_id, {
-    display_name: name.trim() || null,
-    jersey_number: num.trim() === '' ? null : Number(num),
-  }), '저장했습니다')
+  const save = async () => {
+    let saved = false, merged: string | null | undefined
+    await run(async () => {
+      const r = await api.updatePlayer(matchId, p.track_id, {
+        display_name: name.trim() || null,
+        jersey_number: num.trim() === '' ? null : Number(num),
+      })
+      saved = true
+      merged = r.merged_into
+    })
+    if (saved) toast.success(merged ? `같은 이름의 트랙과 합쳤습니다 (${name.trim()})` : '저장했습니다')
+  }
+  const onName = (v: string) => {
+    setName(v)
+    const hit = roster?.find(r => r.name === v.trim())
+    if (hit && hit.number != null) setNum(String(hit.number))
+  }
 
   return (
     <div className={cn('card p-3 transition-colors', selected && 'ring-2 ring-volt border-volt')}>
@@ -167,8 +211,9 @@ function TrackCard({ matchId, result, p, candidates, selected, onToggle, busy, r
           <div className="flex gap-1.5">
             <input className="input !py-1 !px-2 text-xs w-12 shrink-0" placeholder="번호" inputMode="numeric" value={num}
               onChange={e => setNum(e.target.value.replace(/\D/g, '').slice(0, 3))} aria-label="등번호" />
-            <input className="input !py-1 !px-2 text-xs" placeholder="이름" value={name} maxLength={100}
-              onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && dirty && save()} aria-label="이름" />
+            <input className="input !py-1 !px-2 text-xs" placeholder={roster?.length ? '이름 (명단에서 고르기)' : '이름'} value={name} maxLength={100}
+              list={roster?.length ? `roster-${p.team}` : undefined}
+              onChange={e => onName(e.target.value)} onKeyDown={e => e.key === 'Enter' && dirty && save()} aria-label="이름" />
           </div>
           <p className="text-[11px] text-ink-500 truncate">
             {p.track_id}{isGk(p) && ' · GK'} · {fmtClock(s.first_seen_s ?? 0)}~{fmtClock(s.last_seen_s ?? 0)} · {s.minutes_tracked.toFixed(0)}분 · 터치 {s.touches}

@@ -392,8 +392,30 @@ def update_player(match_id: int, track_id: str, body: PlayerUpdate, db: Session 
         p.label = data["team"] + ("_gk" if (p.label or "").endswith("_gk") else "")
     if data.get("excluded") is not None:
         p.excluded = data["excluded"]
+    merged_into = None
+    if p.display_name and not p.excluded:
+        # 같은 경기·같은 팀에 같은 이름의 선수가 이미 있으면 같은 사람이다 → 출전 시간이 긴 쪽으로 합친다
+        same = [o for o in db.query(MatchPlayer).filter(
+                    MatchPlayer.match_id == match_id, MatchPlayer.team == p.team, MatchPlayer.merged_into.is_(None),
+                    MatchPlayer.excluded.isnot(True), MatchPlayer.display_name == p.display_name,
+                    MatchPlayer.track_id != p.track_id).all()]
+        if same:
+            def secs(r: MatchPlayer) -> float:
+                return float(json.loads(r.stats_json or "{}").get("seconds_tracked") or 0)
+            group = [p, *same]
+            target = max(group, key=secs)
+            for src in group:
+                if src is target:
+                    continue
+                src.merged_into = target.track_id
+                for child in db.query(MatchPlayer).filter(MatchPlayer.match_id == match_id,
+                                                          MatchPlayer.merged_into == src.track_id).all():
+                    child.merged_into = target.track_id
+            if target.jersey_number is None:
+                target.jersey_number = next((g.jersey_number for g in group if g.jersey_number is not None), None)
+            merged_into = target.track_id
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "merged_into": merged_into}
 
 
 @router.post("/{match_id}/players/merge")

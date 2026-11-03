@@ -1,7 +1,9 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { Save } from 'lucide-react'
-import { MatchInput } from '@/lib/types'
+import { api } from '@/lib/api'
+import { Club, MatchInput } from '@/lib/types'
 import ColorPicker from './ColorPicker'
 
 export const DEFAULT_MATCH: MatchInput = {
@@ -17,6 +19,8 @@ export const DEFAULT_MATCH: MatchInput = {
   away_gk_color: null,
   home_attacks: 'auto',
   halftime_s: null,
+  home_team_id: null,
+  away_team_id: null,
 }
 
 function parseClock(v: string): number | null {
@@ -45,6 +49,14 @@ export default function MatchForm({ initial, submitLabel, onSubmit, onCancel }: 
   const [half, setHalf] = useState(clock(initial.halftime_s))
   const [saving, setSaving] = useState(false)
   const set = <K extends keyof MatchInput>(k: K, v: MatchInput[K]) => setForm(f => ({ ...f, [k]: v }))
+  const [clubs, setClubs] = useState<Club[]>([])
+  useEffect(() => { api.getClubs().then(setClubs).catch(() => setClubs([])) }, [])
+  const pickClub = (side: 'home' | 'away', id: string) => {
+    const c = clubs.find(x => String(x.id) === id)
+    setForm(f => side === 'home'
+      ? { ...f, home_team_id: c?.id ?? null, ...(c ? { home_team_name: c.name, home_team_color: c.color } : {}) }
+      : { ...f, away_team_id: c?.id ?? null, ...(c ? { away_team_name: c.name, away_team_color: c.color } : {}) })
+  }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -91,6 +103,20 @@ export default function MatchForm({ initial, submitLabel, onSubmit, onCancel }: 
         <div className="grid sm:grid-cols-2 gap-6">
           {(['home', 'away'] as const).map(side => (
             <div key={side} className="space-y-3">
+              <div>
+                <label className="label mb-1 block" htmlFor={`club-${side}`}>등록된 팀 (명단·시즌 기록)</label>
+                <select id={`club-${side}`} className="input"
+                  value={String((side === 'home' ? form.home_team_id : form.away_team_id) ?? '')}
+                  onChange={e => pickClub(side, e.target.value)}>
+                  <option value="">연결 안 함</option>
+                  {clubs.map(c => <option key={c.id} value={c.id}>{c.name} · 명단 {c.roster.length}명</option>)}
+                </select>
+                {clubs.length === 0 && side === 'home' && (
+                  <p className="text-[11px] text-ink-500 mt-1">
+                    <Link href="/teams" className="text-volt hover:underline">팀</Link>을 등록하면 명단으로 선수를 정리하고 시즌 기록이 쌓입니다.
+                  </p>
+                )}
+              </div>
               <div>
                 <label className="label mb-1 block">{side === 'home' ? '홈팀' : '원정팀'} 이름</label>
                 <input className="input" value={side === 'home' ? form.home_team_name : form.away_team_name}

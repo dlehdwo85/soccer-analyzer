@@ -16,6 +16,7 @@ export function Logo() {
 const LINKS = [
   { href: '/', label: '경기', match: (p: string) => p === '/' || p.startsWith('/matches/') && !p.startsWith('/matches/new') },
   { href: '/videos', label: '영상', match: (p: string) => p.startsWith('/videos') },
+  { href: '/teams', label: '팀', match: (p: string) => p.startsWith('/teams') },
   { href: '/players', label: '선수', match: (p: string) => p.startsWith('/players') },
 ]
 
@@ -23,7 +24,7 @@ export default function Navbar() {
   const path = usePathname()
   return (
     <header className="sticky top-0 z-50 bg-ink-950 border-b border-ink-800">
-      <div className="max-w-6xl mx-auto px-4 h-14 flex items-center gap-4">
+      <div className="max-w-6xl mx-auto px-4 h-14 flex items-center gap-2 sm:gap-4">
         <Link href="/" className="flex items-center gap-2 font-semibold text-ink-100 whitespace-nowrap">
           <Logo />
           <span className="hidden sm:inline">풋볼 애널라이저</span>
@@ -33,14 +34,16 @@ export default function Navbar() {
             const on = match(path)
             return (
               <Link key={href} href={href} aria-current={on ? 'page' : undefined}
-                className={cn('h-full flex items-center px-2.5 sm:px-3 text-sm border-b-2 transition-colors',
+                className={cn('h-full flex items-center px-2 sm:px-3 text-sm whitespace-nowrap border-b-2 transition-colors',
                   on ? 'border-volt text-ink-100 font-medium' : 'border-transparent text-ink-400 hover:text-ink-100')}>
                 {label}
               </Link>
             )
           })}
         </nav>
-        <Link href="/matches/new" className="btn-secondary !px-3 !py-1.5">새 경기 등록</Link>
+        <Link href="/matches/new" className="btn-secondary !px-3 !py-1.5 whitespace-nowrap">
+          <span className="sm:hidden">새 경기</span><span className="hidden sm:inline">새 경기 등록</span>
+        </Link>
       </div>
     </header>
   )

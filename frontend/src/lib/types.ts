@@ -29,11 +29,59 @@ export interface Match {
   analysis_version: number
   calibrated: boolean
   created_at: string
+  /** 등록된 팀(명단·시즌 기록)과 연결돼 있으면 그 팀 번호 */
+  home_team_id?: number | null
+  away_team_id?: number | null
 }
 
 export type MatchInput = Pick<Match,
   'title' | 'date' | 'field_type' | 'home_team_name' | 'away_team_name' | 'home_team_color' |
-  'away_team_color' | 'referee_color' | 'home_gk_color' | 'away_gk_color' | 'home_attacks' | 'halftime_s'>
+  'away_team_color' | 'referee_color' | 'home_gk_color' | 'away_gk_color' | 'home_attacks' | 'halftime_s' |
+  'home_team_id' | 'away_team_id'>
+
+export interface RosterEntry { number: number | null; name: string }
+
+/** 등록된 팀 (명단·시즌 기록의 단위) */
+export interface Club {
+  id: number
+  name: string
+  color: string
+  roster: RosterEntry[]
+  match_count: number
+  created_at: string
+}
+
+export interface ClubInput { name: string; color: string; roster: RosterEntry[] }
+
+export interface SeasonPlayer {
+  name: string
+  number: number | null
+  in_roster: boolean
+  matches: number
+  goals: number
+  minutes: number
+  touches: number
+  passes_attempted: number
+  passes_completed: number
+  pass_accuracy: number | null
+  key_passes: number
+  forward_passes: number
+  shots: number
+  shots_on_target: number
+  xg: number
+  interceptions: number
+  recoveries: number
+  dispossessed: number
+}
+
+export interface Season {
+  team: Club
+  year: number | null
+  record: { played: number; scored_known: number; win: number; draw: number; loss: number; goals_for: number; goals_against: number }
+  matches: { match_id: number; title: string; date: string | null; side: Team; opponent: string;
+             score: [number, number] | null; possession_pct: number | null }[]
+  players: SeasonPlayer[]
+}
 
 export interface AnalysisStatus {
   status: MatchStatus

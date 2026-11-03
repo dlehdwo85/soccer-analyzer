@@ -6,6 +6,17 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 
 
+class Team(Base):
+    """우리 팀. 명단(등번호·이름)을 두고 경기마다 홈/원정 팀으로 연결해 시즌 기록을 모은다."""
+    __tablename__ = "teams"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    name        = Column(String(100), nullable=False)
+    color       = Column(String(20), default="#56b4d3")
+    roster_json = Column(Text, nullable=False, default="[]")   # [{"number": 10, "name": "홍길동"}]
+    created_at  = Column(DateTime, default=datetime.utcnow)
+
+
 class Match(Base):
     __tablename__ = "matches"
 
@@ -44,6 +55,8 @@ class Match(Base):
     ai_summary_json   = Column(Text, nullable=True)            # AI 경기 요약 + MOM 후보
     ai_summary_at     = Column(DateTime, nullable=True)
     ai_summary_basis  = Column(String(64), nullable=True)      # 요약에 쓴 기록 해시 — 기록이 바뀌면 다시 요약
+    home_team_id      = Column(Integer, nullable=True, index=True)   # 등록된 팀(teams.id) — 명단·시즌 기록
+    away_team_id      = Column(Integer, nullable=True, index=True)
 
     players    = relationship("MatchPlayer", back_populates="match", cascade="all, delete-orphan")
     events     = relationship("MatchEvent", back_populates="match", cascade="all, delete-orphan")

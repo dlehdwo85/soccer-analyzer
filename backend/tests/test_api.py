@@ -311,3 +311,36 @@ def test_overlay_endpoint_roundtrip(client):
         else json.loads(gzip.decompress(o.content))
     assert body["tracks"]["P1"][0] == [0, 10, 20, 30, 80] and body["ball"][0] == [0, 100, 200, 1]
     assert client.get(f"/api/matches/{mid}").json().get("web_video_url") is None
+
+
+def test_team_roster_auto_merge_and_season(client):
+    r = client.post("/api/teams", json={"name": "월넛FC", "color": "#56b4d3",
+                                        "roster": [{"number": 10, "name": "김철수"}, {"number": 7, "name": "이영희"},
+                                                   {"number": 3, "name": "김철수"}]})
+    assert r.status_code == 201, r.text
+    team = r.json()
+    assert [x["name"] for x in team["roster"]] == ["김철수", "이영희"]   # 같은 이름은 한 번만
+    m = client.post("/api/matches", json={"title": "시즌 경기", "date": "2026-11-01", "home_team_name": "월넛FC",
+                                          "home_team_id": team["id"]}).json()
+    assert m["home_team_id"] == team["id"]
+    client.post(f"/api/matches/{m['id']}/analyze", json={"mode": "sample", "max_seconds": 300})
+    url = f"/api/matches/{m['id']}"
+    home = [p for p in client.get(f"{url}/result").json()["players"] if p["team"] == "home" and not p["minor"]]
+    a, b = home[0], home[1]
+    assert client.patch(f"{url}/players/{a['track_id']}", json={"display_name": "김철수"}).json()["merged_into"] is None
+    # 같은 이름을 고르면 같은 사람 → 자동으로 합쳐진다
+    merged = client.patch(f"{url}/players/{b['track_id']}", json={"display_name": "김철수"}).json()["merged_into"]
+    assert merged in (a["track_id"], b["track_id"])
+    after = client.get(f"{url}/result").json()["players"]
+    head = next(p for p in after if p["track_id"] == merged)
+    assert len(head["merged_from"]) == 1 and head["display_name"] == "김철수"
+
+    s = client.get(f"/api/teams/{team['id']}/season", params={"year": 2026}).json()
+    assert s["record"]["played"] == 1 and s["record"]["scored_known"] == 0   # 샘플엔 점수 자막이 없다
+    kim = next(p for p in s["players"] if p["name"] == "김철수")
+    assert kim["matches"] == 1 and kim["number"] == 10 and kim["in_roster"]
+    lee = next(p for p in s["players"] if p["name"] == "이영희")
+    assert lee["matches"] == 0
+    assert client.get(f"/api/teams/{team['id']}/season", params={"year": 2025}).json()["record"]["played"] == 0
+    assert client.delete(f"/api/teams/{team['id']}").status_code == 204
+    assert client.get(url).json()["home_team_id"] is None

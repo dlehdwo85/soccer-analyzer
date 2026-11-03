@@ -1,6 +1,6 @@
 import {
-  AnalysisStatus, Calibration, CalibrationInput, EventCreate, EventPatch, Health, Match, MatchInput, MatchResult, MatchSummary,
-  Overlay, PlayerProfile, PlayerProfileDetail, PlayerReport, Team, VideoLibrary,
+  AnalysisStatus, Calibration, CalibrationInput, Club, ClubInput, EventCreate, EventPatch, Health, Match, MatchInput, MatchResult, MatchSummary,
+  Overlay, PlayerProfile, PlayerProfileDetail, PlayerReport, Season, Team, VideoLibrary,
 } from './types'
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
@@ -125,7 +125,7 @@ export const api = {
   // ── 트랙 편집 ──────────────────────────────────────────────────
   updatePlayer: (id: number, trackId: string,
                  body: { display_name?: string | null; jersey_number?: number | null; team?: Team; excluded?: boolean }) =>
-    req<{ ok: boolean }>(`/api/matches/${id}/players/${encodeURIComponent(trackId)}`, json('PATCH', body)),
+    req<{ ok: boolean; merged_into?: string | null }>(`/api/matches/${id}/players/${encodeURIComponent(trackId)}`, json('PATCH', body)),
   mergePlayers: (id: number, target: string, sources: string[]) =>
     req<{ ok: boolean }>(`/api/matches/${id}/players/merge`, json('POST', { target, sources })),
   unmergePlayer: (id: number, trackId: string) =>
@@ -170,6 +170,12 @@ export const api = {
     req<{ video_url: string }>(`/api/matches/${id}/set-video-url`, json('POST', { video_url, filename })),
 
   // ── 선수 프로필 ────────────────────────────────────────────────
+  getClubs: () => req<Club[]>('/api/teams'),
+  getClub: (id: number) => req<Club>(`/api/teams/${id}`),
+  createClub: (body: ClubInput) => req<Club>('/api/teams', json('POST', body)),
+  updateClub: (id: number, body: ClubInput) => req<Club>(`/api/teams/${id}`, json('PUT', body)),
+  deleteClub: (id: number) => req<void>(`/api/teams/${id}`, json('DELETE')),
+  getSeason: (id: number, year?: number) => req<Season>(`/api/teams/${id}/season${year ? `?year=${year}` : ''}`),
   getPlayerProfiles: () => req<PlayerProfile[]>('/api/players'),
   getPlayerProfile: (name: string) => req<PlayerProfileDetail>(`/api/players/${encodeURIComponent(name)}`),
 }

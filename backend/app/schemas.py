@@ -30,6 +30,8 @@ class MatchCreate(BaseModel):
     away_gk_color: Optional[str] = None
     home_attacks: Literal["auto", "right", "left"] = "auto"
     halftime_s: Optional[float] = Field(default=None, ge=0)
+    home_team_id: Optional[int] = None
+    away_team_id: Optional[int] = None
 
     @field_validator("home_team_color", "away_team_color", "referee_color", "home_gk_color", "away_gk_color")
     @classmethod
@@ -50,6 +52,8 @@ class MatchUpdate(BaseModel):
     away_gk_color: Optional[str] = None
     home_attacks: Optional[Literal["auto", "right", "left"]] = None
     halftime_s: Optional[float] = Field(default=None, ge=0)
+    home_team_id: Optional[int] = None
+    away_team_id: Optional[int] = None
 
     @field_validator("home_team_color", "away_team_color", "referee_color", "home_gk_color", "away_gk_color")
     @classmethod
@@ -83,6 +87,8 @@ class MatchOut(BaseModel):
     analysis_version: Optional[int] = 0
     calibrated: bool = False
     created_at: datetime
+    home_team_id: Optional[int] = None
+    away_team_id: Optional[int] = None
 
 
 class StatusOut(BaseModel):
@@ -236,3 +242,38 @@ class AIMatchSummaryOut(BaseModel):
     usage: AIReportUsage
     generated_at: datetime
     stale: bool = False
+
+
+# ── 팀·명단 ─────────────────────────────────────────────────────────────────
+
+class RosterEntry(BaseModel):
+    number: Optional[int] = Field(default=None, ge=0, le=999)
+    name: str = Field(min_length=1, max_length=100)
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("이름을 입력하세요")
+        return v
+
+
+class TeamIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    color: str = "#56b4d3"
+    roster: List[RosterEntry] = Field(default_factory=list, max_length=80)
+
+    @field_validator("color")
+    @classmethod
+    def check_color(cls, v):
+        return _hex(v)
+
+
+class TeamOut(BaseModel):
+    id: int
+    name: str
+    color: str
+    roster: List[RosterEntry]
+    match_count: int = 0
+    created_at: datetime
