@@ -17,7 +17,8 @@ import MatchSummaryCard from '@/components/results/MatchSummaryCard'
 import Compare from '@/components/results/Compare'
 import TrackEditor from '@/components/results/TrackEditor'
 import LineupBoard from '@/components/results/LineupBoard'
-import VideoDock, { VideoDockHandle } from '@/components/results/VideoDock'
+import VideoDock, { Clip, VideoDockHandle } from '@/components/results/VideoDock'
+import ReelExporter from '@/components/results/ReelExporter'
 import VideoReview from '@/components/results/VideoReview'
 
 type Tab = 'overview' | 'review' | 'players' | 'highlights' | 'events' | 'network' | 'compare' | 'lineup' | 'edit'
@@ -54,6 +55,7 @@ export default function ResultsPage() {
   const [period, setPeriod] = useState<Period>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const dock = useRef<VideoDockHandle>(null)
+  const [reel, setReel] = useState<{ clips: Clip[]; title: string } | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -253,7 +255,8 @@ export default function ResultsPage() {
       {tab === 'review' && <VideoReview matchId={matchId} result={result} players={players} src={videoSrc} />}
       {tab === 'players' && <PlayerTable matchId={matchId} match={match} players={result.players} onSelect={p => setSelected(p.track_id)} />}
       {tab === 'highlights' && (
-        <Highlights result={result} players={players} canPlay={!!videoSrc} onPlay={clips => dock.current?.playClips(clips)} />
+        <Highlights result={result} players={players} canPlay={!!videoSrc} onPlay={clips => dock.current?.playClips(clips)}
+          onExport={(clips, title) => setReel({ clips, title })} />
       )}
       {tab === 'events' && (
         <>
@@ -270,9 +273,14 @@ export default function ResultsPage() {
       {sel && (
         <PlayerModal matchId={matchId} result={result} player={sel} players={players}
           onClose={() => setSelected(null)} onSeek={seek}
-          onPlayClips={videoSrc ? clips => dock.current?.playClips(clips) : undefined} />
+          onPlayClips={videoSrc ? clips => dock.current?.playClips(clips) : undefined}
+          onExportClips={videoSrc ? (clips, title) => setReel({ clips, title }) : undefined} />
       )}
       {videoSrc && <VideoDock ref={dock} src={videoSrc} offset={meta.start_s ?? 0} />}
+      {videoSrc && reel && (
+        <ReelExporter src={videoSrc} offset={meta.start_s ?? 0} clips={reel.clips} title={reel.title}
+          fileName={reel.title.replace(/[\/:*?"<>|.\s]+/g, '_')} onClose={() => setReel(null)} />
+      )}
     </div>
   )
 }

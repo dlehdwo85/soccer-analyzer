@@ -1,6 +1,6 @@
 'use client'
 import { useMemo, useState } from 'react'
-import { Clapperboard, Play } from 'lucide-react'
+import { Clapperboard, Film, Play } from 'lucide-react'
 import { MatchEvent, MatchResult, PlayerRow, Team } from '@/lib/types'
 import { cn, eventLabel, fmtClock, playerName, teamInfo } from '@/lib/utils'
 import { Clip } from './VideoDock'
@@ -33,8 +33,9 @@ function buildItems(result: MatchResult, players: Map<string, PlayerRow>): Item[
   return items
 }
 
-export default function Highlights({ result, players, onPlay, canPlay }: {
+export default function Highlights({ result, players, onPlay, canPlay, onExport }: {
   result: MatchResult; players: Map<string, PlayerRow>; onPlay: (clips: Clip[]) => void; canPlay: boolean
+  onExport?: (clips: Clip[], title: string) => void
 }) {
   const [team, setTeam] = useState<Team | 'all'>('all')
   const [onlyBig, setOnlyBig] = useState(false)
@@ -56,6 +57,11 @@ export default function Highlights({ result, players, onPlay, canPlay }: {
         <button className="btn-primary ml-auto" disabled={!canPlay || !clips.length} onClick={() => onPlay(clips)}>
           <Clapperboard className="w-4 h-4" />하이라이트 {clips.length}개 이어보기
         </button>
+        {onExport && canPlay && clips.length > 0 && (
+          <button className="btn-secondary" onClick={() => onExport(clips, `${teamInfo(result.match, 'home').name} vs ${teamInfo(result.match, 'away').name} 하이라이트`)}>
+            <Film className="w-4 h-4" />영상으로 저장
+          </button>
+        )}
       </div>
       {!canPlay && <p className="text-xs text-ink-500 px-1">영상이 연결된 경기에서 장면을 재생할 수 있습니다.</p>}
       {list.length === 0 ? (
