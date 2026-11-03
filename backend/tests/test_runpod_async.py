@@ -71,6 +71,7 @@ def test_check_job_inline_result_and_failure(configured, monkeypatch):
         _Resp({"status": "COMPLETED", "output": {"status": "done", "result_gz": pack_result(result)}}),
         _Resp({"status": "COMPLETED", "output": {"status": "failed", "error": "영상을 열 수 없습니다"}}),
         _Resp({"status": "FAILED", "error": "OOM"}),
+        _Resp({"status": 404, "error": "request does not exist"}),
     ])
     monkeypatch.setattr(rs.requests, "get", lambda *a, **k: next(replies))
     assert rs.check_job("j")["result"]["version"] == 2
@@ -78,6 +79,8 @@ def test_check_job_inline_result_and_failure(configured, monkeypatch):
     assert f1["state"] == "failed" and "영상을 열 수 없습니다" in f1["error"]
     f2 = rs.check_job("j")
     assert f2["state"] == "failed" and "FAILED" in f2["error"]
+    gone = rs.check_job("j")   # 취소·만료로 지워진 작업
+    assert gone["state"] == "failed" and "찾을 수 없습니다" in gone["error"]
 
 
 def test_quality_presets():

@@ -104,7 +104,11 @@ def check_job(job_id: str) -> Dict:
     except (requests.RequestException, ValueError) as e:
         logger.warning("RunPod 상태 조회 실패: %s", e)
         return {"state": "running", "percent": None, "message": "GPU 서버 응답 대기 중"}
-    state = (st.get("status") or "").upper()
+    if not isinstance(st, dict) or not isinstance(st.get("status"), str):
+        # 취소됐거나 대기 기한(24시간)이 지나 지워진 작업은 {"status": 404, "error": ...}처럼 숫자로 온다
+        err = st.get("error") if isinstance(st, dict) else None
+        return {"state": "failed", "error": f"GPU 작업을 찾을 수 없습니다(취소되었거나 대기 기한이 지남). 다시 분석해 주세요. {err or ''}".strip()}
+    state = st["status"].upper()
     out = st.get("output")
     if state == "COMPLETED":
         try:
