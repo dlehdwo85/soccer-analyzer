@@ -1,6 +1,6 @@
 import {
-  AnalysisStatus, Calibration, CalibrationInput, Club, ClubInput, EventCreate, EventPatch, Health, Match, MatchInput, MatchResult, MatchSummary,
-  Overlay, PlayerProfile, PlayerProfileDetail, PlayerReport, Season, Team, TeamMembers, TeamRole, VideoLibrary,
+  AnalysisStatus, BillingConfig, Calibration, CalibrationInput, Club, ClubInput, EventCreate, EventPatch, Health, Match, MatchInput, MatchResult, MatchSummary,
+  MatchAccess, Overlay, PlayerProfile, PlayerProfileDetail, PlayerReport, Season, Team, TeamMembers, TeamRole, VideoLibrary,
 } from './types'
 
 import { getToken } from './auth'
@@ -25,6 +25,9 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     headers: init?.body instanceof FormData ? { ...auth, ...init?.headers } : { 'Content-Type': 'application/json', ...auth, ...init?.headers },
   })
   if (!res.ok) {
+    // 프리미엄 기능 — 결제 창을 띄운다 (PaywallHost가 받는다)
+    const m402 = res.status === 402 ? path.match(/^\/api\/matches\/(\d+)/) : null
+    if (m402 && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('paywall', { detail: Number(m402[1]) }))
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     const detail = Array.isArray(err.detail) ? err.detail.map((d: { msg: string }) => d.msg).join(', ') : err.detail
     throw new ApiError(detail || `요청 실패 (${res.status})`, res.status)
@@ -185,6 +188,13 @@ export const api = {
   joinTeam: (code: string) => req<Club>('/api/teams/join', json('POST', { code })),
   setMemberRole: (id: number, userId: number, role: TeamRole) => req<{ ok: boolean }>(`/api/teams/${id}/members/${userId}`, json('PATCH', { role })),
   removeMember: (id: number, userId: number) => req<void>(`/api/teams/${id}/members/${userId}`, json('DELETE')),
+  billingConfig: () => req<BillingConfig>('/api/billing/config'),
+  matchAccess: (id: number) => req<MatchAccess>(`/api/billing/matches/${id}/access`),
+  useTrial: (id: number) => req<MatchAccess>(`/api/billing/matches/${id}/trial`, json('POST')),
+  createOrder: (body: { product: 'match' | 'team_month'; match_id?: number; team_id?: number }) =>
+    req<{ order_id: string; amount: number; order_name: string; customer_key: string | null }>('/api/billing/orders', json('POST', body)),
+  confirmPayment: (body: { paymentKey: string; orderId: string; amount: number }) =>
+    req<{ ok: boolean; product: string; match_id: number | null; team_id: number | null }>('/api/billing/confirm', json('POST', body)),
   getPlayerProfiles: () => req<PlayerProfile[]>('/api/players'),
   getPlayerProfile: (name: string) => req<PlayerProfileDetail>(`/api/players/${encodeURIComponent(name)}`),
 }

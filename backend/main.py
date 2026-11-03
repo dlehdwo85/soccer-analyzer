@@ -9,6 +9,7 @@ from app.routers import matches as matches_router
 from app.routers.matches import players_router, videos_router
 from app.routers import teams as teams_router
 from app.routers import auth as auth_router
+from app.routers import billing as billing_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -63,6 +64,7 @@ app.include_router(players_router)
 app.include_router(videos_router)
 app.include_router(teams_router.router)
 app.include_router(auth_router.router)
+app.include_router(billing_router.router)
 
 
 @app.get("/api/health", tags=["system"])

@@ -80,6 +80,7 @@ class Match(Base):
     ai_summary_at     = Column(DateTime, nullable=True)
     ai_summary_basis  = Column(String(64), nullable=True)      # 요약에 쓴 기록 해시 — 기록이 바뀌면 다시 요약
     home_team_id      = Column(Integer, nullable=True, index=True)   # 등록된 팀(teams.id) — 명단·시즌 기록
+    free_trial        = Column(Boolean, default=False)                 # 팀의 첫 경기 무료 혜택을 쓴 경기
     away_team_id      = Column(Integer, nullable=True, index=True)
 
     players    = relationship("MatchPlayer", back_populates="match", cascade="all, delete-orphan")
@@ -136,3 +137,21 @@ class MatchEvent(Base):
     edited      = Column(Boolean, default=False)              # 사용자가 선수·결과를 고침
 
     match = relationship("Match", back_populates="events")
+
+
+class Payment(Base):
+    """토스페이먼츠 결제. 주문을 먼저 만들고(pending), 결제창 승인 뒤 서버가 확인하면 done."""
+    __tablename__ = "payments"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    order_id    = Column(String(64), unique=True, nullable=False, index=True)
+    user_id     = Column(Integer, nullable=True, index=True)
+    product     = Column(String(20), nullable=False)               # match | team_month
+    match_id    = Column(Integer, nullable=True, index=True)       # 경기권이면 그 경기
+    team_id     = Column(Integer, nullable=True, index=True)       # 팀 월 이용권이면 그 팀
+    amount      = Column(Integer, nullable=False)
+    status      = Column(String(20), default="pending")            # pending | done | failed
+    payment_key = Column(String(200), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    raw_json    = Column(Text, nullable=True)                      # 토스 승인 응답 (영수증 확인용)
+    created_at  = Column(DateTime, default=datetime.utcnow)

@@ -247,6 +247,9 @@ def start_analyze(match_id: int, body: AnalyzeRequest, background_tasks: Backgro
         gpu = eng["runpod"] and m.video_url.startswith("http")
         if body.quality == "max" and not gpu:
             raise HTTPException(400, "고정밀 분석은 GPU 서버(RunPod)가 연결되어 있고 영상이 저장소(R2)에 있어야 합니다.")
+        if body.quality == "max":
+            from app.routers.billing import require_premium
+            require_premium(db, m)
     m.status = "analyzing"
     m.analysis_progress = 0.0
     m.analysis_message = "분석 대기 중"
@@ -527,6 +530,8 @@ def create_ai_report(match_id: int, track_id: str, db: Session = Depends(get_db)
         raise HTTPException(400, "제외된 선수는 AI 분석을 받을 수 없습니다")
     if not ai_report_service.is_configured():
         raise HTTPException(503, ai_report_service.NO_KEY_MESSAGE)
+    from app.routers.billing import require_premium
+    require_premium(db, m)
     head_id = p.track_id
     ctx = build_player_context(_full_view(db, m), head_id)
     db.rollback()  # AI 응답을 기다리는 동안 DB 연결을 붙잡지 않는다
@@ -572,6 +577,8 @@ def create_ai_summary(match_id: int, db: Session = Depends(get_db)):
     _require_result(m)
     if not ai_report_service.is_configured():
         raise HTTPException(503, ai_report_service.NO_KEY_MESSAGE)
+    from app.routers.billing import require_premium
+    require_premium(db, m)
     ctx = ai_match_service.build_match_context(_full_view(db, m))
     db.rollback()  # AI 응답을 기다리는 동안 DB 연결을 붙잡지 않는다
     try:

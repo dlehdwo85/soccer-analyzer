@@ -401,3 +401,16 @@ export interface VideoLibrary {
 /** 경기장 위치가 있는 이벤트 (직접 추가한 이벤트는 위치가 없다) */
 export type PlacedEvent = MatchEvent & { x: number; y: number }
 export const isPlaced = (e: MatchEvent): e is PlacedEvent => e.x !== null && e.y !== null
+
+export interface BillingConfig {
+  enabled: boolean
+  client_key: string | null
+  prices: { match: number; team_month: number }
+  products: Record<'match' | 'team_month', string>
+}
+
+export interface MatchAccess {
+  premium: boolean
+  reason: 'free' | 'match' | 'team' | 'trial' | null
+  trial_available: boolean
+}
