@@ -166,3 +166,54 @@ def test_tracker_does_not_swap_teams_when_crossing():
         for tid, det in tr.update(f, dets):
             owners.setdefault(tid, set()).add(det.payload)
     assert all(len(v) == 1 for v in owners.values())
+
+
+def test_ball_gap_follows_camera_pan():
+    # 공이 0초(0,0)에서 보이다 사라진 동안 카메라가 오른쪽으로 600px 돌고, 4초 뒤 (800,0)에서 다시 보인다.
+    times = [i * 0.5 for i in range(9)]
+    pos = [(0.0, 0.0)] + [None] * 7 + [(800.0, 0.0)]
+    cams = [(75.0 * i * i / 8, 0.0) for i in range(9)]   # 처음엔 천천히, 나중에 빠르게 돈다
+    plain = interpolate_gaps(pos, times, max_gap_s=2.5, max_speed_px_s=0.6 * 1000)
+    assert plain[4] is None   # 카메라 정보가 없으면 4초·빠른 이동은 잇지 않는다
+    out = interpolate_gaps(pos, times, max_gap_s=2.5, max_speed_px_s=0.6 * 1000,
+                           cam_centers=cams, cam_min_shift_px=50)
+    assert all(p is not None for p in out)
+    # 직선 보간(400)보다 카메라를 따라 뒤처진 위치 (화면이 초반엔 천천히 움직였으므로)
+    assert out[4][0] < 400
+    # 카메라가 거의 안 움직였으면 긴 공백은 그대로 비워 둔다
+    still = interpolate_gaps(pos, times, max_gap_s=2.5, max_speed_px_s=0.6 * 1000,
+                             cam_centers=[(0.0, 0.0)] * 9, cam_min_shift_px=50)
+    assert still[4] is None
+
+
+def test_body_appearance_separates_teammates():
+    frame = np.zeros((200, 200, 3), np.uint8)
+    frame[:, :] = (40, 140, 40)                # 잔디
+    frame[20:120, 20:60] = (230, 230, 230)      # 같은 흰 상의
+    frame[20:120, 120:160] = (230, 230, 230)
+    frame[0:14, 20:60] = (30, 20, 10)           # A: 검은 머리, 검은 반바지
+    frame[56:76, 20:60] = (20, 20, 20)
+    frame[0:14, 120:160] = (200, 170, 60)       # B: 노란 머리, 빨간 반바지
+    frame[56:76, 120:160] = (200, 30, 30)
+    a = C.body_appearance(frame, (20, 0, 60, 100))
+    b = C.body_appearance(frame, (120, 0, 160, 100))
+    assert C.appearance_distance(a, a) == pytest.approx(0.0)
+    assert C.appearance_distance(a, b) > 30
+
+
+def test_same_player_suggestions_rank_returning_player_first():
+    from app.vision.tracker import suggest_same_player
+    app_a, app_b = np.array([20, 0, 0] * 3, float), np.array([60, 40, 30] * 3, float)
+    t = [
+        Tracklet("T1", "home", [(0, 10, 10), (20, 12, 10)]),     # 화면 밖으로 나감, 외형 A
+        Tracklet("T2", "home", [(0, 30, 20), (20, 31, 20)]),     # 다른 선수, 외형 B
+        Tracklet("T3", "home", [(50, 20, 12), (70, 22, 12)]),    # 30초 뒤 다시 들어옴, 외형 A
+        Tracklet("T4", "away", [(50, 20, 12), (70, 22, 12)]),    # 다른 팀은 후보가 아니다
+    ]
+    apps = {"T1": (app_a, 30), "T2": (app_b, 30), "T3": (app_a + 2, 30), "T4": (app_a, 30)}
+    edge = {k: True for k in apps}
+    hints = suggest_same_player(t, {k: k for k in apps}, apps, edge, edge, C.appearance_distance)
+    assert hints["T3"][0] == "T1" and hints["T1"][0] == "T3"
+    assert "T4" not in hints.get("T1", [])
+    # 가장자리로 나간 게 아니면 긴 공백은 후보로 두지 않는다
+    assert "T3" not in suggest_same_player(t, {k: k for k in apps}, apps, {}, {}, C.appearance_distance)

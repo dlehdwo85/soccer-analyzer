@@ -203,6 +203,8 @@ export interface ResultMeta {
   field: { type: FieldType; length: number; width: number }
   attack?: { first: Record<Team, number>; second: Record<Team, number> }
   snapped_colors?: Record<string, string>
+  /** 화면 밖에 있다 돌아와 따로 잡힌 같은 선수 후보 (트랙 → 가까운 순 후보 트랙) */
+  merge_hints?: Record<string, string[]>
 }
 
 export interface MatchResult {

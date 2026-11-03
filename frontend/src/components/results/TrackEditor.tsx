@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { Ban, Check, Combine, RotateCcw, Undo2 } from 'lucide-react'
+import { Ban, Check, Combine, RotateCcw, Undo2, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { MatchResult, PlayerRow, Team } from '@/lib/types'
@@ -42,6 +42,8 @@ export default function TrackEditor({ matchId, result, onChanged }:
     setSelected([])
   }, `${selRows.length}개 트랙을 하나로 합쳤습니다`)
 
+  const suggestions = sameplayerSuggestions(result)
+
   const sections: { title: string; rows: PlayerRow[] }[] = (['home', 'away'] as Team[]).map(team => ({
     title: teamInfo(match, team).name,
     rows: result.players.filter(p => p.team === team && !p.excluded && (showMinor || !p.minor)),
@@ -53,7 +55,8 @@ export default function TrackEditor({ matchId, result, onChanged }:
       <div className="card p-4 text-sm text-ink-300 space-y-1">
         <p className="font-semibold text-ink-100">선수 정리</p>
         <p>영상 추적은 한 선수를 여러 트랙으로 나누거나 벤치·관중을 잡을 수 있습니다. 이름과 등번호를 붙이고,
-          같은 선수의 트랙을 선택해 <b>합치기</b>, 선수가 아닌 트랙은 <b>제외</b>하세요. 모든 수치에 바로 반영되고 언제든 되돌릴 수 있습니다.</p>
+          같은 선수의 트랙을 선택해 <b>합치기</b>, 선수가 아닌 트랙은 <b>제외</b>하세요.
+          카드 아래 <b>같은 선수 후보</b>는 카메라가 돌아간 사이 화면 밖에 있다 돌아와 따로 잡혔을 수 있는 선수입니다. 모든 수치에 바로 반영되고 언제든 되돌릴 수 있습니다.</p>
         <p className="text-xs text-ink-500">이름을 붙인 선수는 &lsquo;선수 프로필&rsquo;에서 여러 경기 기록이 합산됩니다.</p>
       </div>
 
@@ -82,6 +85,7 @@ export default function TrackEditor({ matchId, result, onChanged }:
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {sec.rows.map(p => (
               <TrackCard key={p.track_id} matchId={matchId} result={result} p={p} busy={busy}
+                candidates={suggestions.get(p.track_id) ?? []}
                 selected={selected.includes(p.track_id)} onToggle={() => toggle(p.track_id)} run={run} />
             ))}
           </div>
@@ -107,8 +111,35 @@ export default function TrackEditor({ matchId, result, onChanged }:
   )
 }
 
-function TrackCard({ matchId, result, p, selected, onToggle, busy, run }: {
-  matchId: number; result: MatchResult; p: PlayerRow; selected: boolean; busy: boolean
+/** 분석이 남긴 '같은 선수 후보'를 지금의 합치기·제외 상태에 맞춰 선수별로 (최대 3명) */
+function sameplayerSuggestions(result: MatchResult): Map<string, PlayerRow[]> {
+  const hints = result.meta.merge_hints ?? {}
+  const byId = new Map(result.players.map(p => [p.track_id, p]))
+  const head = new Map<string, string>()
+  for (const p of result.players) {
+    head.set(p.track_id, p.track_id)
+    for (const m of p.merged_from) head.set(m, p.track_id)
+  }
+  const out = new Map<string, PlayerRow[]>()
+  for (const p of result.players) {
+    if (p.excluded) continue
+    const seen = new Set<string>([p.track_id])
+    const list: PlayerRow[] = []
+    for (const id of [p.track_id, ...p.merged_from]) {
+      for (const h of hints[id] ?? []) {
+        const c = byId.get(head.get(h) ?? '')
+        if (!c || seen.has(c.track_id) || c.excluded || c.team !== p.team) continue
+        seen.add(c.track_id)
+        list.push(c)
+      }
+    }
+    if (list.length) out.set(p.track_id, list.slice(0, 3))
+  }
+  return out
+}
+
+function TrackCard({ matchId, result, p, candidates, selected, onToggle, busy, run }: {
+  matchId: number; result: MatchResult; p: PlayerRow; candidates: PlayerRow[]; selected: boolean; busy: boolean
   onToggle: () => void; run: (fn: () => Promise<unknown>, ok?: string) => Promise<void>
 }) {
   const [name, setName] = useState(p.display_name ?? '')
@@ -157,6 +188,29 @@ function TrackCard({ matchId, result, p, selected, onToggle, busy, run }: {
           <Ban className="w-3 h-3" />제외
         </button>
       </div>
+      {candidates.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-ink-800">
+          <p className="text-[11px] text-ink-500 mb-1 flex items-center gap-1"
+            title="카메라가 돌아간 사이 화면 밖에 있다 돌아와 따로 잡혔을 수 있는 같은 팀 선수입니다. 썸네일을 보고 같으면 눌러서 합치세요.">
+            <Users className="w-3 h-3" />같은 선수 후보 · 눌러서 합치기
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {candidates.map(c => {
+              const [target, source] = c.stats.seconds_tracked > s.seconds_tracked ? [c, p] : [p, c]
+              return (
+                <button key={c.track_id} disabled={busy}
+                  title={`${playerName(c)} 트랙과 합치기`}
+                  onClick={() => run(() => api.mergePlayers(matchId, target.track_id, [source.track_id]),
+                    `${playerName(source)} → ${playerName(target)} 합쳤습니다`)}
+                  className="flex items-center gap-1.5 pl-0.5 pr-2 py-0.5 rounded-full bg-ink-800 text-[11px] text-ink-300 hover:bg-volt/15 hover:text-volt">
+                  <PlayerAvatar matchId={matchId} match={result.match} player={c} size={26} />
+                  {playerName(c)} · {fmtClock(c.stats.first_seen_s ?? 0)}~{fmtClock(c.stats.last_seen_s ?? 0)}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
       {p.merged_from.length > 0 && (
         <div className="mt-2 pt-2 border-t border-ink-800 flex flex-wrap gap-1">
           <span className="text-[11px] text-ink-500 mr-1">합쳐진 트랙:</span>
