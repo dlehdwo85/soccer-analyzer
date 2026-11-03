@@ -107,10 +107,10 @@ export default function TeamPage() {
           </div>
           <ColorPicker label="유니폼" value={color} onChange={setColor} />
           <div>
-            <label className="label mb-1 block" htmlFor="roster">명단 (한 줄에 한 명 · &ldquo;10 홍길동&rdquo;)</label>
+            <label className="label mb-1 block" htmlFor="roster">명단 (한 줄에 한 명 · 등번호는 없어도 됩니다)</label>
             <textarea id="roster" className="input font-mono min-h-[220px]" value={roster} onChange={e => setRoster(e.target.value)}
-              placeholder={'1 김골키\n7 손흥민\n10 이강인'} />
-            <p className="text-[11px] text-ink-500 mt-1">경기 결과의 &lsquo;선수 정리&rsquo;에서 트랙에 이 명단의 이름을 고르면, 같은 이름을 고른 트랙은 자동으로 합쳐집니다.</p>
+              placeholder={'김골키\n7 손흥민\n이강인'} />
+            <p className="text-[11px] text-ink-500 mt-1">경기 결과의 &lsquo;선수 정리&rsquo;에서 썸네일을 보고 트랙에 이 명단의 이름을 고르면, 같은 이름을 고른 트랙은 자동으로 합쳐집니다. 기록은 이름으로 모이므로 등번호가 없어도 됩니다.</p>
           </div>
           <div className="flex gap-2">
             <button className="btn-primary flex-1" disabled={!dirty || saving || !name.trim()} onClick={save}>
