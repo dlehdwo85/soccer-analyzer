@@ -103,8 +103,12 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
   }), [go, playIndex, open, offset])
 
   // 이름표 그리기: 재생 중에는 매 프레임, 멈추면 한 번
-  const cfg = useMemo(() => (result && prep ? namesCfg(result, prep, clip?.player ?? '', showNames) : null),
-    [result, prep, clip?.player, showNames])
+  const star = clip?.player && result ? result.players.find(p => p.track_id === clip.player || p.merged_from.includes(clip.player!)) : null
+  const action = star && clip ? clip.label.replace(`${playerName(star)} · `, '').replace(playerName(star), '').trim() : ''
+  // 장면 주인공 이름은 고정 자막이 아니라 그 선수 머리 위에 붙어 다닌다
+  const cfg = useMemo(() => (result && prep ? namesCfg(result, prep, star?.track_id ?? '', showNames,
+    star ? `${playerName(star)}${action ? ` · ${action}` : ''}` : undefined) : null),
+    [result, prep, star, action, showNames])
   useEffect(() => {
     const v = video.current, cv = canvas.current
     if (!open || !v || !cv) return
@@ -138,7 +142,6 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
   }, [open, cfg, big])
 
   if (!open) return null
-  const star = clip?.player && result ? result.players.find(p => p.track_id === clip.player || p.merged_from.includes(clip.player!)) : null
   const starTeam = star && result ? teamInfo(result.match, star.team) : null
   return (
     <div className={`fixed z-50 bottom-4 right-4 bg-black rounded-lg shadow-2xl overflow-hidden border border-ink-700 transition-all
@@ -187,11 +190,12 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
             }} />
           {/* 선수 머리 위 이름표 — 클릭은 영상 조작 막대로 그대로 통과한다 */}
           <canvas ref={canvas} className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden />
-          {clip && (
+          {/* 선수 위치를 모르는 순간(오버레이 없음)에만 오른쪽 위에 누구의 장면인지 적는다 */}
+          {clip && (!prep || !star) && (
             <div className="absolute right-2 top-2 max-w-[70%] pointer-events-none flex items-center gap-1.5 rounded-md bg-black/70 px-2 py-1 text-white">
               {starTeam && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: starTeam.color }} />}
               <span className="text-[13px] font-semibold truncate">{star ? playerName(star) : clip.label}</span>
-              {star && <span className="text-[11px] text-white/70 truncate">{clip.label.replace(`${playerName(star)} · `, '').replace(playerName(star), '').trim()}</span>}
+              {star && action && <span className="text-[11px] text-white/70 truncate">{action}</span>}
             </div>
           )}
         </div>

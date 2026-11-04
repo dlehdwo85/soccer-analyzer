@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { MatchResult, Overlay } from '@/lib/types'
 import { fmtClock } from '@/lib/utils'
 import { Clip } from './VideoDock'
-import { drawFrame, namesCfg, prepare } from './VideoReview'
+import { DrawCfg, drawFrame, namesCfg, prepare } from './VideoReview'
 
 const PRE = 3
 const POST = 4
@@ -40,9 +40,13 @@ function pickMime(): { mime: string; ext: string } {
  * 하이라이트 장면들을 이어 붙여 영상 파일로 저장한다. 서버 없이 브라우저에서 원본 영상을 재생하며
  * 캔버스에 그리고(장면 자막 포함) 녹화하므로, 하이라이트 길이만큼 시간이 걸린다.
  */
-export default function ReelExporter({ src, offset = 0, clips, title, fileName, onClose, matchId, result }: {
+export default function ReelExporter({ src, offset = 0, clips, title, fileName, onClose, matchId, result, range, fullCfg }: {
   src: string; offset?: number; clips: Clip[]; title: string; fileName: string; onClose: () => void
   matchId?: number; result?: MatchResult
+  /** 장면 대신 영상 구간 하나(영상 시각 초)를 그대로 녹화 — 분석 영상 저장 */
+  range?: { from: number; to: number }
+  /** 영상 검수 화면의 그리기 설정(박스·이름·공·이벤트) — 주면 이것으로 겹쳐 그린다 */
+  fullCfg?: DrawCfg | null
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const stop = useRef(false)
@@ -50,7 +54,7 @@ export default function ReelExporter({ src, offset = 0, clips, title, fileName, 
   const [pct, setPct] = useState(0)
   const [msg, setMsg] = useState('')
   const [file, setFile] = useState<{ url: string; name: string; size: number } | null>(null)
-  const segs = segments(clips, offset)
+  const segs = range ? [{ from: range.from, to: range.to, label: title, t: range.from - offset }] : segments(clips, offset)
   const total = segs.reduce((s, g) => s + (g.to - g.from), 0)
   const { ext } = pickMime()
   // 선수 머리 위 이름표 (영상 검수와 같은 그림) — 장면 주인공은 굵게
@@ -89,6 +93,8 @@ export default function ReelExporter({ src, offset = 0, clips, title, fileName, 
       let done = 0
       let cur: Segment | null = null
       const prep = overlay ? prepare(overlay) : null
+      // 합쳐진 트랙이면 대표 선수 기준으로 따라간다
+      const headOf = (id?: string) => (id && result ? (result.players.find(p => p.track_id === id || p.merged_from.includes(id))?.track_id ?? id) : '')
       const tags = document.createElement('canvas')
       tags.width = W; tags.height = H
       const draw = () => {
@@ -98,12 +104,15 @@ export default function ReelExporter({ src, offset = 0, clips, title, fileName, 
         ctx.fillStyle = '#000'
         ctx.fillRect(0, 0, W, H)
         ctx.drawImage(v, (W - vw * s) / 2, (H - vh * s) / 2, vw * s, vh * s)
-        if (result && prep) {
-          drawFrame(tags, v, 1, namesCfg(result, prep, cur.player ?? ''))
+        if (fullCfg) {
+          drawFrame(tags, v, 1, fullCfg)
+          ctx.drawImage(tags, 0, 0)
+        } else if (result && prep) {
+          drawFrame(tags, v, 1, namesCfg(result, prep, headOf(cur.player), true, cur.player ? cur.label : undefined))
           ctx.drawImage(tags, 0, 0)
         }
         // 아래 자막: 장면 이름과 경기 시각
-        const label = `${fmtClock(Math.max(0, v.currentTime - offset))}  ${cur.label}`
+        const label = range ? fmtClock(Math.max(0, v.currentTime - offset)) : `${fmtClock(Math.max(0, v.currentTime - offset))}  ${cur.label}`
         ctx.font = '600 30px Pretendard, "Noto Sans KR", sans-serif'
         const tw = Math.min(W - 80, ctx.measureText(label).width)
         ctx.fillStyle = 'rgba(0,0,0,0.6)'
@@ -167,7 +176,7 @@ export default function ReelExporter({ src, offset = 0, clips, title, fileName, 
         </div>
         <canvas ref={canvas} width={W} height={H} className="w-full rounded-md bg-black aspect-video" aria-label="녹화 미리보기" />
         <p className="text-xs text-ink-400 mt-2">
-          {segs.length}개 장면 · 약 {Math.round(total)}초. 브라우저에서 영상을 재생하며 녹화하므로 그 시간만큼 걸립니다.
+          {range ? `영상 ${fmtClock(Math.max(0, range.from - offset))}~${fmtClock(Math.max(0, range.to - offset))} 구간` : `${segs.length}개 장면`} · 약 {Math.round(total)}초. 브라우저에서 영상을 재생하며 녹화하므로 그 시간만큼 걸립니다.
           녹화 중에는 이 창을 열어 두세요{ext === 'webm' ? ' (이 브라우저는 MP4 녹화를 지원하지 않아 WebM으로 저장됩니다 — 카톡·인스타 업로드는 크롬 최신판을 권장)' : ''}.
         </p>
         {state !== 'ready' && (

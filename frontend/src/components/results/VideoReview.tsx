@@ -3,6 +3,7 @@ import { KeyboardEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, use
 import { api } from '@/lib/api'
 import { MatchEvent, MatchResult, Overlay, PlayerRow, Team } from '@/lib/types'
 import { cn, eventLabel, eventTone, fmtClock, inkOn, isDark, playerName, teamInfo } from '@/lib/utils'
+import ReelExporter from './ReelExporter'
 
 /** 이벤트 표시가 영상 위에 남는 시간(초) */
 const FLASH_S = 1.5
@@ -14,9 +15,11 @@ const PANEL_MS = 250
 const LEAD_S = 2
 /** 목록에 남겨 둘 지난 이벤트 / 미리 보여 줄 다음 이벤트 수 */
 const PAST_N = 8
+const ROWS_N = 15
 const NEXT_N = 40
 
 const FONT = '600 11px "Pretendard Variable", Pretendard, system-ui, sans-serif'
+const BIG_FONT = '700 13px "Pretendard Variable", Pretendard, system-ui, sans-serif'
 const TAG_H = 16
 const PAD = 4
 
@@ -138,6 +141,8 @@ export interface DrawCfg {
   showBall: boolean
   showEvents: boolean
   follow: string
+  /** 따라가는 선수 머리 위에 크게 띄울 글 (하이라이트: "P10 · 슈팅") — 선수를 따라 움직인다 */
+  followTag?: string
 }
 
 interface Placed { head: PlayerRow | null; x1: number; y1: number; x2: number; y2: number }
@@ -191,6 +196,29 @@ function drawBox(ctx: CanvasRenderingContext2D, it: Placed, c: DrawCfg, area: Ar
     ctx.fillText(text, x + PAD, y + TAG_H / 2 + 0.5)
   }
   ctx.globalAlpha = 1
+}
+
+/** 선수 머리 위 큰 이름표와 아래를 가리키는 꼭지 (하이라이트 주인공) */
+function bigTag(ctx: CanvasRenderingContext2D, text: string, cx: number, top: number, area: Area, bg: string, ink: string) {
+  ctx.save()
+  ctx.font = BIG_FONT
+  const h = 22, w = ctx.measureText(text).width + 14
+  const x = clamp(cx - w / 2, area.l + 2, area.r - w - 2)
+  let y = top - h - 9
+  if (y < area.t + 2) y = area.t + 2
+  ctx.fillStyle = 'rgba(7,11,20,0.55)'
+  roundRect(ctx, x - 1, y - 1, w + 2, h + 2, 6)
+  ctx.fill()
+  ctx.fillStyle = bg
+  roundRect(ctx, x, y, w, h, 5)
+  ctx.fill()
+  ctx.beginPath()
+  ctx.moveTo(cx - 6, y + h); ctx.lineTo(cx + 6, y + h); ctx.lineTo(cx, y + h + 7); ctx.closePath()
+  ctx.fill()
+  ctx.fillStyle = ink
+  ctx.textBaseline = 'middle'
+  ctx.fillText(text, x + 7, y + h / 2 + 0.5)
+  ctx.restore()
 }
 
 /** 어두운 바탕 이름표 (이벤트 표시) */
@@ -279,7 +307,12 @@ export function drawFrame(cv: HTMLCanvasElement, v: HTMLVideoElement, dpr: numbe
       }
     }
     if (follow) {
-      for (const it of placed) if (it.head?.track_id === follow) drawBox(ctx, it, c, area, 1, 3, true)
+      for (const it of placed) {
+        if (it.head?.track_id !== follow) continue
+        drawBox(ctx, it, c, area, 1, 3, !c.followTag)
+        if (c.followTag) bigTag(ctx, c.followTag, (it.x1 + it.x2) / 2, it.y1, area, c.color[it.head.team], c.ink[it.head.team])
+        break
+      }
     }
 
     if (c.showBall && sampleAt(p.ballK, kf, SAMPLE)) {
@@ -414,7 +447,7 @@ export function shortLabel(p: PlayerRow): string {
 }
 
 /** 선수 박스·이름표만 그리는 설정 (하이라이트 플레이어용). follow 선수는 굵게 강조 */
-export function namesCfg(result: MatchResult, prep: Prepared | null, follow = '', showBoxes = true): DrawCfg {
+export function namesCfg(result: MatchResult, prep: Prepared | null, follow = '', showBoxes = true, followTag?: string): DrawCfg {
   const { match } = result
   const color = { home: match.home_team_color, away: match.away_team_color }
   const headOf = new Map<string, PlayerRow>()
@@ -433,7 +466,7 @@ export function namesCfg(result: MatchResult, prep: Prepared | null, follow = ''
     },
     ink: { home: inkOn(color.home), away: inkOn(color.away) },
     events: [], times: new Float64Array(0), evStart: 0,
-    showBoxes, showBall: false, showEvents: false, follow,
+    showBoxes, showBall: false, showEvents: false, follow, followTag,
   }
 }
 
@@ -481,6 +514,8 @@ function Review({ matchId, result, players, src }: Props & { src: string }) {
   const [namedOnly, setNamedOnly] = useState(() => result.players.some(p => p.display_name && !p.excluded))
   const [now, setNow] = useState(0)
   const [fs, setFs] = useState(false)
+  /** 분석 영상 저장 (영상 시각 초 구간) */
+  const [rec, setRec] = useState<{ from: number; to: number } | null>(null)
   const [canFs, setCanFs] = useState(false)
 
   useEffect(() => {
@@ -682,8 +717,23 @@ function Review({ matchId, result, players, src }: Props & { src: string }) {
             </select>
           </label>
           {ov.state === 'loading' && <span className="text-xs text-ink-500">선수 박스 불러오는 중</span>}
-          {canFs && !videoError && (
-            <button type="button" className="btn-ghost !py-1.5 !px-2.5 text-xs ml-auto" onClick={toggleFs}>전체 화면</button>
+          {!videoError && (
+            <span className="ml-auto flex items-center gap-1">
+              <select className="input !w-auto !py-1.5 text-xs" value="" aria-label="분석 영상 저장"
+                onChange={e => {
+                  const v = videoRef.current
+                  const end = evStart + dur
+                  const at = v ? v.currentTime : evStart
+                  if (e.target.value === 'all') setRec({ from: evStart, to: end })
+                  else if (e.target.value) setRec({ from: at, to: Math.min(end, at + Number(e.target.value) * 60) })
+                }}>
+                <option value="">분석 영상 저장</option>
+                <option value="1">지금부터 1분</option>
+                <option value="5">지금부터 5분</option>
+                <option value="all">처음부터 끝까지</option>
+              </select>
+              {canFs && <button type="button" className="btn-ghost !py-1.5 !px-2.5 text-xs" onClick={toggleFs}>전체 화면</button>}
+            </span>
           )}
         </div>
 
@@ -718,6 +768,12 @@ function Review({ matchId, result, players, src }: Props & { src: string }) {
         </div>
       </div>
 
+      {rec && (
+        <ReelExporter src={src} offset={evStart} clips={[]} range={rec} fullCfg={cfg}
+          title={`${teamInfo(match, 'home').name} vs ${teamInfo(match, 'away').name} 분석 영상`}
+          fileName={`${match.title}_분석영상_${fmtClock(Math.max(0, rec.from - evStart)).replace(':', '분')}초`.replace(/[\/:*?"<>|.\s]+/g, '_')}
+          onClose={() => setRec(null)} />
+      )}
       <aside className="card overflow-hidden min-w-0" aria-label="지금까지 기록">
         <Records result={result} events={events} poss={poss} hasTouches={hasTouches}
           now={now} follow={follow} focusKey={focusKey} onToggle={toggleFollow} onCount={openCount}
@@ -817,6 +873,13 @@ function Records({ result, events, poss, hasTouches, now, follow, focusKey, onTo
     return m
   }, [events, now])
   const hasNamed = result.players.some(p => p.display_name && !p.excluded)
+  // 트랙이 수백 개인 영상에서 표가 무거워지지 않게 팀마다 기록이 많은 선수부터 ROWS_N명만 (더 보기로 전체)
+  const [all, setAll] = useState(false)
+  const busy = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const [id, c] of totals) m.set(id, c.touches + c.att + c.recv + c.shots * 3 + c.rec)
+    return m
+  }, [totals])
   const zero: Counts = { touches: 0, att: 0, comp: 0, fail: 0, recv: 0, shots: 0, sot: 0, rec: 0 }
 
   return (
@@ -842,6 +905,9 @@ function Records({ result, events, poss, hasTouches, now, follow, focusKey, onTo
             .map(p => ({ p, c: counts.get(p.track_id) ?? zero }))
             .sort((a, b) => b.c.att - a.c.att || b.c.comp - a.c.comp || b.c.touches - a.c.touches
               || playerName(a.p).localeCompare(playerName(b.p), 'ko'))
+          const hidden = !all && !namedOnly ? Math.max(0, rows.length - ROWS_N) : 0
+          const keep = hidden ? new Set([...rows].sort((a, b) => (busy.get(b.p.track_id) ?? 0) - (busy.get(a.p.track_id) ?? 0))
+            .slice(0, ROWS_N).map(r => r.p.track_id).concat(follow ? [follow] : [])) : null
           const sum = rows.reduce((s, r) => ({ att: s.att + r.c.att, comp: s.comp + r.c.comp }), { att: 0, comp: 0 })
           return (
             <table key={team} className="w-full text-xs num table-fixed">
@@ -867,7 +933,7 @@ function Records({ result, events, poss, hasTouches, now, follow, focusKey, onTo
                 {rows.length === 0 && (
                   <tr><td colSpan={cols.length + 1} className="px-3 py-3 text-ink-500">기록된 선수가 없습니다</td></tr>
                 )}
-                {rows.map(({ p, c }) => {
+                {rows.filter(r => !keep || keep.has(r.p.track_id)).map(({ p, c }) => {
                   const on = p.track_id === follow
                   return (
                     <tr key={p.track_id} onClick={() => onToggle(p.track_id)}
@@ -899,6 +965,15 @@ function Records({ result, events, poss, hasTouches, now, follow, focusKey, onTo
                   )
                 })}
               </tbody>
+              {hidden > 0 && (
+                <tfoot>
+                  <tr><td colSpan={cols.length + 1} className="px-3 py-1.5">
+                    <button type="button" className="text-[11px] text-ink-400 hover:text-ink-100" onClick={() => setAll(true)}>
+                      기록이 적은 트랙 {hidden}개 더 보기
+                    </button>
+                  </td></tr>
+                </tfoot>
+              )}
             </table>
           )
         })}
