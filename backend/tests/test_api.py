@@ -350,3 +350,18 @@ def test_save_result_restores_stringified_booleans():
     from app.services.result_service import _clean_detail
     assert _clean_detail({"forward": "False", "on_target": "True", "reason": "completed", "n": 3}) == \
         {"forward": False, "on_target": True, "reason": "completed", "n": 3}
+
+
+def test_player_role_gk_and_referee(client, analyzed):
+    url = f"/api/matches/{analyzed}"
+    p = next(p for p in client.get(f"{url}/result").json()["players"] if p["team"] == "away" and not p["excluded"])
+    tid = p["track_id"]
+    client.patch(f"{url}/players/{tid}", json={"role": "gk"})
+    row = next(x for x in client.get(f"{url}/result").json()["players"] if x["track_id"] == tid)
+    assert row["label"] == "away_gk" and not row["excluded"]
+    client.patch(f"{url}/players/{tid}", json={"role": "referee"})
+    row = next(x for x in client.get(f"{url}/result").json()["players"] if x["track_id"] == tid)
+    assert row["label"] == "referee" and row["excluded"]
+    client.patch(f"{url}/players/{tid}", json={"role": "player"})
+    row = next(x for x in client.get(f"{url}/result").json()["players"] if x["track_id"] == tid)
+    assert row["label"] == "away" and not row["excluded"]

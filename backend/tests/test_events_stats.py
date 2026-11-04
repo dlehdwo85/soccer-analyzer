@@ -324,3 +324,26 @@ def test_fit_to_extents_rescales_positions_but_keeps_meters():
     assert abs((p0.r * p0.s) - (q0.r * q0.s)) < 1e-9      # 실제 거리(m)는 그대로
     assert abs(out[0].ball[0] - 52.5) < 3
     assert all(type(p.x) is float and type(p.s) is float for p in out[0].players)   # JSON으로 저장 가능해야 한다
+
+
+def test_find_kickoff_reads_halves_and_direction():
+    from app.vision.events import Frame, PlayerObs, find_kickoff
+    def frame(t, home_xs, away_xs):
+        ps = [PlayerObs(f"H{i}", "home", x, 30.0, 2.0) for i, x in enumerate(home_xs)]
+        ps += [PlayerObs(f"A{i}", "away", x, 30.0, 2.0) for i, x in enumerate(away_xs)]
+        return Frame(t, ps, None)
+    mixed = frame(0.0, [20, 60, 40, 80, 30], [25, 70, 45, 85, 50])
+    kick = frame(5.0, [10, 20, 30, 40, 50], [55, 65, 75, 85, 95])     # 홈이 왼쪽 진영 → 오른쪽으로 공격
+    k = find_kickoff([mixed, kick], 0, 10)
+    assert k and k["t"] == 5.0 and k["home_dir"] == 1 and k["sep"] == 1.0
+    assert find_kickoff([mixed], 0, 10) is None
+
+
+def test_scoreboard_left_team_from_kickoff():
+    from app.vision.pipeline import scoreboard_left_team
+    # 자막 오른쪽 숫자가 올랐고, 그 뒤 킥오프 직후 홈이 공을 잡았다 → 홈이 실점 → 원정 골 → 오른쪽 = 원정 → 왼쪽 = 홈
+    ev = [{"kind": "possession", "t": 101.0, "team": "home", "player": "P1"}]
+    assert scoreboard_left_team([{"t": 100.0, "after_goal": 80.0, "goal_side": "right", "home_dir": 1}], ev) == "home"
+    # 같은 상황에서 원정이 킥오프했다면 → 홈 골인데 오른쪽 → 왼쪽 = 원정
+    ev2 = [{"kind": "possession", "t": 101.0, "team": "away", "player": "P2"}]
+    assert scoreboard_left_team([{"t": 100.0, "after_goal": 80.0, "goal_side": "right", "home_dir": 1}], ev2) == "away"

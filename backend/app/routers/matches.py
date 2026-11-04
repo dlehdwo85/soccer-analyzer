@@ -400,6 +400,14 @@ def update_player(match_id: int, track_id: str, body: PlayerUpdate, db: Session 
         p.label = data["team"] + ("_gk" if (p.label or "").endswith("_gk") else "")
     if data.get("excluded") is not None:
         p.excluded = data["excluded"]
+    if data.get("role"):
+        if data["role"] == "referee":
+            p.label, p.excluded = "referee", True      # 심판은 기록에서 뺀다 (제외 목록에 '심판'으로)
+        else:
+            was_referee = p.label == "referee"
+            p.label = p.team + ("_gk" if data["role"] == "gk" else "")
+            if was_referee:
+                p.excluded = False                     # 심판으로 잘못 지정했던 것을 되돌림
     merged_into = None
     if p.display_name and not p.excluded:
         # 같은 경기·같은 팀에 같은 이름의 선수가 이미 있으면 같은 사람이다 → 출전 시간이 긴 쪽으로 합친다

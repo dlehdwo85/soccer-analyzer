@@ -129,10 +129,10 @@ export default function TrackEditor({ matchId, result, onChanged }:
           <div className="flex flex-wrap gap-2">
             {excluded.map(p => (
               <button key={p.track_id} disabled={busy}
-                onClick={() => run(() => api.updatePlayer(matchId, p.track_id, { excluded: false }), '제외를 취소했습니다')}
+                onClick={() => run(() => api.updatePlayer(matchId, p.track_id, p.label === 'referee' ? { role: 'player' } : { excluded: false }), '제외를 취소했습니다')}
                 className="flex items-center gap-2 pl-1 pr-3 py-1 rounded-full bg-ink-800 text-xs text-ink-300 hover:bg-ink-700">
                 <PlayerAvatar matchId={matchId} match={match} player={p} size={22} />
-                {playerName(p)} <RotateCcw className="w-3 h-3" />
+                {p.label === 'referee' ? '심판' : playerName(p)} <RotateCcw className="w-3 h-3" />
               </button>
             ))}
           </div>
@@ -231,6 +231,17 @@ function TrackCard({ matchId, result, p, candidates, roster, selected, onToggle,
         <button className="btn-secondary !py-1 !px-2 text-xs" disabled={busy}
           onClick={() => run(() => api.updatePlayer(matchId, p.track_id, { excluded: true }), '제외했습니다')}>
           <Ban className="w-3 h-3" />제외
+        </button>
+        <button className={cn('btn-secondary !py-1 !px-2 text-xs', isGk(p) && '!border-volt !text-volt')} disabled={busy}
+          title="골키퍼로 지정하면 GK 기록(선방·실점)으로 따로 봅니다"
+          onClick={() => run(() => api.updatePlayer(matchId, p.track_id, { role: isGk(p) ? 'player' : 'gk' }),
+            isGk(p) ? '필드 선수로 바꿨습니다' : '골키퍼로 지정했습니다')}>
+          {isGk(p) ? 'GK 해제' : 'GK 지정'}
+        </button>
+        <button className="btn-secondary !py-1 !px-2 text-xs" disabled={busy}
+          title="심판은 선수 기록에서 빠지고, 아래 '제외된 트랙'에 심판으로 남습니다"
+          onClick={() => run(() => api.updatePlayer(matchId, p.track_id, { role: 'referee' }), '심판으로 지정했습니다')}>
+          심판
         </button>
       </div>
       {candidates.length > 0 && (

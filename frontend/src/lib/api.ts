@@ -132,7 +132,7 @@ export const api = {
 
   // ── 트랙 편집 ──────────────────────────────────────────────────
   updatePlayer: (id: number, trackId: string,
-                 body: { display_name?: string | null; jersey_number?: number | null; team?: Team; excluded?: boolean }) =>
+                 body: { display_name?: string | null; jersey_number?: number | null; team?: Team; excluded?: boolean; role?: 'player' | 'gk' | 'referee' }) =>
     req<{ ok: boolean; merged_into?: string | null }>(`/api/matches/${id}/players/${encodeURIComponent(trackId)}`, json('PATCH', body)),
   mergePlayers: (id: number, target: string, sources: string[]) =>
     req<{ ok: boolean }>(`/api/matches/${id}/players/merge`, json('POST', { target, sources })),

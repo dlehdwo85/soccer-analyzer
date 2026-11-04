@@ -136,6 +136,8 @@ class PlayerUpdate(BaseModel):
     display_name: Optional[str] = Field(default=None, max_length=100)
     jersey_number: Optional[int] = Field(default=None, ge=0, le=999)
     team: Optional[Literal["home", "away"]] = None
+    # 역할: 필드 선수 / 골키퍼 / 심판(심판은 기록에서 빠진다)
+    role: Optional[Literal["player", "gk", "referee"]] = None
     excluded: Optional[bool] = None
 
 
