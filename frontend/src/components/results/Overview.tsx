@@ -8,7 +8,7 @@ import PlayerAvatar from './PlayerAvatar'
 type Row = { label: string; get: (t: TeamStats) => number | null; fmt?: (v: number) => string; hint?: string; hideIfZero?: boolean }
 
 const ROWS: Row[] = [
-  { label: '점유율', get: t => t.possession_pct, fmt: v => `${v.toFixed(0)}%` },
+  { label: '점유율', get: t => t.possession_pct, fmt: v => `${v.toFixed(1)}%` },
   { label: '슈팅', get: t => t.shots },
   { label: '유효 슈팅', get: t => t.shots_on_target },
   { label: 'xG 기대 득점', get: t => t.xg, fmt: v => v.toFixed(2), hint: '슈팅 위치의 거리·각도로 추정한 득점 확률 합' },

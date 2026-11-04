@@ -32,7 +32,7 @@ const TABS: [Tab, string][] = [
 /** 박스 스코어의 팀 합계 열 */
 const BOX_COLS: { label: string; get: (t: TeamStats) => string }[] = [
   { label: '선수', get: t => String(t.players) },
-  { label: '점유율', get: t => pct(t.possession_pct) },
+  { label: '점유율', get: t => pct(t.possession_pct, 1) },
   { label: '패스 성공/시도', get: t => `${t.passes_completed}/${t.passes_attempted}` },
   { label: '성공률', get: t => pct(t.pass_accuracy) },
   { label: '키패스', get: t => String(t.key_passes) },
@@ -42,8 +42,8 @@ const BOX_COLS: { label: string; get: (t: TeamStats) => string }[] = [
   { label: '볼 탈취', get: t => String(t.recoveries) },
 ]
 
-function pct(v: number | null | undefined) {
-  return v == null ? '–' : `${v.toFixed(0)}%`
+function pct(v: number | null | undefined, digits = 0) {
+  return v == null ? '–' : `${v.toFixed(digits)}%`
 }
 
 export default function ResultsPage() {
