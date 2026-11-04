@@ -188,7 +188,7 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
           {/* 선수 머리 위 이름표 — 클릭은 영상 조작 막대로 그대로 통과한다 */}
           <canvas ref={canvas} className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden />
           {clip && (
-            <div className="absolute left-2 top-2 max-w-[80%] pointer-events-none flex items-center gap-1.5 rounded-md bg-black/70 px-2 py-1 text-white">
+            <div className="absolute right-2 top-2 max-w-[70%] pointer-events-none flex items-center gap-1.5 rounded-md bg-black/70 px-2 py-1 text-white">
               {starTeam && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: starTeam.color }} />}
               <span className="text-[13px] font-semibold truncate">{star ? playerName(star) : clip.label}</span>
               {star && <span className="text-[11px] text-white/70 truncate">{clip.label.replace(`${playerName(star)} · `, '').replace(playerName(star), '').trim()}</span>}
