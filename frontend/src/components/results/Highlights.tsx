@@ -5,7 +5,7 @@ import { MatchEvent, MatchResult, PlayerRow, Team } from '@/lib/types'
 import { cn, eventLabel, fmtClock, playerName, teamInfo } from '@/lib/utils'
 import { Clip } from './VideoDock'
 
-type Item = { t: number; title: string; sub: string; team: Team; tags: string[]; xg?: number }
+type Item = { t: number; title: string; sub: string; team: Team; tags: string[]; xg?: number; player: string }
 
 /** 슈팅(과 그 슈팅을 만든 키패스)을 모아 장면 목록으로 — 연속 재생 */
 function buildItems(result: MatchResult, players: Map<string, PlayerRow>): Item[] {
@@ -27,6 +27,7 @@ function buildItems(result: MatchResult, players: Map<string, PlayerRow>): Item[
       sub: assisted ? `${playerName(players.get(assisted.player))}의 패스에서` : '',
       tags,
       xg: e.detail.xg,
+      player: e.player,
     })
     lastPass = null
   }
@@ -41,7 +42,7 @@ export default function Highlights({ result, players, onPlay, canPlay, onExport 
   const [onlyBig, setOnlyBig] = useState(false)
   const all = useMemo(() => buildItems(result, players), [result, players])
   const list = all.filter(i => (team === 'all' || i.team === team) && (!onlyBig || i.tags.includes('유효 슈팅') || i.tags.includes('결정적 기회')))
-  const clips = list.map(i => ({ t: i.t, label: i.title }))
+  const clips = list.map(i => ({ t: i.t, label: i.title, player: i.player }))
 
   return (
     <section className="space-y-3">
@@ -71,7 +72,7 @@ export default function Highlights({ result, players, onPlay, canPlay, onExport 
           {list.map((i, idx) => {
             const t = teamInfo(result.match, i.team)
             return (
-              <button key={idx} disabled={!canPlay} onClick={() => onPlay([{ t: i.t, label: i.title }])}
+              <button key={idx} disabled={!canPlay} onClick={() => onPlay([{ t: i.t, label: i.title, player: i.player }])}
                 className="card-hover p-4 text-left group disabled:cursor-default">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="num text-xs font-bold text-ink-950 bg-volt rounded-md px-1.5 py-0.5">{fmtClock(i.t)}</span>

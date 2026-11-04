@@ -1,8 +1,11 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { Download, Film, X } from 'lucide-react'
+import { api } from '@/lib/api'
+import { MatchResult, Overlay } from '@/lib/types'
 import { fmtClock } from '@/lib/utils'
 import { Clip } from './VideoDock'
+import { drawFrame, namesCfg, prepare } from './VideoReview'
 
 const PRE = 3
 const POST = 4
@@ -10,7 +13,7 @@ const W = 1280
 const H = 720
 const ACCENT = '#3fa35b'
 
-interface Segment { from: number; to: number; label: string; t: number }
+interface Segment { from: number; to: number; label: string; t: number; player?: string }
 
 /** 장면 앞뒤를 붙이고, 겹치는 장면은 하나로 합친다 (영상 시각 기준) */
 function segments(clips: Clip[], offset: number): Segment[] {
@@ -19,7 +22,7 @@ function segments(clips: Clip[], offset: number): Segment[] {
     const from = Math.max(0, c.t + offset - PRE), to = c.t + offset + POST
     const last = out[out.length - 1]
     if (last && from <= last.to) { last.to = Math.max(last.to, to); last.label += ` · ${c.label}` }
-    else out.push({ from, to, label: c.label, t: c.t })
+    else out.push({ from, to, label: c.label, t: c.t, player: c.player })
   }
   return out
 }
@@ -37,8 +40,9 @@ function pickMime(): { mime: string; ext: string } {
  * 하이라이트 장면들을 이어 붙여 영상 파일로 저장한다. 서버 없이 브라우저에서 원본 영상을 재생하며
  * 캔버스에 그리고(장면 자막 포함) 녹화하므로, 하이라이트 길이만큼 시간이 걸린다.
  */
-export default function ReelExporter({ src, offset = 0, clips, title, fileName, onClose }: {
+export default function ReelExporter({ src, offset = 0, clips, title, fileName, onClose, matchId, result }: {
   src: string; offset?: number; clips: Clip[]; title: string; fileName: string; onClose: () => void
+  matchId?: number; result?: MatchResult
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const stop = useRef(false)
@@ -49,6 +53,9 @@ export default function ReelExporter({ src, offset = 0, clips, title, fileName, 
   const segs = segments(clips, offset)
   const total = segs.reduce((s, g) => s + (g.to - g.from), 0)
   const { ext } = pickMime()
+  // 선수 머리 위 이름표 (영상 검수와 같은 그림) — 장면 주인공은 굵게
+  const [overlay, setOverlay] = useState<Overlay | null>(null)
+  useEffect(() => { if (matchId) api.getOverlay(matchId).then(setOverlay).catch(() => setOverlay(null)) }, [matchId])
 
   useEffect(() => () => { stop.current = true; if (file) URL.revokeObjectURL(file.url) }, [file])
 
@@ -81,6 +88,9 @@ export default function ReelExporter({ src, offset = 0, clips, title, fileName, 
 
       let done = 0
       let cur: Segment | null = null
+      const prep = overlay ? prepare(overlay) : null
+      const tags = document.createElement('canvas')
+      tags.width = W; tags.height = H
       const draw = () => {
         if (!cur) return
         const vw = v.videoWidth || W, vh = v.videoHeight || H
@@ -88,6 +98,10 @@ export default function ReelExporter({ src, offset = 0, clips, title, fileName, 
         ctx.fillStyle = '#000'
         ctx.fillRect(0, 0, W, H)
         ctx.drawImage(v, (W - vw * s) / 2, (H - vh * s) / 2, vw * s, vh * s)
+        if (result && prep) {
+          drawFrame(tags, v, 1, namesCfg(result, prep, cur.player ?? ''))
+          ctx.drawImage(tags, 0, 0)
+        }
         // 아래 자막: 장면 이름과 경기 시각
         const label = `${fmtClock(Math.max(0, v.currentTime - offset))}  ${cur.label}`
         ctx.font = '600 30px Pretendard, "Noto Sans KR", sans-serif'

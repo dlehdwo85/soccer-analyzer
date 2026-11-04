@@ -165,7 +165,7 @@ export default function ResultsPage() {
               const scorer = g.player ? result.players.find(p => p.track_id === g.player || p.merged_from.includes(g.player!)) : null
               return (
                 <button key={i} type="button" disabled={!videoSrc}
-                  onClick={() => dock.current?.seek(g.t, `${info.name} 골`)}
+                  onClick={() => dock.current?.seek(g.t, `${info.name} 골`, g.player ?? undefined)}
                   title={g.player ? '자막이 바뀌기 직전 이 팀의 슈팅 장면입니다' : '점수 자막이 바뀐 시각입니다'}
                   className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full bg-ink-800 text-ink-300 hover:bg-ink-700 disabled:hover:bg-ink-800">
                   <span className="w-2 h-2 rounded-full" style={{ background: info.color }} />
@@ -276,9 +276,9 @@ export default function ResultsPage() {
           onPlayClips={videoSrc ? clips => dock.current?.playClips(clips) : undefined}
           onExportClips={videoSrc ? (clips, title) => setReel({ clips, title }) : undefined} />
       )}
-      {videoSrc && <VideoDock ref={dock} src={videoSrc} offset={meta.start_s ?? 0} />}
+      {videoSrc && <VideoDock ref={dock} src={videoSrc} offset={meta.start_s ?? 0} matchId={matchId} result={result} />}
       {videoSrc && reel && (
-        <ReelExporter src={videoSrc} offset={meta.start_s ?? 0} clips={reel.clips} title={reel.title}
+        <ReelExporter src={videoSrc} offset={meta.start_s ?? 0} clips={reel.clips} title={reel.title} matchId={matchId} result={result}
           fileName={reel.title.replace(/[\/:*?"<>|.\s]+/g, '_')} onClose={() => setReel(null)} />
       )}
     </div>

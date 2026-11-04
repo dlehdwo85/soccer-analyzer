@@ -55,7 +55,7 @@ export default function PlayerModal({ matchId, result, player, players, onClose,
   }, [passes, result.events])
 
   const clipsOf = (evs: MatchEvent[], label: (e: MatchEvent) => string): Clip[] =>
-    [...evs].sort((a, b) => a.t - b.t).map(e => ({ t: e.t, label: label(e) }))
+    [...evs].sort((a, b) => a.t - b.t).map(e => ({ t: e.t, label: label(e), player: player.track_id }))
   const name = playerName(player)
   // 하이라이트 = 슈팅 · 키패스 · 성공한 전진 패스 · 가로채기 · 볼 탈취
   const reel = useMemo(() => {
@@ -66,6 +66,7 @@ export default function PlayerModal({ matchId, result, player, players, onClose,
       || (e.kind === 'pass' && e.target === player.track_id && !e.success))
     return [...picked].sort((a, b) => a.t - b.t).map(e => ({
       t: e.t,
+      player: player.track_id,
       label: `${name} · ${keyIds.has(e.id) ? '키패스' : e.target === player.track_id && e.player !== player.track_id ? '가로채기' : eventLabel(e)}`,
     }))
   }, [mine, keyPasses, player.track_id, name])

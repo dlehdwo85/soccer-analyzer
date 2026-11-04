@@ -36,14 +36,14 @@ const LEGEND: [string, string][] = [
 // ── 오버레이 준비 ───────────────────────────────────────────────────────────
 
 interface Track { tid: string; ks: Int32Array; bx: Float32Array }
-interface Prepared {
+export interface Prepared {
   w: number; h: number; start: number; step: number
   tracks: Track[]
   ballK: Int32Array; ballXY: Float32Array; ballDet: Uint8Array
 }
 
 /** 서버 JSON → 트랙별 형식 배열. 한 번만 만들고 그릴 때는 이진 탐색으로 행을 찾는다 */
-function prepare(ov: Overlay): Prepared {
+export function prepare(ov: Overlay): Prepared {
   const tracks: Track[] = []
   for (const [tid, raw] of Object.entries(ov.tracks ?? {})) {
     if (!raw?.length) continue
@@ -120,7 +120,7 @@ function sampleAt(ks: Int32Array, kf: number, out: Sample): boolean {
 
 // ── 캔버스 그리기 ───────────────────────────────────────────────────────────
 
-interface DrawCfg {
+export interface DrawCfg {
   prep: Prepared | null
   /** 원시 track_id → 합쳐진 대표 선수 */
   headOf: Map<string, PlayerRow>
@@ -227,7 +227,7 @@ function arrow(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number
   ctx.fill()
 }
 
-function drawFrame(cv: HTMLCanvasElement, v: HTMLVideoElement, dpr: number, c: DrawCfg | null) {
+export function drawFrame(cv: HTMLCanvasElement, v: HTMLVideoElement, dpr: number, c: DrawCfg | null) {
   const ctx = cv.getContext('2d')
   if (!ctx) return
   ctx.setTransform(1, 0, 0, 1, 0, 0)
@@ -388,9 +388,33 @@ function tally(events: MatchEvent[], poss: MatchResult['possessions'], upto: num
 }
 
 /** 박스 위 이름표: 이름 → 등번호 → 트랙 ID */
-function shortLabel(p: PlayerRow): string {
+export function shortLabel(p: PlayerRow): string {
   const s = p.display_name || (p.jersey_number != null ? String(p.jersey_number) : p.track_id)
   return s.length > 10 ? `${s.slice(0, 9)}…` : s
+}
+
+/** 선수 박스·이름표만 그리는 설정 (하이라이트 플레이어용). follow 선수는 굵게 강조 */
+export function namesCfg(result: MatchResult, prep: Prepared | null, follow = '', showBoxes = true): DrawCfg {
+  const { match } = result
+  const color = { home: match.home_team_color, away: match.away_team_color }
+  const headOf = new Map<string, PlayerRow>()
+  for (const p of result.players) {
+    headOf.set(p.track_id, p)
+    for (const t of p.merged_from) headOf.set(t, p)
+  }
+  return {
+    prep, headOf,
+    labels: new Map(result.players.map(p => [p.track_id, shortLabel(p)])),
+    names: new Map(result.players.map(p => [p.track_id, playerName(p)])),
+    color,
+    halo: {
+      home: isDark(color.home) ? 'rgba(255,255,255,0.55)' : 'rgba(7,11,20,0.55)',
+      away: isDark(color.away) ? 'rgba(255,255,255,0.55)' : 'rgba(7,11,20,0.55)',
+    },
+    ink: { home: inkOn(color.home), away: inkOn(color.away) },
+    events: [], times: new Float64Array(0), evStart: 0,
+    showBoxes, showBall: false, showEvents: false, follow,
+  }
 }
 
 // ── 컴포넌트 ────────────────────────────────────────────────────────────────
