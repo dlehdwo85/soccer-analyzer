@@ -211,6 +211,13 @@ export default function ResultsPage() {
         <p className="note mb-2">
           분석 신뢰도 · 공 검출 비율 <span className="num text-ink-100">{meta.ball_detected_pct.toFixed(0)}%</span>
           <span className="text-ink-500"> — 영상에서 공이 잡힌 비율입니다. 낮을수록 볼 기록이 실제보다 적게 잡힙니다.</span>
+          {meta.duration_s > 0 && (
+            <span className="block text-ink-500 mt-0.5">
+              점유율은 공 주인이 확인된 <span className="num text-ink-300">{fmtClock(ts.home.possession_s + ts.away.possession_s)}</span>
+              (경기의 <span className="num text-ink-300">{Math.round(((ts.home.possession_s + ts.away.possession_s) / meta.duration_s) * 100)}%</span>) 동안만 셉니다.
+              나머지는 공 다툼·공이 안 보인 시간입니다.
+            </span>
+          )}
         </p>
       )}
       {meta.sample && (

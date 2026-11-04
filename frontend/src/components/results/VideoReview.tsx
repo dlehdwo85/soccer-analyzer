@@ -347,23 +347,40 @@ function drawFlashes(ctx: CanvasRenderingContext2D, c: DrawCfg, rel: number, pos
 
 // ── 기록 집계 ───────────────────────────────────────────────────────────────
 
-interface Counts { touches: number; att: number; comp: number; shots: number; sot: number; rec: number }
+interface Counts { touches: number; att: number; comp: number; fail: number; recv: number; shots: number; sot: number; rec: number }
+type CountKey = keyof Counts
 
-const COLS: { key: keyof Counts; short: string; full: string }[] = [
+const COLS: { key: CountKey; short: string; full: string }[] = [
   { key: 'touches', short: '터치', full: '볼터치' },
   { key: 'att', short: '패스', full: '패스 시도' },
   { key: 'comp', short: '성공', full: '패스 성공' },
+  { key: 'fail', short: '실패', full: '패스 실패' },
+  { key: 'recv', short: '받음', full: '받은 패스' },
   { key: 'shots', short: '슈팅', full: '슈팅' },
   { key: 'sot', short: '유효', full: '유효 슈팅' },
   { key: 'rec', short: '탈취', full: '볼 탈취' },
 ]
+
+/** 그 칸의 숫자를 만든 이벤트인가 (숫자를 누르면 이 이벤트들만 보여 준다) */
+function countedBy(e: MatchEvent, player: string, key: CountKey): boolean {
+  switch (key) {
+    case 'att': return e.kind === 'pass' && e.player === player
+    case 'comp': return e.kind === 'pass' && e.player === player && !!e.success
+    case 'fail': return e.kind === 'pass' && e.player === player && !e.success
+    case 'recv': return e.kind === 'pass' && e.target === player && !!e.success
+    case 'shots': return e.kind === 'shot' && e.player === player
+    case 'sot': return e.kind === 'shot' && e.player === player && e.detail.outcome === 'on_target'
+    case 'rec': return e.kind === 'recovery' && e.player === player
+    default: return false
+  }
+}
 
 /** upto초(분석 기준)까지의 선수별 누적 — events·poss는 시각 순 */
 function tally(events: MatchEvent[], poss: MatchResult['possessions'], upto: number): Map<string, Counts> {
   const m = new Map<string, Counts>()
   const g = (id: string) => {
     let c = m.get(id)
-    if (!c) m.set(id, c = { touches: 0, att: 0, comp: 0, shots: 0, sot: 0, rec: 0 })
+    if (!c) m.set(id, c = { touches: 0, att: 0, comp: 0, fail: 0, recv: 0, shots: 0, sot: 0, rec: 0 })
     return c
   }
   for (const e of events) {
@@ -371,7 +388,10 @@ function tally(events: MatchEvent[], poss: MatchResult['possessions'], upto: num
     if (e.kind === 'pass') {
       const c = g(e.player)
       c.att++
-      if (e.success) c.comp++
+      if (e.success) {
+        c.comp++
+        if (e.target) g(e.target).recv++
+      } else c.fail++
     } else if (e.kind === 'shot') {
       const c = g(e.player)
       c.shots++
@@ -456,6 +476,9 @@ function Review({ matchId, result, players, src }: Props & { src: string }) {
   const [showBall, setShowBall] = useState(true)
   const [showEvents, setShowEvents] = useState(true)
   const [followId, setFollowId] = useState('')
+  /** 누른 숫자 칸 — 그 숫자를 만든 장면만 목록·영상에 보여 준다 */
+  const [focusKey, setFocusKey] = useState<CountKey | null>(null)
+  const [namedOnly, setNamedOnly] = useState(() => result.players.some(p => p.display_name && !p.excluded))
   const [now, setNow] = useState(0)
   const [fs, setFs] = useState(false)
   const [canFs, setCanFs] = useState(false)
@@ -479,8 +502,9 @@ function Review({ matchId, result, players, src }: Props & { src: string }) {
   const events = useMemo(() => [...result.events].sort((a, b) => a.t - b.t), [result.events])
   const poss = useMemo(() => [...(result.possessions ?? [])].sort((a, b) => a[0] - b[0]), [result.possessions])
   const hasTouches = poss.length > 0
-  const shown = useMemo(() => (follow ? events.filter(e => e.player === follow || e.target === follow) : events),
-    [events, follow])
+  const shown = useMemo(() => (follow && focusKey ? events.filter(e => countedBy(e, follow, focusKey))
+    : follow ? events.filter(e => e.player === follow || e.target === follow) : events),
+    [events, follow, focusKey])
   const shownTimes = useMemo(() => Float64Array.from(shown, e => e.t), [shown])
 
   const headOf = useMemo(() => {
@@ -622,13 +646,22 @@ function Review({ matchId, result, players, src }: Props & { src: string }) {
   }, [evStart])
   const seekEvent = useCallback((e: MatchEvent) => seekRel(e.t - LEAD_S, true), [seekRel])
 
-  const toggleFollow = (id: string) => setFollowId(f => (f === id ? '' : id))
+  const toggleFollow = (id: string) => { setFocusKey(null); setFollowId(f => (f === id ? '' : id)) }
+  /** 숫자 칸을 누르면: 그 선수를 따라가며 그 숫자를 만든 장면만 보여 주고, 첫 장면부터 재생 */
+  const openCount = (id: string, key: CountKey) => {
+    if (follow === id && focusKey === key) { setFocusKey(null); return }
+    setFollowId(id)
+    setFocusKey(key === 'touches' ? null : key)
+    const first = key === 'touches' ? null : events.find(e => countedBy(e, id, key))
+    if (first) seekEvent(first)
+  }
+  const focusLabel = focusKey ? COLS.find(c => c.key === focusKey)?.full ?? null : null
 
   const dur = meta.duration_s || Math.max(1, ...events.map(e => e.t))
   const half = meta.halftime_rel_s != null && meta.halftime_rel_s > 0 ? meta.halftime_rel_s : null
 
   return (
-    <div className="grid lg:grid-cols-[minmax(0,1fr)_340px] gap-4 items-start">
+    <div className="grid lg:grid-cols-[minmax(0,1fr)_400px] gap-4 items-start">
       <div className="space-y-2 min-w-0">
         <div className="flex flex-wrap items-center gap-1.5">
           <Toggle on={showBoxes} disabled={!prep} onClick={() => setShowBoxes(b => !b)}>박스·이름</Toggle>
@@ -687,9 +720,11 @@ function Review({ matchId, result, players, src }: Props & { src: string }) {
 
       <aside className="card overflow-hidden min-w-0" aria-label="지금까지 기록">
         <Records result={result} events={events} poss={poss} hasTouches={hasTouches}
-          now={now} follow={follow} onToggle={toggleFollow} />
+          now={now} follow={follow} focusKey={focusKey} onToggle={toggleFollow} onCount={openCount}
+          namedOnly={namedOnly} onNamedOnly={setNamedOnly} />
         <EventList events={shown} times={shownTimes} players={players} result={result} now={now}
-          followName={followRow && follow ? playerName(followRow) : null} onClearFollow={() => setFollowId('')}
+          followName={followRow && follow ? `${playerName(followRow)}${focusLabel ? ` · ${focusLabel} ${shown.length}개` : ''}` : null}
+          onClearFollow={() => { setFollowId(''); setFocusKey(null) }}
           onSeek={seekEvent} />
       </aside>
     </div>
@@ -750,9 +785,10 @@ function Timeline({ events, times, dur, now, half, onSeek, onSeekEvent }: {
   )
 }
 
-function Records({ result, events, poss, hasTouches, now, follow, onToggle }: {
+function Records({ result, events, poss, hasTouches, now, follow, focusKey, onToggle, onCount, namedOnly, onNamedOnly }: {
   result: MatchResult; events: MatchEvent[]; poss: MatchResult['possessions']
-  hasTouches: boolean; now: number; follow: string; onToggle: (id: string) => void
+  hasTouches: boolean; now: number; follow: string; focusKey: CountKey | null; onToggle: (id: string) => void
+  onCount: (id: string, key: CountKey) => void; namedOnly: boolean; onNamedOnly: (v: boolean) => void
 }) {
   const cols = hasTouches ? COLS : COLS.filter(c => c.key !== 'touches')
   const totals = useMemo(() => tally(events, poss, Infinity), [events, poss])
@@ -766,7 +802,22 @@ function Records({ result, events, poss, hasTouches, now, follow, onToggle }: {
     }
     return s
   }, [events, now])
-  const zero: Counts = { touches: 0, att: 0, comp: 0, shots: 0, sot: 0, rec: 0 }
+  // 방금 올라간 칸 (+1 표시) — 선수별로 어느 칸이 올랐는지
+  const bumped = useMemo(() => {
+    const m = new Map<string, Set<CountKey>>()
+    const add = (id: string, k: CountKey) => { let x = m.get(id); if (!x) m.set(id, x = new Set()); x.add(k) }
+    for (const e of events) {
+      if (e.t > now) break
+      if (e.t <= now - FLASH_S) continue
+      for (const c of COLS) {
+        if (countedBy(e, e.player, c.key)) add(e.player, c.key)
+        if (e.target && countedBy(e, e.target, c.key)) add(e.target, c.key)
+      }
+    }
+    return m
+  }, [events, now])
+  const hasNamed = result.players.some(p => p.display_name && !p.excluded)
+  const zero: Counts = { touches: 0, att: 0, comp: 0, fail: 0, recv: 0, shots: 0, sot: 0, rec: 0 }
 
   return (
     <div className="border-b border-ink-800">
@@ -774,11 +825,20 @@ function Records({ result, events, poss, hasTouches, now, follow, onToggle }: {
         <h3 className="font-semibold text-ink-100 text-sm">지금까지 기록</h3>
         <span className="text-xs text-ink-400 num ml-auto">분석 시각 {fmtClock(Math.max(0, now))}</span>
       </div>
+      <p className="px-3 pb-2 text-[11px] text-ink-500">
+        영상이 재생되면 그 순간까지의 기록으로 숫자가 올라갑니다. <b className="text-ink-300">숫자를 누르면</b> 그 숫자가 잡힌 장면을 차례로 볼 수 있습니다.
+        {hasNamed && (
+          <label className="flex items-center gap-1.5 mt-1 cursor-pointer text-ink-400">
+            <input type="checkbox" checked={namedOnly} onChange={e => onNamedOnly(e.target.checked)} />이름 붙인 선수만
+          </label>
+        )}
+      </p>
       <div className="max-h-[360px] overflow-y-auto">
         {(['home', 'away'] as Team[]).map(team => {
           const info = teamInfo(result.match, team)
           const rows = result.players
-            .filter(p => p.team === team && !p.excluded && (totals.has(p.track_id) || p.track_id === follow))
+            .filter(p => p.team === team && !p.excluded && (totals.has(p.track_id) || p.track_id === follow)
+              && (!namedOnly || !!p.display_name || p.track_id === follow))
             .map(p => ({ p, c: counts.get(p.track_id) ?? zero }))
             .sort((a, b) => b.c.att - a.c.att || b.c.comp - a.c.comp || b.c.touches - a.c.touches
               || playerName(a.p).localeCompare(playerName(b.p), 'ko'))
@@ -819,11 +879,22 @@ function Records({ result, events, poss, hasTouches, now, follow, onToggle }: {
                           {playerName(p)}
                         </button>
                       </td>
-                      {cols.map(col => (
-                        <td key={col.key} className={cn('text-right py-1.5 last:pr-3', c[col.key] ? 'text-ink-100' : 'text-ink-600')}>
-                          {c[col.key]}
-                        </td>
-                      ))}
+                      {cols.map(col => {
+                        const up = bumped.get(p.track_id)?.has(col.key)
+                        const sel = on && focusKey === col.key
+                        return (
+                          <td key={col.key} className="text-right py-0.5 last:pr-2">
+                            <button type="button" title={`${playerName(p)} ${col.full} 장면 보기`}
+                              onClick={ev => { ev.stopPropagation(); onCount(p.track_id, col.key) }}
+                              className={cn('num w-full text-right rounded px-1 py-1 transition-colors',
+                                c[col.key] ? 'text-ink-100 hover:bg-ink-700' : 'text-ink-600',
+                                col.key === 'fail' && c[col.key] ? 'text-red-300' : '',
+                                up && 'bg-volt text-ink-950 font-semibold', sel && 'ring-1 ring-volt')}>
+                              {c[col.key]}{up && <span className="text-[9px] align-top ml-px">+1</span>}
+                            </button>
+                          </td>
+                        )
+                      })}
                     </tr>
                   )
                 })}
