@@ -323,3 +323,4 @@ def test_fit_to_extents_rescales_positions_but_keeps_meters():
     p0, q0 = frames[0].players[10], out[0].players[10]
     assert abs((p0.r * p0.s) - (q0.r * q0.s)) < 1e-9      # 실제 거리(m)는 그대로
     assert abs(out[0].ball[0] - 52.5) < 3
+    assert all(type(p.x) is float and type(p.s) is float for p in out[0].players)   # JSON으로 저장 가능해야 한다

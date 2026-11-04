@@ -344,3 +344,9 @@ def test_team_roster_auto_merge_and_season(client):
     assert client.get(f"/api/teams/{team['id']}/season", params={"year": 2025}).json()["record"]["played"] == 0
     assert client.delete(f"/api/teams/{team['id']}").status_code == 204
     assert client.get(url).json()["home_team_id"] is None
+
+
+def test_save_result_restores_stringified_booleans():
+    from app.services.result_service import _clean_detail
+    assert _clean_detail({"forward": "False", "on_target": "True", "reason": "completed", "n": 3}) == \
+        {"forward": False, "on_target": True, "reason": "completed", "n": 3}

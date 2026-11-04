@@ -53,6 +53,12 @@ def overlay_gzip_bytes(match: Match) -> Optional[bytes]:
 
 # ── 저장 ────────────────────────────────────────────────────────────────────
 
+def _clean_detail(d: Dict) -> Dict:
+    """워커가 numpy 참/거짓을 글자("True"/"False")로 저장한 경우(v2.0.6) 진짜 참/거짓으로 되돌린다.
+    그대로 두면 "False"도 참으로 읽혀 전진 패스·유효 슈팅이 부풀려진다."""
+    return {k: (v == "True") if v in ("True", "False") else v for k, v in (d or {}).items()}
+
+
 def save_result(db: Session, match: Match, result: Dict, source: str) -> None:
     if result.get("version") != CURRENT_VERSION:
         raise ValueError("지원하지 않는 결과 형식입니다. 분석 워커 이미지를 최신 버전으로 갱신하세요.")
@@ -62,7 +68,7 @@ def save_result(db: Session, match: Match, result: Dict, source: str) -> None:
     for p in result.get("players", []):
         db.add(MatchPlayer(
             match_id=match.id, track_id=p["track_id"], team=p["team"], label=p.get("label") or "",
-            color_hex=p.get("color_hex"), thumbnail=p.get("thumbnail"), minor=bool(p.get("minor")),
+            color_hex=p.get("color_hex"), thumbnail=p.get("thumbnail"), minor=p.get("minor") in (True, "True"),
             display_name=p.get("display_name"), jersey_number=p.get("jersey_number"),
             stats_json=json.dumps(p.get("stats") or {}),
         ))
@@ -72,7 +78,7 @@ def save_result(db: Session, match: Match, result: Dict, source: str) -> None:
             match_id=match.id, seq=i, kind=e["kind"], t=e["t"], t_end=e.get("t_end"), team=e["team"],
             player=e["player"], target=e.get("target"), x=e.get("x"), y=e.get("y"),
             x2=e.get("x2"), y2=e.get("y2"), success=e.get("success"),
-            detail_json=json.dumps(e.get("detail") or {}),
+            detail_json=json.dumps(_clean_detail(e.get("detail"))),
         ))
     db.add_all(rows)
     match.result_meta_json = json.dumps(result.get("meta") or {}, ensure_ascii=False)
