@@ -269,3 +269,26 @@ def test_in_play_candidates_drop_spare_ball_and_lights():
     assert in_play_candidates(balls, persons, 720) == [(500, 345, 0.3)]
     # 사람이 거의 없으면 조명만 거른다
     assert in_play_candidates(balls, persons[:2], 720) == [(500, 345, 0.3), (1200, 700, 0.6)]
+
+
+def test_whistle_detector_finds_tone_not_speech():
+    from app.vision.audio import detect_whistles
+    sr = 16000
+    rng = np.random.default_rng(0)
+    x = 0.05 * rng.standard_normal(sr * 10).astype(np.float32)          # 잡음 10초
+    t = np.arange(int(0.5 * sr)) / sr
+    x[3 * sr:3 * sr + len(t)] += 0.5 * np.sin(2 * np.pi * 3000 * t)     # 3초에 호루라기 0.5초
+    x[7 * sr:7 * sr + len(t)] += 0.5 * np.sin(2 * np.pi * 300 * t)      # 7초에 낮은 소리(말소리 비슷)
+    w = detect_whistles(x, sr)
+    assert len(w) == 1 and abs(w[0][0] - 3.0) < 0.1 and 0.4 < w[0][1] < 0.6
+
+
+def test_whistle_restarts_add_free_kick_and_kickoff():
+    from app.vision.pipeline import whistle_restarts
+    ev = [{"kind": "possession", "t": 10.0, "team": "home", "player": "P1", "x": 1, "y": 1},
+          {"kind": "possession", "t": 52.0, "team": "away", "player": "P2", "x": 1, "y": 1},
+          {"kind": "possession", "t": 90.0, "team": "home", "player": "P3", "x": 1, "y": 1}]
+    board = {"goals": [{"t_board": 45.0, "team": "home"}]}
+    out = whistle_restarts(ev, [(5.0, 0.3, 500), (50.0, 0.4, 900), (200.0, 0.3, 300)], board)
+    sp = [e for e in out if e["kind"] == "set_piece"]
+    assert [(e["t"], e["detail"]["type"]) for e in sp] == [(10.0, "whistle"), (52.0, "kick_off")]

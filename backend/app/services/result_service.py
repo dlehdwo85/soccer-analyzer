@@ -119,7 +119,7 @@ def _remap_events(ev_rows: List[MatchEvent], head: Dict[str, str], team_of: Dict
             continue
         if untrusted_bounds and r.kind == "set_piece" and not r.manual:
             d = _loads(r.detail_json, {})
-            if d.get("still_s") is None:
+            if d.get("still_s") is None and d.get("type") not in ("whistle", "kick_off"):
                 continue
         p = head.get(r.player, r.player)
         if p in excluded or p not in team_of:
