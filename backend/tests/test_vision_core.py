@@ -292,3 +292,21 @@ def test_whistle_restarts_add_free_kick_and_kickoff():
     out = whistle_restarts(ev, [(5.0, 0.3, 500), (50.0, 0.4, 900), (200.0, 0.3, 300)], board)
     sp = [e for e in out if e["kind"] == "set_piece"]
     assert [(e["t"], e["detail"]["type"]) for e in sp] == [(10.0, "whistle"), (52.0, "kick_off")]
+
+
+def test_touchline_filter_removes_bench_not_players():
+    import cv2
+    from app.vision.pitchlines import TouchlineFilter, near_touchline
+    f = np.zeros((540, 960, 3), np.uint8)
+    f[:] = (40, 140, 50)                                   # 잔디 (RGB)
+    cv2.line(f, (0, 430), (960, 400), (245, 245, 245), 4)  # 카메라 쪽 터치라인
+    line = near_touchline(f)
+    assert line is not None and 380 < (line[1] + line[3]) / 2 < 440
+    players = [((100 + 80 * i, 200, 115 + 80 * i, 240), 0.9) for i in range(8)]   # 경기장 안
+    bench = [((300, 470, 320, 520), 0.8), ((350, 480, 370, 530), 0.8)]           # 선 아래(벤치)
+    tf = TouchlineFilter()
+    kept = tf.update(0.0, f, players + bench)
+    assert len(kept) == 8 and tf.removed == 2
+    # 사람 대부분이 선 아래에 있으면(엉뚱한 선) 그 선을 믿지 않는다
+    tf2 = TouchlineFilter()
+    assert len(tf2.update(0.0, f, bench * 4 + players[:2])) == 10
