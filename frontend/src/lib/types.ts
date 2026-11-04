@@ -405,7 +405,8 @@ export const isPlaced = (e: MatchEvent): e is PlacedEvent => e.x !== null && e.y
 
 export interface BillingConfig {
   enabled: boolean
-  client_key: string | null
+  /** test: 나이스페이 공개 시험 상점(실제 청구 없음) · live: 실 상점 */
+  mode: 'test' | 'live'
   prices: { match: number; team_month: number }
   products: Record<'match' | 'team_month', string>
 }

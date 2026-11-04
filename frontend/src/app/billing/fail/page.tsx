@@ -6,7 +6,7 @@ const safeBack = (b: string | null) => (b && b.startsWith('/') && !b.startsWith(
 
 function Fail() {
   const q = useSearchParams()
-  const canceled = q.get('code') === 'PAY_PROCESS_CANCELED' || q.get('code') === 'USER_CANCEL'
+  const canceled = /cancel|취소/i.test(q.get('message') ?? '')
   return (
     <div className="max-w-md mx-auto px-4 py-20 text-center space-y-4">
       <p className="text-ink-100 font-semibold">{canceled ? '결제를 취소했습니다' : '결제하지 못했습니다'}</p>

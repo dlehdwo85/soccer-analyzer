@@ -141,7 +141,7 @@ class MatchEvent(Base):
 
 
 class Payment(Base):
-    """토스페이먼츠 결제. 주문을 먼저 만들고(pending), 결제창 승인 뒤 서버가 확인하면 done."""
+    """나이스페이 결제. 주문을 먼저 만들고(pending), 결제창 인증 뒤 서버가 승인하면 done."""
     __tablename__ = "payments"
 
     id          = Column(Integer, primary_key=True, index=True)
@@ -152,7 +152,9 @@ class Payment(Base):
     team_id     = Column(Integer, nullable=True, index=True)       # 팀 월 이용권이면 그 팀
     amount      = Column(Integer, nullable=False)
     status      = Column(String(20), default="pending")            # pending | done | failed
-    payment_key = Column(String(200), nullable=True)
+    payment_key = Column(String(200), nullable=True)               # 나이스페이 TID
     approved_at = Column(DateTime, nullable=True)
-    raw_json    = Column(Text, nullable=True)                      # 토스 승인 응답 (영수증 확인용)
+    raw_json    = Column(Text, nullable=True)                      # 승인 응답 요약 (영수증 확인용)
+    return_path = Column(String(500), nullable=True)               # 결제 뒤 돌아갈 사이트 경로
+    pg_mode     = Column(String(10), nullable=True)                # test | live (나이스페이 상점)
     created_at  = Column(DateTime, default=datetime.utcnow)

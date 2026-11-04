@@ -1,18 +1,20 @@
-"""결제(토스페이먼츠)와 경기별 프리미엄 이용 권한."""
+"""결제(나이스페이)와 경기별 프리미엄 이용 권한."""
 
 import json
 import uuid
 from datetime import datetime
 from typing import Literal, Optional
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Match, Payment, Team, User
-from app.routers.auth import optional_user
-from app.services import billing_service
+from app.routers.auth import _base, optional_user
+from app.services import auth_service, billing_service
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
 
@@ -21,12 +23,7 @@ class OrderIn(BaseModel):
     product: Literal["match", "team_month"]
     match_id: Optional[int] = None
     team_id: Optional[int] = None
-
-
-class ConfirmIn(BaseModel):
-    paymentKey: str
-    orderId: str
-    amount: int
+    back: Optional[str] = None     # 결제 뒤 돌아갈 사이트 경로
 
 
 def require_premium(db: Session, m: Match) -> None:
@@ -38,9 +35,7 @@ def require_premium(db: Session, m: Match) -> None:
 
 @router.get("/config")
 def config():
-    import os
-    return {"enabled": billing_service.is_enabled(),
-            "client_key": os.environ.get("TOSS_CLIENT_KEY") if billing_service.is_enabled() else None,
+    return {"enabled": billing_service.is_enabled(), "mode": billing_service.conf()["mode"],
             "prices": billing_service.prices(), "products": billing_service.PRODUCT_NAME}
 
 
@@ -67,40 +62,51 @@ def use_trial(match_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/orders")
-def create_order(body: OrderIn, db: Session = Depends(get_db), user: Optional[User] = Depends(optional_user)):
+def create_order(body: OrderIn, request: Request, db: Session = Depends(get_db),
+                 user: Optional[User] = Depends(optional_user)):
+    """주문을 만들고 나이스페이 결제창 파라미터를 돌려준다 (금액·서명은 서버가 정한다)."""
     if not billing_service.is_enabled():
-        raise HTTPException(503, "결제가 아직 설정되지 않았습니다")
+        raise HTTPException(503, "결제가 아직 열리지 않았습니다")
     if body.product == "match" and not (body.match_id and db.get(Match, body.match_id)):
         raise HTTPException(400, "경기권은 경기를 골라야 합니다")
     if body.product == "team_month" and not (body.team_id and db.get(Team, body.team_id)):
         raise HTTPException(400, "팀 월 이용권은 등록된 팀을 골라야 합니다")
     amount = billing_service.prices()[body.product]
-    p = Payment(order_id=f"fa-{uuid.uuid4().hex[:24]}", user_id=user.id if user else None, product=body.product,
+    name = billing_service.PRODUCT_NAME[body.product]
+    p = Payment(order_id=f"ph{uuid.uuid4().hex[:22]}", user_id=user.id if user else None, product=body.product,
                 match_id=body.match_id if body.product == "match" else None,
-                team_id=body.team_id if body.product == "team_month" else None, amount=amount)
+                team_id=body.team_id if body.product == "team_month" else None, amount=amount,
+                return_path=auth_service.safe_next(body.back), pg_mode=billing_service.conf()["mode"])
     db.add(p)
     db.commit()
-    return {"order_id": p.order_id, "amount": amount, "order_name": billing_service.PRODUCT_NAME[body.product],
-            "customer_key": f"user-{user.id}" if user else None}
+    params = billing_service.window_params(p.order_id, amount, name, f"{_base(request)}/api/billing/nicepay/return")
+    return {"order_id": p.order_id, "amount": amount, "order_name": name, "mode": p.pg_mode,
+            "script": billing_service.SCRIPT, "params": params}
 
 
-@router.post("/confirm")
-def confirm(body: ConfirmIn, db: Session = Depends(get_db)):
-    """결제창 성공 페이지가 부른다. 금액이 주문과 같은지 확인하고 토스에 승인을 요청한다."""
-    p = db.query(Payment).filter(Payment.order_id == body.orderId).first()
+@router.post("/nicepay/return")
+async def nicepay_return(request: Request, db: Session = Depends(get_db)):
+    """나이스페이 결제창이 인증 결과를 POST하는 곳 → 승인 → 사이트의 결과 화면으로."""
+    site = auth_service.site_url()
+    a = billing_service.parse_nice_form(await request.body())
+    p = db.query(Payment).filter(Payment.order_id == a.get("Moid", "")).first()
     if not p:
-        raise HTTPException(404, "주문을 찾을 수 없습니다")
-    if p.status == "done":
-        return {"ok": True, "product": p.product, "match_id": p.match_id, "team_id": p.team_id}
-    if body.amount != p.amount:
-        raise HTTPException(400, "결제 금액이 주문과 다릅니다")
-    try:
-        data = billing_service.confirm(body.paymentKey, body.orderId, body.amount)
-    except Exception as e:  # noqa: BLE001 — 토스 오류 메시지를 그대로 보여 준다
-        p.status = "failed"
+        return RedirectResponse(f"{site}/billing/fail?message={quote('주문을 찾을 수 없습니다')}", status_code=303)
+    back = quote(p.return_path or "/")
+    if p.status == "done":   # 새로고침·중복 제출
+        return RedirectResponse(f"{site}/billing/success?back={back}", status_code=303)
+    if p.status != "pending":
+        return RedirectResponse(f"{site}/billing/fail?back={back}&message={quote('처리할 수 없는 주문입니다')}", status_code=303)
+    r = billing_service.approve_auth(a, p.amount)
+    p.payment_key = r.get("tid") or a.get("TxTid")
+    p.raw_json = json.dumps({"code": r.get("code"), "msg": r.get("msg"), "card": r.get("card"), "mode": p.pg_mode},
+                            ensure_ascii=False)
+    if r["ok"]:
+        p.status, p.approved_at = "done", datetime.utcnow()
         db.commit()
-        raise HTTPException(400, f"결제 승인 실패: {e}")
-    p.status, p.payment_key, p.approved_at = "done", body.paymentKey, datetime.utcnow()
-    p.raw_json = json.dumps({k: data.get(k) for k in ("method", "approvedAt", "totalAmount", "receipt")}, ensure_ascii=False)
+        return RedirectResponse(f"{site}/billing/success?back={back}", status_code=303)
+    p.status = "failed"
     db.commit()
-    return {"ok": True, "product": p.product, "match_id": p.match_id, "team_id": p.team_id}
+    code = quote(str(r.get("code") or ""))
+    return RedirectResponse(f"{site}/billing/fail?back={back}&code={code}&message={quote(r.get('msg') or '결제 실패')}",
+                            status_code=303)

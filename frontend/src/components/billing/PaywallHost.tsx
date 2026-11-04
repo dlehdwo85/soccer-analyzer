@@ -6,24 +6,40 @@ import { api } from '@/lib/api'
 import { BillingConfig, Match, MatchAccess } from '@/lib/types'
 
 declare global {
-  interface Window {
-    TossPayments?: ((clientKey: string) => {
-      payment: (o: { customerKey: string }) => { requestPayment: (o: Record<string, unknown>) => Promise<void> }
-    }) & { ANONYMOUS: string }
-  }
+  interface Window { goPay?: (f: HTMLFormElement) => void; nicepaySubmit?: () => void; nicepayClose?: () => void }
 }
 
-const SDK = 'https://js.tosspayments.com/v2/standard'
-
-function loadToss(): Promise<NonNullable<Window['TossPayments']>> {
-  if (window.TossPayments) return Promise.resolve(window.TossPayments)
-  return new Promise((ok, bad) => {
+/**
+ * 나이스페이 결제창 띄우기 (워크인과 같은 방식). 서버가 서명한 파라미터를 숨은 form에 담아 goPay로 연다.
+ * 인증이 끝나면 나이스페이가 form을 ReturnURL(우리 API)로 보내고, API가 승인한 뒤 결과 화면으로 돌려보낸다.
+ */
+async function launchNicepay(r: { script: string; params: Record<string, string> }, onClose: (msg: string) => void) {
+  await new Promise<void>((ok, bad) => {
+    if (window.goPay) return ok()
     const s = document.createElement('script')
-    s.src = SDK
-    s.onload = () => (window.TossPayments ? ok(window.TossPayments) : bad(new Error('결제 모듈을 불러오지 못했습니다')))
-    s.onerror = () => bad(new Error('결제 모듈을 불러오지 못했습니다'))
+    s.src = r.script
+    s.onload = () => ok()
+    s.onerror = () => bad(new Error('결제창을 불러오지 못했습니다. 광고 차단기를 확인하세요'))
     document.head.appendChild(s)
   })
+  const f = document.createElement('form')
+  f.method = 'post'
+  f.action = r.params.ReturnURL
+  f.acceptCharset = 'euc-kr'
+  f.style.display = 'none'
+  for (const [k, v] of Object.entries(r.params)) {
+    const i = document.createElement('input')
+    i.type = 'hidden'; i.name = k; i.value = v
+    f.appendChild(i)
+  }
+  document.body.appendChild(f)
+  window.nicepaySubmit = () => f.submit()
+  window.nicepayClose = () => {
+    const msg = (f.elements.namedItem('AuthResultMsg') as HTMLInputElement | null)?.value
+    onClose(msg || '결제를 취소했습니다')
+    f.remove()
+  }
+  window.goPay!(f)
 }
 
 /** 프리미엄 기능을 눌렀는데 권한이 없을 때(API 402) 뜨는 결제 창. 결제가 꺼져 있으면 뜨지 않는다. */
@@ -64,21 +80,11 @@ export default function PaywallHost() {
   const pay = async (product: 'match' | 'team_month') => {
     setBusy(true)
     try {
-      const Toss = await loadToss()
-      const o = await api.createOrder(product === 'match' ? { product, match_id: match.id } : { product, team_id: teamId! })
       const back = window.location.pathname + window.location.search
-      const q = `back=${encodeURIComponent(back)}`
-      await Toss(cfg.client_key!).payment({ customerKey: o.customer_key ?? Toss.ANONYMOUS }).requestPayment({
-        method: 'CARD',
-        amount: { currency: 'KRW', value: o.amount },
-        orderId: o.order_id,
-        orderName: o.order_name,
-        successUrl: `${window.location.origin}/billing/success?${q}`,
-        failUrl: `${window.location.origin}/billing/fail?${q}`,
-      })
+      const o = await api.createOrder(product === 'match' ? { product, match_id: match.id, back } : { product, team_id: teamId!, back })
+      await launchNicepay(o, msg => { toast.message(msg); setBusy(false) })
     } catch (e) {
-      const msg = (e as { message?: string }).message
-      if (msg && !/취소|cancel/i.test(msg)) toast.error(msg)
+      toast.error((e as Error).message)
       setBusy(false)
     }
   }
@@ -111,7 +117,10 @@ export default function PaywallHost() {
           </button>
         </div>
         {!teamId && <p className="text-[11px] text-ink-500">경기 설정에서 등록된 팀을 연결하면 팀 첫 경기 무료와 팀 월 이용권을 쓸 수 있습니다.</p>}
-        <p className="text-[11px] text-ink-500">결제는 토스페이먼츠로 처리됩니다. 기본 분석·영상 검수·선수 정리는 계속 무료입니다.</p>
+        <p className="text-[11px] text-ink-500">
+          결제는 나이스페이(나이스정보통신)로 처리됩니다{cfg.mode === 'test' ? ' — 지금은 시험 상점이라 실제로 청구되지 않습니다' : ''}.
+          기본 분석·영상 검수·선수 정리는 계속 무료입니다.
+        </p>
       </div>
     </div>
   )

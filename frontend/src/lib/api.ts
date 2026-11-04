@@ -192,10 +192,9 @@ export const api = {
   billingConfig: () => req<BillingConfig>('/api/billing/config'),
   matchAccess: (id: number) => req<MatchAccess>(`/api/billing/matches/${id}/access`),
   useTrial: (id: number) => req<MatchAccess>(`/api/billing/matches/${id}/trial`, json('POST')),
-  createOrder: (body: { product: 'match' | 'team_month'; match_id?: number; team_id?: number }) =>
-    req<{ order_id: string; amount: number; order_name: string; customer_key: string | null }>('/api/billing/orders', json('POST', body)),
-  confirmPayment: (body: { paymentKey: string; orderId: string; amount: number }) =>
-    req<{ ok: boolean; product: string; match_id: number | null; team_id: number | null }>('/api/billing/confirm', json('POST', body)),
+  createOrder: (body: { product: 'match' | 'team_month'; match_id?: number; team_id?: number; back?: string }) =>
+    req<{ order_id: string; amount: number; order_name: string; mode: 'test' | 'live'; script: string; params: Record<string, string> }>(
+      '/api/billing/orders', json('POST', body)),
   getPlayerProfiles: () => req<PlayerProfile[]>('/api/players'),
   getPlayerProfile: (name: string) => req<PlayerProfileDetail>(`/api/players/${encodeURIComponent(name)}`),
 }
