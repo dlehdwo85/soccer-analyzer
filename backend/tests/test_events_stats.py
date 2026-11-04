@@ -347,3 +347,30 @@ def test_scoreboard_left_team_from_kickoff():
     # 같은 상황에서 원정이 킥오프했다면 → 홈 골인데 오른쪽 → 왼쪽 = 원정
     ev2 = [{"kind": "possession", "t": 101.0, "team": "away", "player": "P2"}]
     assert scoreboard_left_team([{"t": 100.0, "after_goal": 80.0, "goal_side": "right", "home_dir": 1}], ev2) == "away"
+
+
+def test_contested_dribble_keeps_possession():
+    from app.vision.events import EventConfig, Spell, merge_same_player
+    cfg = EventConfig()
+    a1 = Spell("P1", "home", 10.0, 12.0, 50, 30, 52, 30)
+    opp = Spell("P9", "away", 12.2, 12.7, 52, 30, 52.5, 30)    # 0.5초 상대 발에 맞음
+    a2 = Spell("P1", "home", 12.9, 15.0, 53, 30, 58, 31)
+    out = merge_same_player([a1, opp, a2], cfg)
+    assert len(out) == 1 and out[0].tid == "P1" and out[0].contested == 1 and out[0].t1 == 15.0
+    # 상대가 오래(1.5초) 가지고 있었으면 경합이 아니라 진짜 뺏긴 것
+    opp_long = Spell("P9", "away", 12.2, 13.7, 52, 30, 52.5, 30)
+    a3 = Spell("P1", "home", 13.9, 15.0, 53, 30, 58, 31)
+    assert len(merge_same_player([a1, opp_long, a3], cfg)) == 3
+
+
+def test_wide_kick_is_cross_not_shot():
+    from app.vision.events import EventConfig, Spell, _is_cross
+    cfg = EventConfig()
+    shot = {"goal_x": 105.0, "goal_y": 34.0, "half": 3.66, "y_cross": None, "speed_ms": 15}
+    wing = Spell("P1", "home", 0, 1, 95, 3, 97, 4)                  # 측면 끝에서 골문 앞으로
+    mate = Spell("P2", "home", 2.0, 2.5, 100, 33, 100, 33)
+    assert _is_cross(wing, mate, cfg, shot)
+    box = Spell("P1", "home", 0, 1, 90, 30, 92, 30)                 # 박스 안 정면
+    assert not _is_cross(box, None, cfg, {**shot, "y_cross": 33.0})
+    # 측면이지만 골문 안쪽으로 향했고 받은 사람이 없으면 슈팅으로 둔다
+    assert not _is_cross(wing, None, cfg, {**shot, "y_cross": 35.0})

@@ -52,6 +52,7 @@ export default function ResultsPage() {
   const [result, setResult] = useState<MatchResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('overview')
+  const [reviewFollow, setReviewFollow] = useState<string | null>(null)
   const [period, setPeriod] = useState<Period>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const dock = useRef<VideoDockHandle>(null)
@@ -259,7 +260,7 @@ export default function ResultsPage() {
           <div className="lg:col-span-2"><ShotMap result={result} players={players} onSeek={seek ? t => seek(t, '슈팅') : undefined} /></div>
         </div>
       )}
-      {tab === 'review' && <VideoReview matchId={matchId} result={result} players={players} src={videoSrc} />}
+      {tab === 'review' && <VideoReview matchId={matchId} result={result} players={players} src={videoSrc} initialFollow={reviewFollow} />}
       {tab === 'players' && <PlayerTable matchId={matchId} match={match} players={result.players} onSelect={p => setSelected(p.track_id)} />}
       {tab === 'highlights' && (
         <Highlights result={result} players={players} canPlay={!!videoSrc} onPlay={clips => dock.current?.playClips(clips)}
@@ -280,6 +281,7 @@ export default function ResultsPage() {
       {sel && (
         <PlayerModal matchId={matchId} result={result} player={sel} players={players}
           onClose={() => setSelected(null)} onSeek={seek}
+          onReview={videoSrc ? () => { setReviewFollow(sel.track_id); setTab('review'); setSelected(null); window.scrollTo({ top: 0 }) } : undefined}
           onPlayClips={videoSrc ? clips => dock.current?.playClips(clips) : undefined}
           onExportClips={videoSrc ? (clips, title) => setReel({ clips, title }) : undefined} />
       )}

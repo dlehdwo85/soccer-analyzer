@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Clapperboard, Contact, Film, Play, Share2, X } from 'lucide-react'
+import { Clapperboard, Contact, Film, Play, Share2, X, ListChecks } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, ApiError } from '@/lib/api'
 import { isPlaced, MatchEvent, MatchResult, PlayerReport, PlayerRow } from '@/lib/types'
@@ -23,11 +23,13 @@ interface Props {
   onPlayClips?: (clips: Clip[]) => void
   /** 장면들을 영상 파일로 저장 (영상이 연결된 경기만) */
   onExportClips?: (clips: Clip[], title: string) => void
+  /** 영상 검수 탭에서 이 선수를 따라가며 기록 근거 보기 */
+  onReview?: () => void
 }
 
 const KEY_PASS_WINDOW_S = 8
 
-export default function PlayerModal({ matchId, result, player, players, onClose, onSeek, onPlayClips, onExportClips }: Props) {
+export default function PlayerModal({ matchId, result, player, players, onClose, onSeek, onPlayClips, onExportClips, onReview }: Props) {
   const [view, setView] = useState<View>('pass')
   const [cardOpen, setCardOpen] = useState(false)
   const [rating, setRating] = useState<number | null>(null)
@@ -113,6 +115,12 @@ export default function PlayerModal({ matchId, result, player, players, onClose,
             {onExportClips && reel.length > 0 && (
               <button type="button" className="btn-secondary" onClick={() => onExportClips(reel, `${name} 하이라이트`)}>
                 <Film className="w-4 h-4" />영상으로 저장
+              </button>
+            )}
+            {onReview && (
+              <button type="button" className="btn-secondary" onClick={onReview}
+                title="영상 위에서 이 선수를 따라가며, 패스·터치·탈취가 어느 장면에서 왜 세졌는지 하나씩 확인합니다">
+                <ListChecks className="w-4 h-4" />영상으로 기록 검수
               </button>
             )}
             <button type="button" className="btn-secondary" onClick={() => setCardOpen(true)}>

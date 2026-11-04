@@ -17,6 +17,7 @@ const LEAD_S = 2
 const PAST_N = 8
 const ROWS_N = 15
 const NEXT_N = 40
+const NO_TIMES = new Float64Array()
 
 const FONT = '600 11px "Pretendard Variable", Pretendard, system-ui, sans-serif'
 const BIG_FONT = '700 13px "Pretendard Variable", Pretendard, system-ui, sans-serif'
@@ -391,7 +392,7 @@ const COLS: { key: CountKey; short: string; full: string }[] = [
   { key: 'recv', short: '받음', full: '받은 패스' },
   { key: 'shots', short: '슈팅', full: '슈팅' },
   { key: 'sot', short: '유효', full: '유효 슈팅' },
-  { key: 'rec', short: '탈취', full: '볼 탈취' },
+  { key: 'rec', short: '탈취', full: '볼 탈취 (뺏기·가로채기)' },
 ]
 
 /** 그 칸의 숫자를 만든 이벤트인가 (숫자를 누르면 이 이벤트들만 보여 준다) */
@@ -403,7 +404,8 @@ function countedBy(e: MatchEvent, player: string, key: CountKey): boolean {
     case 'recv': return e.kind === 'pass' && e.target === player && !!e.success
     case 'shots': return e.kind === 'shot' && e.player === player
     case 'sot': return e.kind === 'shot' && e.player === player && e.detail.outcome === 'on_target'
-    case 'rec': return e.kind === 'recovery' && e.player === player
+    case 'rec': return (e.kind === 'recovery' && e.player === player)
+      || (e.kind === 'pass' && e.target === player && e.detail.reason === 'intercepted')
     default: return false
   }
 }
@@ -424,7 +426,10 @@ function tally(events: MatchEvent[], poss: MatchResult['possessions'], upto: num
       if (e.success) {
         c.comp++
         if (e.target) g(e.target).recv++
-      } else c.fail++
+      } else {
+        c.fail++
+        if (e.target && e.detail.reason === 'intercepted') g(e.target).rec++
+      }
     } else if (e.kind === 'shot') {
       const c = g(e.player)
       c.shots++
@@ -477,6 +482,8 @@ interface Props {
   result: MatchResult
   players: Map<string, PlayerRow>
   src: string | null
+  /** 선수 창의 '영상으로 검수'에서 넘어오면 그 선수를 따라간다 */
+  initialFollow?: string | null
 }
 
 /** 영상 검수: 분석이 잡은 선수 박스·공·이벤트를 영상 위에 겹쳐 보며, 그 시점까지의 선수별 기록을 확인한다 */
@@ -495,7 +502,7 @@ export default function VideoReview(props: Props) {
 
 type OverlayState = { state: 'loading' | 'ready' | 'missing' | 'error'; data: Overlay | null }
 
-function Review({ matchId, result, players, src }: Props & { src: string }) {
+function Review({ matchId, result, players, src, initialFollow }: Props & { src: string }) {
   const { match, meta } = result
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -508,7 +515,7 @@ function Review({ matchId, result, players, src }: Props & { src: string }) {
   const [showBoxes, setShowBoxes] = useState(true)
   const [showBall, setShowBall] = useState(true)
   const [showEvents, setShowEvents] = useState(true)
-  const [followId, setFollowId] = useState('')
+  const [followId, setFollowId] = useState(initialFollow ?? '')
   /** 누른 숫자 칸 — 그 숫자를 만든 장면만 목록·영상에 보여 준다 */
   const [focusKey, setFocusKey] = useState<CountKey | null>(null)
   const [namedOnly, setNamedOnly] = useState(() => result.players.some(p => p.display_name && !p.excluded))
@@ -527,6 +534,8 @@ function Review({ matchId, result, players, src }: Props & { src: string }) {
     return () => { alive = false }
   }, [matchId])
 
+  useEffect(() => { if (initialFollow) { setFollowId(initialFollow); setFocusKey(null) } }, [initialFollow])
+
   const prep = useMemo(() => (ov.data ? prepare(ov.data) : null), [ov.data])
   const evStart = meta.start_s ?? ov.data?.start_s ?? 0
 
@@ -541,6 +550,9 @@ function Review({ matchId, result, players, src }: Props & { src: string }) {
     : follow ? events.filter(e => e.player === follow || e.target === follow) : events),
     [events, follow, focusKey])
   const shownTimes = useMemo(() => Float64Array.from(shown, e => e.t), [shown])
+  /** 볼터치 칸을 눌렀을 때: 그 선수가 공을 잡았던 구간들 */
+  const touchRows = useMemo(() => (follow && focusKey === 'touches' ? poss.filter(sp => sp[3] === follow) : null),
+    [poss, follow, focusKey])
 
   const headOf = useMemo(() => {
     const m = new Map<string, PlayerRow>()
@@ -686,8 +698,13 @@ function Review({ matchId, result, players, src }: Props & { src: string }) {
   const openCount = (id: string, key: CountKey) => {
     if (follow === id && focusKey === key) { setFocusKey(null); return }
     setFollowId(id)
-    setFocusKey(key === 'touches' ? null : key)
-    const first = key === 'touches' ? null : events.find(e => countedBy(e, id, key))
+    setFocusKey(key)
+    if (key === 'touches') {
+      const sp = poss.find(x => x[3] === id)
+      if (sp) seekRel(sp[0] - LEAD_S, true)
+      return
+    }
+    const first = events.find(e => countedBy(e, id, key))
     if (first) seekEvent(first)
   }
   const focusLabel = focusKey ? COLS.find(c => c.key === focusKey)?.full ?? null : null
@@ -778,8 +795,11 @@ function Review({ matchId, result, players, src }: Props & { src: string }) {
         <Records result={result} events={events} poss={poss} hasTouches={hasTouches}
           now={now} follow={follow} focusKey={focusKey} onToggle={toggleFollow} onCount={openCount}
           namedOnly={namedOnly} onNamedOnly={setNamedOnly} />
-        <EventList events={shown} times={shownTimes} players={players} result={result} now={now}
-          followName={followRow && follow ? `${playerName(followRow)}${focusLabel ? ` · ${focusLabel} ${shown.length}개` : ''}` : null}
+        <EventList events={touchRows ? [] : shown} times={touchRows ? NO_TIMES : shownTimes} touches={touchRows}
+          players={players} result={result} now={now} follow={follow} onSeekTime={t => seekRel(t - LEAD_S, true)}
+          followName={followRow && follow
+            ? `${playerName(followRow)}${followRow.display_name ? ` (${followRow.track_id})` : ''}${focusLabel ? ` · ${focusLabel} ${touchRows ? touchRows.length : shown.length}개` : ''}`
+            : null}
           onClearFollow={() => { setFollowId(''); setFocusKey(null) }}
           onSeek={seekEvent} />
       </aside>
@@ -982,26 +1002,66 @@ function Records({ result, events, poss, hasTouches, now, follow, focusKey, onTo
   )
 }
 
-function EventList({ events, times, players, result, now, followName, onClearFollow, onSeek }: {
-  events: MatchEvent[]; times: Float64Array; players: Map<string, PlayerRow>; result: MatchResult; now: number
-  followName: string | null; onClearFollow: () => void; onSeek: (e: MatchEvent) => void
+/** 이 기록을 왜 이렇게 셌는지 — 대표자가 영상과 맞춰 보며 검수하도록 한 줄로 */
+function eventReason(e: MatchEvent, follow: string, players: Map<string, PlayerRow>): string {
+  const who = (id?: string | null) => (id ? playerName(players.get(id)) : '')
+  const d = e.detail as Record<string, unknown>
+  const len = typeof d.length_m === 'number' ? `${d.length_m}m` : ''
+  const secs = e.t_end != null ? `${(e.t_end - e.t).toFixed(1)}초 뒤` : ''
+  if (e.kind === 'pass') {
+    const cross = d.cross ? '측면에서 골문 앞으로 올린 공 · ' : ''
+    if (e.target === follow && follow !== e.player) {
+      return e.success ? `${who(e.player)}의 패스를 ${secs} 받음 (${len})`
+        : `${who(e.player)}의 패스를 중간에서 가로챔 → 탈취로 셈`
+    }
+    if (e.success) return `${cross}같은 편 ${who(e.target)}이(가) ${secs} 받음 · ${len}${d.forward ? ' · 앞으로 10m 넘게 전진' : ''}`
+    if (d.reason === 'intercepted') return `${cross}찬 공을 상대 ${who(e.target)}이(가) 먼저 잡음 · ${len}`
+    if (d.reason === 'out') return '찬 공이 경기장 밖으로 나감'
+    return '받은 같은 편이 없음'
+  }
+  if (e.kind === 'recovery') {
+    return e.target === follow && follow !== e.player
+      ? `상대 ${who(e.player)}에게 가까이서 공을 뺏김 (공이 거의 날아가지 않음)`
+      : `상대 ${who(e.target)}이(가) 잡고 있던 공을 가까이서 뺏음 (공이 거의 날아가지 않음)`
+  }
+  if (e.kind === 'shot') {
+    const sp = typeof d.speed_ms === 'number' ? `${d.speed_ms}m/s로 ` : ''
+    const res = d.outcome === 'on_target' ? '골문 안쪽으로 향함'
+      : d.outcome === 'blocked' ? `상대 ${who(e.target)}이(가) 막음` : '골문 밖으로 빗나감'
+    return `${sp}골문 쪽으로 찬 빠른 공 · ${res}`
+  }
+  if (e.kind === 'set_piece') {
+    return d.type === 'whistle' || d.type === 'kick_off' ? '호루라기 뒤 처음 공을 찬 선수' : '공이 멈춘 뒤 다시 시작'
+  }
+  return ''
+}
+
+function EventList({ events, times, touches, players, result, now, follow, followName, onClearFollow, onSeek, onSeekTime }: {
+  events: MatchEvent[]; times: Float64Array; touches: MatchResult['possessions'] | null
+  players: Map<string, PlayerRow>; result: MatchResult; now: number
+  follow: string; followName: string | null; onClearFollow: () => void
+  onSeek: (e: MatchEvent) => void; onSeekTime: (t: number) => void
 }) {
   const idx = upperBound(times, now)
-  const past = events.slice(Math.max(0, idx - PAST_N), idx)
-  const next = events.slice(idx, idx + NEXT_N)
+  // 선수를 따라갈 때는 검수할 수 있게 그 선수 기록을 전부 보여 준다
+  const past = follow ? events.slice(0, idx) : events.slice(Math.max(0, idx - PAST_N), idx)
+  const next = follow ? events.slice(idx) : events.slice(idx, idx + NEXT_N)
 
   const row = (e: MatchEvent, done: boolean) => (
     <li key={e.id}>
       <button type="button" onClick={() => onSeek(e)}
-        className={cn('w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-ink-850', done && 'opacity-60')}>
+        className={cn('w-full flex items-start gap-2 px-3 py-1.5 text-left text-xs hover:bg-ink-850', done && 'opacity-60')}>
         <span className="num text-ink-500 w-10 shrink-0">{fmtClock(e.t)}</span>
-        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: teamInfo(result.match, e.team).color }} aria-hidden />
-        <span className="flex-1 min-w-0 truncate">
-          <span className="font-medium text-ink-100">{playerName(players.get(e.player))}</span>{' '}
-          <span className={eventTone(e)}>{eventLabel(e)}</span>
-          {e.kind === 'pass' && e.target && (
-            <span className="text-ink-400">{e.success ? ' → ' : ' · 차단 '}{playerName(players.get(e.target))}</span>
-          )}
+        <span className="w-2 h-2 rounded-full shrink-0 mt-1" style={{ background: teamInfo(result.match, e.team).color }} aria-hidden />
+        <span className="flex-1 min-w-0">
+          <span className="block truncate">
+            <span className="font-medium text-ink-100">{playerName(players.get(e.player))}</span>{' '}
+            <span className={eventTone(e)}>{eventLabel(e)}</span>
+            {e.kind === 'pass' && e.target && (
+              <span className="text-ink-400">{e.success ? ' → ' : ' · 차단 '}{playerName(players.get(e.target))}</span>
+            )}
+          </span>
+          {follow && <span className="block text-[11px] text-ink-500 leading-snug">{eventReason(e, follow, players)}</span>}
         </span>
       </button>
     </li>
@@ -1010,7 +1070,7 @@ function EventList({ events, times, players, result, now, followName, onClearFol
   return (
     <div>
       <div className="flex items-baseline gap-2 px-3 pt-3 pb-2">
-        <h3 className="font-semibold text-ink-100 text-sm">이벤트</h3>
+        <h3 className="font-semibold text-ink-100 text-sm shrink-0">{follow ? '검수 목록' : '이벤트'}</h3>
         {followName ? (
           <span className="text-xs text-ink-400 truncate min-w-0">
             {followName}
@@ -1019,17 +1079,43 @@ function EventList({ events, times, players, result, now, followName, onClearFol
         ) : (
           <span className="text-xs text-ink-500">누르면 2초 앞부터 재생</span>
         )}
-        <span className="text-xs text-ink-500 num ml-auto whitespace-nowrap">{idx}/{events.length}</span>
+        {!touches && <span className="text-xs text-ink-500 num ml-auto whitespace-nowrap">{idx}/{events.length}</span>}
       </div>
-      <ul className="max-h-[280px] overflow-y-auto pb-1">
-        {events.length === 0 && <li className="px-3 py-6 text-center text-xs text-ink-500">이벤트가 없습니다</li>}
-        {past.map(e => row(e, true))}
-        {events.length > 0 && (
-          <li className="px-3 py-1 text-[11px] text-volt border-y border-ink-800 bg-ink-950 num" aria-current="time">
-            지금 {fmtClock(Math.max(0, now))}
-          </li>
+      {follow && (
+        <p className="px-3 pb-2 text-[11px] text-ink-500">
+          줄을 누르면 그 장면 2초 앞부터 재생됩니다. 틀린 기록은 이벤트 검수 탭에서 고치거나 지울 수 있습니다.
+        </p>
+      )}
+      <ul className={cn('overflow-y-auto pb-1', follow ? 'max-h-[420px]' : 'max-h-[280px]')}>
+        {touches ? (
+          touches.length === 0 ? <li className="px-3 py-6 text-center text-xs text-ink-500">공을 잡은 구간이 없습니다</li>
+          : touches.map(sp => (
+            <li key={sp[0]}>
+              <button type="button" onClick={() => onSeekTime(sp[0])}
+                className={cn('w-full flex items-start gap-2 px-3 py-1.5 text-left text-xs hover:bg-ink-850', sp[0] <= now && 'opacity-60')}>
+                <span className="num text-ink-500 w-10 shrink-0">{fmtClock(sp[0])}</span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-ink-100">볼터치 · {(sp[1] - sp[0]).toFixed(1)}초 동안 공을 가지고 있음</span>
+                  <span className="block text-[11px] text-ink-500 leading-snug">
+                    공이 발 근처에 0.2초 넘게 머물러 공 주인으로 봄
+                    {sp[4] ? ` · 상대 발에 ${sp[4]}번 맞았지만 곧바로 다시 잡아 지킴 (탈취로 세지 않음)` : ''}
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))
+        ) : (
+          <>
+            {events.length === 0 && <li className="px-3 py-6 text-center text-xs text-ink-500">이벤트가 없습니다</li>}
+            {past.map(e => row(e, true))}
+            {events.length > 0 && (
+              <li className="px-3 py-1 text-[11px] text-volt border-y border-ink-800 bg-ink-950 num" aria-current="time">
+                지금 {fmtClock(Math.max(0, now))}
+              </li>
+            )}
+            {next.map(e => row(e, false))}
+          </>
         )}
-        {next.map(e => row(e, false))}
       </ul>
     </div>
   )

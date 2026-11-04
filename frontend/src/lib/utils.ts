@@ -94,9 +94,10 @@ export function isGk(p: PlayerRow) {
 
 export function eventLabel(e: MatchEvent): string {
   if (e.kind === 'pass') {
-    if (e.success) return e.detail.forward ? '전진 패스' : '패스 성공'
-    if (e.detail.reason === 'out') return '패스 실패 · 아웃'
-    if (e.detail.reason === 'intercepted') return '패스 실패 · 차단'
+    const kind = (e.detail as { cross?: boolean }).cross ? '크로스' : '패스'
+    if (e.success) return kind === '크로스' ? '크로스 성공' : e.detail.forward ? '전진 패스' : '패스 성공'
+    if (e.detail.reason === 'out') return `${kind} 실패 · 아웃`
+    if (e.detail.reason === 'intercepted') return `${kind} 실패 · 차단`
     return '패스 실패'
   }
   if (e.kind === 'shot') {

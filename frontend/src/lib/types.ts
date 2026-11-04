@@ -284,7 +284,8 @@ export interface MatchResult {
   players: PlayerRow[]
   events: MatchEvent[]
   /** [시작, 끝, 팀, 선수] */
-  possessions: [number, number, Team, string][]
+  /** [시작, 끝, 팀, 선수, 상대 발에 맞고도 지킨 횟수(있을 때만)] */
+  possessions: ([number, number, Team, string] | [number, number, Team, string, number])[]
   team_stats: Record<Team, TeamStats>
   pass_network: Record<Team, PassNetworkTeam>
   possession_timeline: { start_s: number; end_s: number; home_pct: number | null }[]

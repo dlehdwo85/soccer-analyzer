@@ -254,6 +254,7 @@ def build_view(db: Session, match: Match, include_events: bool = True, period: O
         out["events"] = [dict(e.to_dict(), id=r.id, manual=bool(r.manual), edited=bool(r.edited))
                          for r, e in pairs if e.kind != "possession"]
         out["possessions"] = [[round(e.t, 2), round(e.t_end or e.t, 2), e.team, e.player]
+                              + ([e.detail["contested"]] if (e.detail or {}).get("contested") else [])
                               for e in events if e.kind == "possession"]
     return out
 
