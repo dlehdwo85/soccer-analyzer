@@ -143,7 +143,7 @@ function drawCard(c: HTMLCanvasElement, result: MatchResult, player: PlayerRow, 
   // 머리말
   ctx.fillStyle = ACCENT
   ctx.font = `700 34px ${font}`
-  ctx.fillText('풋볼 애널라이저 · 경기 기록', W / 2, 130)
+  ctx.fillText('팬텀 · 경기 기록', W / 2, 130)
   ctx.fillStyle = 'rgba(255,255,255,0.75)'
   fitText(ctx, result.match.title, W - 160, 38, 500, font)
   ctx.fillText(result.match.title, W / 2, 190)

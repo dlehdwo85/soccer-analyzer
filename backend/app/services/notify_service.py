@@ -4,7 +4,7 @@
 발신번호 등록. 환경변수 SOLAPI_API_KEY·SOLAPI_API_SECRET·SOLAPI_PFID·SOLAPI_TEMPLATE_ID·SOLAPI_SENDER가 다 있어야 켜진다.
 
 템플릿 변수: #{경기} (경기 제목), #{링크} (결과 페이지 주소). 템플릿 예시:
-  [풋볼 애널라이저] #{경기} 경기 분석이 끝났습니다.
+  [팬텀] #{경기} 경기 분석이 끝났습니다.
   선수별 기록과 하이라이트를 확인하세요.
   #{링크}
 알림톡이 실패하면 같은 내용의 문자로 대신 보낸다 (솔라피 기본 동작).
@@ -64,7 +64,7 @@ def send_analysis_done(phone: str, match_id: int, title: str) -> bool:
     link = result_url(match_id)
     body = {"message": {
         "to": phone, "from": os.environ["SOLAPI_SENDER"],
-        "text": f"[풋볼 애널라이저] {title} 경기 분석이 끝났습니다.\n{link}",   # 알림톡 실패 시 문자 대체 발송 내용
+        "text": f"[팬텀] {title} 경기 분석이 끝났습니다.\n{link}",   # 알림톡 실패 시 문자 대체 발송 내용
         "kakaoOptions": {"pfId": os.environ["SOLAPI_PFID"], "templateId": os.environ["SOLAPI_TEMPLATE_ID"],
                          "variables": {"#{경기}": title[:50], "#{링크}": link}},
     }}

@@ -6,12 +6,23 @@ import { API_BASE } from '@/lib/api'
 import { loginUrl, logout, useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 
-export function Logo() {
+/** 팬텀 로고 — 팬텀 드리블의 잔상: 공 뒤에 초록 잔상 두 개가 따라온다 (app/icon.svg와 같은 그림) */
+export function Logo({ className = 'w-7 h-7' }: { className?: string }) {
   return (
-    <svg viewBox="0 0 32 32" className="w-6 h-6" aria-hidden>
-      <rect x="2" y="7" width="28" height="18" rx="1.5" fill="none" stroke="#3fa35b" strokeWidth="2" />
-      <line x1="16" y1="7" x2="16" y2="25" stroke="#3fa35b" strokeWidth="2" />
-      <circle cx="16" cy="16" r="3.5" fill="none" stroke="#3fa35b" strokeWidth="2" />
+    <svg viewBox="0 0 64 64" className={className} aria-hidden>
+      <rect width="64" height="64" rx="14" fill="#0d1321" />
+      <path d="M7 51 C 17 51, 23 46, 27 41" fill="none" stroke="#3fa35b" strokeWidth="3" strokeLinecap="round" opacity="0.55" />
+      <circle cx="19" cy="39" r="8.5" fill="#3fa35b" opacity="0.2" />
+      <circle cx="28.5" cy="33.5" r="10" fill="#3fa35b" opacity="0.42" />
+      <circle cx="40" cy="27" r="12.5" fill="#eef2fa" />
+      <g stroke="#0d1321" strokeWidth="1.6" strokeLinecap="round" fill="none">
+        <line x1="40" y1="22.5" x2="40" y2="14.5" />
+        <line x1="44.3" y1="25.6" x2="51.9" y2="23.1" />
+        <line x1="42.6" y1="30.6" x2="47.3" y2="37.1" />
+        <line x1="37.4" y1="30.6" x2="32.7" y2="37.1" />
+        <line x1="35.7" y1="25.6" x2="28.1" y2="23.1" />
+      </g>
+      <polygon points="40,22.5 44.3,25.6 42.6,30.6 37.4,30.6 35.7,25.6" fill="#0d1321" />
     </svg>
   )
 }
@@ -30,7 +41,7 @@ export default function Navbar() {
       <div className="max-w-6xl mx-auto px-4 h-14 flex items-center gap-2 sm:gap-4">
         <Link href="/" className="flex items-center gap-2 font-semibold text-ink-100 whitespace-nowrap">
           <Logo />
-          <span className="hidden sm:inline">풋볼 애널라이저</span>
+          <span className="hidden sm:inline tracking-tight">팬텀</span>
         </Link>
         <nav className="flex items-center gap-1 flex-1 h-full" aria-label="주요 메뉴">
           {LINKS.map(({ href, label, match }) => {

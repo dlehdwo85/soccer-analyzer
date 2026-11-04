@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Football Analyzer API",
+    title="Phantom API",
     version="2.0.0",
     description="""
 ## 조기축구 경기 영상 분석 API
@@ -78,7 +78,7 @@ def health():
     from app.services.analysis_service import engines
     return {
         "status": "ok",
-        "service": "Football Analyzer API",
+        "service": "Phantom API",
         "version": app.version,
         "engines": engines(),
         "r2": bool(os.environ.get("R2_ACCESS_KEY_ID") and os.environ.get("R2_ENDPOINT")),
@@ -87,4 +87,4 @@ def health():
 
 @app.get("/", include_in_schema=False)
 def root():
-    return {"message": "Football Analyzer API", "docs": "/docs"}
+    return {"message": "Phantom API", "docs": "/docs"}

@@ -5,13 +5,13 @@ import { fetchShareInfo } from './share'
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
   const info = await fetchShareInfo(id)
-  if (!info) return { title: '경기 기록 · 풋볼 애널라이저' }
+  if (!info) return { title: '경기 기록 · 팬텀' }
   const title = `${info.home} vs ${info.away} · 경기 기록`
   const description = info.line ?? '영상 AI로 만든 선수별 패스·슈팅·수비 기록'
   return {
     title,
     description,
-    openGraph: { title, description, type: 'article', siteName: '풋볼 애널라이저' },
+    openGraph: { title, description, type: 'article', siteName: '팬텀' },
     twitter: { card: 'summary_large_image', title, description },
   }
 }

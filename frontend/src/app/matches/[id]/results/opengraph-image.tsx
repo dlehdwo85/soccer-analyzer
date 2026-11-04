@@ -31,7 +31,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
     ['슈팅(유효)', info.shots[0], info.shots[1]],
   ] : []
   const line = info?.line ?? '영상 AI로 만든 선수별 패스·슈팅·수비 기록'
-  const text = ['풋볼 애널라이저 경기 기록', home, away, 'vs', line, ...rows.flat()].join('')
+  const text = ['팬텀 경기 기록', home, away, 'vs', line, ...rows.flat()].join('')
   const font = await koreanFont(text)
 
   return new ImageResponse(
@@ -40,7 +40,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
         width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#0b0f0d',
         color: '#fff', padding: '56px 72px', fontFamily: font ? 'NotoKR' : 'sans-serif',
       }}>
-        <div style={{ display: 'flex', fontSize: 30, color: '#3fa35b', fontWeight: 700 }}>풋볼 애널라이저 · 경기 기록</div>
+        <div style={{ display: 'flex', fontSize: 30, color: '#3fa35b', fontWeight: 700 }}>팬텀 · 경기 기록</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 28, marginTop: 36, fontSize: 64, fontWeight: 700 }}>
           <div style={{ display: 'flex', width: 28, height: 28, borderRadius: 6, background: info?.homeColor ?? '#56b4d3' }} />
           <div style={{ display: 'flex' }}>{home}</div>
