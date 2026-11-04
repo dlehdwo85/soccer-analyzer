@@ -310,3 +310,16 @@ def test_possession_timeline_fractional_bin_boundaries_terminate():
     assert len(out) == 10
     assert out[3]["home_pct"] == 100.0
     assert out[1]["home_pct"] == 0.0 and out[2]["home_pct"] == 0.0
+
+
+def test_fit_to_extents_rescales_positions_but_keeps_meters():
+    from app.vision.events import Frame, PlayerObs, fit_to_extents
+    # 카메라가 돌아 경기장이 가로 2배로 늘어난 좌표 (0~210)
+    frames = [Frame(t, [PlayerObs(f"P{i}", "home", i * 210 / 99, 34.0 + (i % 5), 2.0, 0.5) for i in range(100)],
+                    (105.0, 34.0)) for t in range(3)]
+    out = fit_to_extents(frames, 105.0, 68.0)
+    xs = [p.x for p in out[0].players]
+    assert min(xs) < 5 and 100 < max(xs) < 110
+    p0, q0 = frames[0].players[10], out[0].players[10]
+    assert abs((p0.r * p0.s) - (q0.r * q0.s)) < 1e-9      # 실제 거리(m)는 그대로
+    assert abs(out[0].ball[0] - 52.5) < 3

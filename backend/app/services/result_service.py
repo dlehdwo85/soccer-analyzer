@@ -102,12 +102,19 @@ def _heads(rows: List[MatchPlayer]) -> Dict[str, str]:
 
 
 def _remap_events(ev_rows: List[MatchEvent], head: Dict[str, str], team_of: Dict[str, str],
-                  excluded: set) -> List[Tuple[MatchEvent, Event]]:
-    """DB 이벤트 → 병합/제외/팀 변경을 반영한 이벤트. (원본 행, 이벤트) 쌍."""
+                  excluded: set, untrusted_bounds: bool = False) -> List[Tuple[MatchEvent, Event]]:
+    """DB 이벤트 → 병합/제외/팀 변경을 반영한 이벤트. (원본 행, 이벤트) 쌍.
+
+    untrusted_bounds: 보정 없이 카메라가 움직인 영상. 예전 엔진은 화면 밖으로 사라진 공을 '아웃'으로 보고
+    그 뒤 점유를 모두 세트피스로 셌다 (경기 1: 21분에 102개). 공이 멈춘 근거가 없는 그런 세트피스는 뺀다."""
     out: List[Tuple[MatchEvent, Event]] = []
     for r in ev_rows:
         if r.deleted:
             continue
+        if untrusted_bounds and r.kind == "set_piece" and not r.manual:
+            d = _loads(r.detail_json, {})
+            if d.get("still_s") is None:
+                continue
         p = head.get(r.player, r.player)
         if p in excluded or p not in team_of:
             continue
@@ -167,7 +174,8 @@ def build_view(db: Session, match: Match, include_events: bool = True, period: O
     excluded = {r.track_id for r in heads if r.excluded}
     team_of = {r.track_id: r.team for r in heads if not r.excluded}
 
-    pairs = _remap_events(ev_rows, head, team_of, excluded)
+    untrusted = bool(meta.get("camera_moving")) and not meta.get("calibrated")
+    pairs = _remap_events(ev_rows, head, team_of, excluded, untrusted_bounds=untrusted)
     ht = halftime_rel(match, meta)
     duration = meta.get("duration_s") or (max((e.t_end or e.t) for _, e in pairs) if pairs else 0)
     t_from, t_to = 0.0, float(duration or 0)
