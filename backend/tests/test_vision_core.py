@@ -259,3 +259,13 @@ def test_scoreboard_goals_attach_preceding_shot():
     assert out["score"] == {"home": 1, "away": 1}
     assert out["goals"][0]["player"] == "P7" and out["goals"][0]["t"] == 80.0
     assert out["goals"][1]["player"] is None and out["goals"][1]["t"] == 300.0
+
+
+def test_in_play_candidates_drop_spare_ball_and_lights():
+    from app.vision.ball import in_play_candidates
+    # 선수 8명이 화면 가운데 (키 40px), 벤치 옆 여분의 공(오른쪽 아래 멀리), 화면 맨 위 조명
+    persons = [((400 + 30 * i, 300, 420 + 30 * i, 340), 0.9) for i in range(8)]
+    balls = [(500, 345, 0.3), (1200, 700, 0.6), (600, 10, 0.5)]
+    assert in_play_candidates(balls, persons, 720) == [(500, 345, 0.3)]
+    # 사람이 거의 없으면 조명만 거른다
+    assert in_play_candidates(balls, persons[:2], 720) == [(500, 345, 0.3), (1200, 700, 0.6)]
