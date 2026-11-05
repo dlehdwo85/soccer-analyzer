@@ -96,9 +96,12 @@ def _result_from_output(out) -> Dict:
     raise RuntimeError("이전 버전 워커의 응답입니다. backend/Dockerfile.worker로 워커 이미지를 다시 배포하세요.")
 
 
-def check_job(job_id: str) -> Dict:
+def check_job(job_id: str, result_key: Optional[str] = None) -> Dict:
     """RunPod에 한 번 물어본다. 반환: {state, percent, message, result?, error?}
-    state: queued | running | done | failed"""
+    state: queued | running | done | failed
+
+    RunPod은 끝난 작업의 기록을 얼마 뒤 지운다. 아무도 상태를 묻지 않는 사이 지워졌으면(경기 3: 밤새 분석 화면을
+    안 열어 둠) 워커가 R2에 올려 둔 result_key에서 결과를 찾는다."""
     try:
         st = requests.get(_url(f"status/{job_id}"), headers=_headers(), timeout=20).json()
     except (requests.RequestException, ValueError) as e:
@@ -107,6 +110,11 @@ def check_job(job_id: str) -> Dict:
     if not isinstance(st, dict) or not isinstance(st.get("status"), str):
         # 취소됐거나 대기 기한(24시간)이 지나 지워진 작업은 {"status": 404, "error": ...}처럼 숫자로 온다
         err = st.get("error") if isinstance(st, dict) else None
+        if result_key:
+            try:
+                return {"state": "done", "result": _download_result(result_key)}
+            except Exception as e:  # noqa: BLE001 — 결과도 없으면 아래의 실패로
+                logger.info("R2에 결과 없음(%s): %s", result_key, e)
         return {"state": "failed", "error": f"GPU 작업을 찾을 수 없습니다(취소되었거나 대기 기한이 지남). 다시 분석해 주세요. {err or ''}".strip()}
     state = st["status"].upper()
     out = st.get("output")

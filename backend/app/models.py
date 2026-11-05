@@ -75,6 +75,7 @@ class Match(Base):
     overlay_gz        = Column(Text, nullable=True)            # 영상 검수용 프레임별 선수 박스·공 위치 (gzip+base64 JSON)
     web_video_url     = Column(String(1024), nullable=True)    # 브라우저 재생용 사본 (720p H.264, faststart)
     runpod_job_id     = Column(String(64), nullable=True)      # GPU 서버(RunPod)에 맡긴 작업 번호 — 상태 조회 때 확인
+    runpod_result_key = Column(String(200), nullable=True)     # 워커가 결과를 올릴 R2 키 — RunPod이 작업 기록을 지운 뒤에도 결과를 찾는다
     analysis_quality  = Column(String(20), nullable=True)      # standard | max
     ai_summary_json   = Column(Text, nullable=True)            # AI 경기 요약 + MOM 후보
     ai_summary_at     = Column(DateTime, nullable=True)

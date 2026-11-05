@@ -263,9 +263,9 @@ def start_analyze(match_id: int, body: AnalyzeRequest, background_tasks: Backgro
         import uuid
         from app.services import runpod_service
         cfg = analysis_service.build_config(m, options)
+        m.runpod_result_key = f"results/{m.id}/{uuid.uuid4().hex}.json.gz"
         try:
-            m.runpod_job_id = runpod_service.submit_job(
-                m.video_url, cfg.__dict__, f"results/{m.id}/{uuid.uuid4().hex}.json.gz")
+            m.runpod_job_id = runpod_service.submit_job(m.video_url, cfg.__dict__, m.runpod_result_key)
         except Exception as e:  # noqa: BLE001
             db.rollback()
             raise HTTPException(502, f"GPU 서버에 작업을 맡기지 못했습니다: {e}")
@@ -291,7 +291,7 @@ def _poll_gpu_job(db: Session, m: Match) -> None:
     from app.services import runpod_service
     from app.services.result_service import save_result
     job_id = m.runpod_job_id
-    st = runpod_service.check_job(job_id)
+    st = runpod_service.check_job(job_id, m.runpod_result_key)
     db.refresh(m)
     if m.runpod_job_id != job_id or m.status != "analyzing":
         return  # 다른 요청이 먼저 처리했다

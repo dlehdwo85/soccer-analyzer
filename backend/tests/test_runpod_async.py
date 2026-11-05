@@ -65,6 +65,22 @@ def test_check_job_states_and_r2_result(configured, monkeypatch):
     assert done["state"] == "done" and done["result"]["meta"]["ball_detected_pct"] == 90
 
 
+def test_check_job_purged_job_falls_back_to_r2(configured, monkeypatch):
+    """아무도 상태를 묻지 않는 사이 RunPod이 작업 기록을 지웠어도, R2에 올라간 결과를 찾아 저장한다."""
+    blob = gzip.compress(json.dumps({"version": 2, "players": [], "events": [], "meta": {}}).encode())
+
+    def fake_get(url, headers=None, timeout=None):
+        if url.startswith("https://pub.example/"):
+            if url.endswith("missing.json.gz"):
+                return _Resp(status=404)
+            return _Resp(content=blob)
+        return _Resp({"status": 404, "error": "request does not exist"})
+    monkeypatch.setattr(rs.requests, "get", fake_get)
+    assert rs.check_job("j", "results/3/a.json.gz")["state"] == "done"
+    gone = rs.check_job("j", "results/3/missing.json.gz")
+    assert gone["state"] == "failed" and "찾을 수 없습니다" in gone["error"]
+
+
 def test_check_job_inline_result_and_failure(configured, monkeypatch):
     result = {"version": 2, "players": [], "events": [], "meta": {}}
     replies = iter([
@@ -111,7 +127,7 @@ def test_api_gpu_flow_submit_then_poll_saves_result(monkeypatch):
         {"state": "done", "result": analyze_simulated(AnalysisConfig(), duration_s=60, seed=5)},
     ])
     monkeypatch.setattr(rs, "submit_job", fake_submit)
-    monkeypatch.setattr(rs, "check_job", lambda job_id: next(states))
+    monkeypatch.setattr(rs, "check_job", lambda job_id, result_key=None: next(states))
 
     with TestClient(app) as c:
         mid = c.post("/api/matches", json={"title": "GPU 경기"}).json()["id"]
