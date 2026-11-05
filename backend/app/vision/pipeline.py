@@ -38,7 +38,8 @@ from .scoreboard import ScoreboardReader
 from .audio import detect_whistles, load_audio
 from .pitchlines import TouchlineFilter, halfway_line
 from .stats import compute_player_stats, pass_network, possession_timeline, team_stats
-from .tracker import Detection, IoUTracker, Tracklet, stitch_tracklets, suggest_same_player
+from .tracker import (Detection, IoUTracker, Tracklet, assign_roster_slots, pieces_from_tracklets, stitch_tracklets,
+                      suggest_same_player)
 
 logger = logging.getLogger(__name__)
 
@@ -521,6 +522,23 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
         merge_hints = {"P" + h[1:]: ["P" + o[1:] for o in lst] for h, lst in hints.items()}
     except Exception:  # 부가 정보 — 실패해도 분석 결과는 살린다
         logger.exception("같은 선수 후보 계산 실패")
+    # 경기장 안에는 팀당 필드 10 + GK 1명 — 화면 밖에 나갔다 돌아온 조각을 정원 칸에 맞춰 묶는다.
+    # 선수 행은 조각별로 남기고 묶음만 meta로 넘겨, 저장할 때 '자동 합치기'(되돌리기 가능)로 반영한다.
+    roster_slots: Dict[str, str] = {}
+    roster_extra = 0
+    if cfg.field_type != "futsal":
+        try:
+            gk_keys = {k: labels[k] in (C.HOME_GK, C.AWAY_GK) for k in labels}
+            # 상의 색이 자기 팀보다 상대·심판에 가깝거나 형광 조끼인 조각(심판·조끼 입은 GK)은 칸에 넣지 않는다
+            refs = {k: v for k, v in clf.reference_lab.items() if k in (C.HOME, C.AWAY, C.REFEREE)}
+            heads_bad = {mapping.get(t.tid, t.tid) for t in tracklets
+                         if not gk_keys.get(t.tid) and C.kit_mismatch(t.color_lab, t.team, refs)}
+            pieces = [p for p in pieces_from_tracklets(tracklets, mapping, apps, gk_keys) if p.head not in heads_bad]
+            slot_map, extra = assign_roster_slots(pieces, C.appearance_distance)
+            roster_slots = {"P" + h[1:]: "P" + lead[1:] for h, lead in slot_map.items() if h != lead}
+            roster_extra = len(extra)
+        except Exception:
+            logger.exception("팀당 정원 정리 실패")
     players_obs: Dict[int, List[PlayerObs]] = defaultdict(list)
     merged_labels: Dict[str, str] = {}
     thumbs: Dict[str, Optional[bytes]] = {}
@@ -593,6 +611,8 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
         "camera_moving": camera_moving,
         "snapped_colors": dict(clf.snapped_hex),
         "merge_hints": merge_hints,
+        "roster_slots": roster_slots,
+        "roster_over_capacity": roster_extra,
         "warnings": warnings,
     }
     colors = {pid: C.rgb_to_hex(C.lab_to_rgb(np.median(np.array(v), axis=0))[0])

@@ -365,3 +365,41 @@ def test_player_role_gk_and_referee(client, analyzed):
     client.patch(f"{url}/players/{tid}", json={"role": "player"})
     row = next(x for x in client.get(f"{url}/result").json()["players"] if x["track_id"] == tid)
     assert row["label"] == "away" and not row["excluded"]
+
+
+def test_auto_roster_merges_and_undo(client, analyzed):
+    """조각으로 나뉜 선수를 팀당 정원 칸으로 합치고, 한 번에 되돌린다."""
+    from app.database import SessionLocal
+    from app.models import Match, MatchPlayer
+    from app.services.result_service import pack_overlay
+    url = f"/api/matches/{analyzed}"
+    db = SessionLocal()
+    rows = db.query(MatchPlayer).filter(MatchPlayer.match_id == analyzed, MatchPlayer.team == "home",
+                                        MatchPlayer.merged_into.is_(None), MatchPlayer.excluded.is_(False),
+                                        MatchPlayer.display_name.is_(None)).all()
+    import json
+    rows = [r for r in rows if not (r.label or "").endswith("_gk")]
+    assert len(rows) >= 4
+    # 옆 위치가 가장 가까운 두 선수를 '한 사람이 화면 밖에 나갔다 돌아온 두 조각'으로 만든다
+    rows.sort(key=lambda r: json.loads(r.stats_json).get("avg_y") or 0)
+    i = min(range(len(rows) - 1), key=lambda i: abs((json.loads(rows[i + 1].stats_json).get("avg_y") or 0)
+                                                     - (json.loads(rows[i].stats_json).get("avg_y") or 0)))
+    pa, pb = rows[i], rows[i + 1]
+    others = [r for r in rows if r not in (pa, pb)]
+    tracks = {r.track_id: [[k, 100 * j, 500, 100 * j + 20, 560] for k in range(0, 300)] for j, r in enumerate(others)}
+    tracks[pa.track_id] = [[k, 950, 500, 970, 560] for k in range(0, 100)]
+    tracks[pb.track_id] = [[k, 955, 500, 975, 560] for k in range(110, 300)]
+    rows = [pa, pb]
+    m = db.get(Match, analyzed)
+    m.overlay_gz = pack_overlay({"v": 1, "w": 1920, "h": 1080, "start_s": 0, "step": 0.2, "n": 300, "tracks": tracks, "ball": []})
+    db.commit()
+    a, b = rows[0].track_id, rows[1].track_id
+    db.close()
+    r = client.post(f"{url}/players/auto-roster")
+    assert r.status_code == 200, r.text
+    assert r.json()["merged"] >= 1
+    heads = {p["track_id"]: p for p in client.get(f"{url}/result").json()["players"]}
+    assert (a in heads and b in heads[a]["merged_from"]) or (b in heads and a in heads[b]["merged_from"])
+    assert client.post(f"{url}/players/auto-roster/undo").json()["unmerged"] >= 1
+    heads = {p["track_id"] for p in client.get(f"{url}/result").json()["players"]}
+    assert a in heads and b in heads

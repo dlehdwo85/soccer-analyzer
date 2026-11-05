@@ -310,3 +310,22 @@ def test_touchline_filter_removes_bench_not_players():
     # 사람 대부분이 선 아래에 있으면(엉뚱한 선) 그 선을 믿지 않는다
     tf2 = TouchlineFilter()
     assert len(tf2.update(0.0, f, bench * 4 + players[:2])) == 10
+
+
+def test_roster_slots_cap_and_reentry():
+    """팀당 필드 10칸: 동시에 10명이 보이다 한 명이 나가고 다시 들어오면 그 빈 칸으로, 11번째 동시 인원은 정원 초과."""
+    import numpy as np
+    from app.vision.tracker import RosterPiece, assign_roster_slots
+    app = lambda i: np.array([50.0 + i * 3, 0, 0] * 3)
+    dist = lambda a, b: None if a is None or b is None else float(np.abs(a - b).mean())
+    ps = [RosterPiece(f"T{i}", "home", False, 0.0, 100.0, (10.0 * i, 30.0), (10.0 * i, 30.0), app(i), 6.0 * i)
+          for i in range(9)]
+    ps.append(RosterPiece("T9", "home", False, 0.0, 40.0, (90.0, 30.0), (95.0, 30.0), app(9), 54.0))
+    ps.append(RosterPiece("T10", "home", False, 60.0, 100.0, (92.0, 30.0), (90.0, 30.0), app(9), 54.0))   # T9가 돌아옴
+    ps.append(RosterPiece("T11", "home", False, 10.0, 90.0, (50.0, 30.0), (50.0, 30.0), app(11), 20.0))  # 11번째 동시 인원
+    ps.append(RosterPiece("G1", "home", True, 0.0, 100.0, (2.0, 34.0), (2.0, 34.0), None, 34.0))
+    slots, extra = assign_roster_slots(ps, dist)
+    assert slots["T10"] == slots["T9"]
+    assert len({slots[p.head] for p in ps if not p.gk and p.head in slots}) == 10
+    assert extra == ["T11"] or slots.get("T11") not in {slots[p.head] for p in ps[:9]}
+    assert slots["G1"] == "G1"

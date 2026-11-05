@@ -460,9 +460,26 @@ def merge_players(match_id: int, body: MergeRequest, db: Session = Depends(get_d
 @router.post("/{match_id}/players/{track_id}/unmerge")
 def unmerge_player(match_id: int, track_id: str, db: Session = Depends(get_db)):
     p = _player(db, match_id, track_id)
-    p.merged_into = None
+    p.merged_into, p.auto_merged = None, False
     db.commit()
     return {"ok": True}
+
+
+@router.post("/{match_id}/players/auto-roster")
+def auto_roster(match_id: int, db: Session = Depends(get_db)):
+    """선수 조각을 팀당 필드 10 + GK 1 칸에 맞춰 자동으로 합친다 (되돌릴 수 있음)."""
+    from app.services import roster_service
+    m = _get(db, match_id)
+    try:
+        return roster_service.auto_roster(db, m)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/{match_id}/players/auto-roster/undo")
+def undo_auto_roster(match_id: int, db: Session = Depends(get_db)):
+    from app.services import roster_service
+    return {"ok": True, "unmerged": roster_service.undo_auto_roster(db, _get(db, match_id))}
 
 
 # ── AI 선수 분석 ────────────────────────────────────────────────────────────

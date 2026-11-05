@@ -72,6 +72,14 @@ def save_result(db: Session, match: Match, result: Dict, source: str) -> None:
             display_name=p.get("display_name"), jersey_number=p.get("jersey_number"),
             stats_json=json.dumps(p.get("stats") or {}),
         ))
+    # 분석이 팀당 정원(필드 10 + GK 1)에 맞춰 묶은 조각 — 되돌릴 수 있는 자동 합치기로 저장
+    db.flush()
+    slots = (result.get("meta") or {}).get("roster_slots") or {}
+    if slots:
+        by_id = {r.track_id: r for r in db.query(MatchPlayer).filter(MatchPlayer.match_id == match.id).all()}
+        for pid, lead in slots.items():
+            if pid != lead and pid in by_id and lead in by_id:
+                by_id[pid].merged_into, by_id[pid].auto_merged = lead, True
     rows = []
     for i, e in enumerate(result.get("events", [])):
         rows.append(MatchEvent(

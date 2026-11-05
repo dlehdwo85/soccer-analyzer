@@ -65,6 +65,21 @@ export default function TrackEditor({ matchId, result, onChanged }:
           같은 선수의 트랙을 선택해 <b>합치기</b>, 선수가 아닌 트랙은 <b>제외</b>하세요.
           카드 아래 <b>같은 선수 후보</b>는 카메라가 돌아간 사이 화면 밖에 있다 돌아와 따로 잡혔을 수 있는 선수입니다. 모든 수치에 바로 반영되고 언제든 되돌릴 수 있습니다.</p>
         <p className="text-xs text-ink-500">이름을 붙인 선수는 &lsquo;선수 프로필&rsquo;에서 여러 경기 기록이 합산됩니다.</p>
+        <div className="flex flex-wrap items-center gap-2 pt-2">
+          <button className="btn-secondary !py-1.5 text-xs" disabled={busy}
+            onClick={() => run(() => api.autoRoster(matchId),
+              '팀당 필드 10명 + 골키퍼 1명 칸에 맞춰 조각을 합쳤습니다. 틀린 묶음은 선수 카드에서 풀 수 있습니다')}>
+            <Users className="w-3.5 h-3.5" />팀당 11명으로 자동 정리
+          </button>
+          <button className="btn-ghost !py-1.5 text-xs" disabled={busy}
+            onClick={() => run(() => api.undoAutoRoster(matchId), '자동 정리를 되돌렸습니다')}>
+            자동 정리 되돌리기
+          </button>
+          <span className="text-[11px] text-ink-500">
+            화면 밖에 나갔다 돌아와 새 번호가 붙은 선수를 &lsquo;그때 화면 밖에 있던 같은 팀 선수&rsquo; 중 색·자리가 가장 비슷한 사람으로 묶습니다.
+            같은 유니폼이라 오래 나가 있던 선수는 틀릴 수 있으니 썸네일로 확인해 주세요. 이름을 붙인 선수는 건드리지 않습니다.
+          </span>
+        </div>
       </div>
 
       <div className="sticky top-14 z-20 card p-3 flex flex-wrap items-center gap-2 shadow-lg shadow-black/30">

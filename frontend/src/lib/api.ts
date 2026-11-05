@@ -134,6 +134,9 @@ export const api = {
   updatePlayer: (id: number, trackId: string,
                  body: { display_name?: string | null; jersey_number?: number | null; team?: Team; excluded?: boolean; role?: 'player' | 'gk' | 'referee' }) =>
     req<{ ok: boolean; merged_into?: string | null }>(`/api/matches/${id}/players/${encodeURIComponent(trackId)}`, json('PATCH', body)),
+  autoRoster: (id: number) =>
+    req<{ merged: number; players: Partial<Record<Team, number>>; over_capacity: number }>(`/api/matches/${id}/players/auto-roster`, json('POST')),
+  undoAutoRoster: (id: number) => req<{ ok: boolean; unmerged: number }>(`/api/matches/${id}/players/auto-roster/undo`, json('POST')),
   mergePlayers: (id: number, target: string, sources: string[]) =>
     req<{ ok: boolean }>(`/api/matches/${id}/players/merge`, json('POST', { target, sources })),
   unmergePlayer: (id: number, trackId: string) =>

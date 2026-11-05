@@ -103,6 +103,7 @@ class MatchPlayer(Base):
     minor         = Column(Boolean, default=False)            # 짧게 잡힌 조각 트랙
     excluded      = Column(Boolean, default=False)            # 사용자가 제외(코치/관중 등)
     merged_into   = Column(String(50), nullable=True)         # 다른 트랙과 합쳐졌으면 대상 track_id
+    auto_merged   = Column(Boolean, default=False)            # 팀당 정원 자동 정리로 합쳐짐 (한 번에 되돌릴 수 있게)
     display_name  = Column(String(100), nullable=True)
     jersey_number = Column(Integer, nullable=True)
     stats_json    = Column(Text, nullable=False, default="{}")
