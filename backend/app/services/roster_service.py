@@ -59,8 +59,7 @@ def _kit_refs(match: Match) -> Dict[str, np.ndarray]:
 
 
 def _thumb_torso_lab(b64: Optional[str]) -> Optional[np.ndarray]:
-    """썸네일 몸통(키의 25~55%, 가운데 40%) 색 중앙값 LAB. 형광 조끼가 잔디로 걸러지지 않게 잔디 제거는 하지 않는다
-    (몸통 한가운데는 거의 상의다)."""
+    """썸네일 몸통(키의 25~55%, 가운데 40%) 색 중앙값 LAB. 잔디로 보이는 픽셀은 뺀다(흐린 썸네일은 잔디가 섞인다)."""
     if not b64:
         return None
     import cv2
@@ -73,6 +72,7 @@ def _thumb_torso_lab(b64: Optional[str]) -> Optional[np.ndarray]:
     y0, y1 = int(pad + 0.25 * bh), int(pad + 0.55 * bh)
     x0, x1 = int(w * 0.3), int(w * 0.7)
     px = cv2.cvtColor(img[y0:y1, x0:x1], cv2.COLOR_BGR2RGB).reshape(-1, 3)
+    px = px[~C.grass_mask_rgb(px)] if len(px) else px
     if len(px) < 5:
         return None
     return np.median(C.rgb_to_lab(px.astype(float)), axis=0)
