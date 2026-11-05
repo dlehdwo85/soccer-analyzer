@@ -125,10 +125,10 @@ export default function BallLabelPage() {
       </div>
 
       {frame && (
-        <div className="relative select-none">
+        <div className="flex justify-center"><div className="relative select-none">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img ref={imgRef} src={data.base + frame.name + '.jpg'} alt={`장면 ${i + 1}`} draggable={false}
-            className="w-full h-auto rounded cursor-crosshair"
+            className="block max-w-full max-h-[calc(100vh-190px)] w-auto h-auto rounded cursor-crosshair"
             onMouseMove={e => setHover(toNative(e))} onMouseLeave={() => setHover(null)}
             onClick={e => { const p = toNative(e); save({ visible: true, x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 }) }} />
           {lbl?.visible && lbl.x != null && lbl.y != null && (
@@ -140,7 +140,7 @@ export default function BallLabelPage() {
               className="pointer-events-none absolute rounded-full border-2 border-white/70 shadow-xl"
               style={{ left: hover.cx + 24, top: hover.cy - LOUPE - 12 < 0 ? hover.cy + 24 : hover.cy - LOUPE - 12 }} />
           )}
-        </div>
+        </div></div>
       )}
     </div>
   )
