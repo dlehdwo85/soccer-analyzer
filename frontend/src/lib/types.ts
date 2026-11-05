@@ -417,3 +417,14 @@ export interface MatchAccess {
   reason: 'free' | 'match' | 'team' | 'trial' | null
   trial_available: boolean
 }
+
+/** 공 위치 표시 (공 모델 추가 학습용) */
+export interface BallLabel { visible: boolean; x?: number | null; y?: number | null }
+export interface BallLabelFrame { name: string; burst: number; w: number; h: number }
+export interface BallLabelSetData {
+  id: string
+  title: string
+  base: string
+  frames: BallLabelFrame[]
+  labels: Record<string, BallLabel>
+}

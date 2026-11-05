@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -160,3 +160,27 @@ class Payment(Base):
     return_path = Column(String(500), nullable=True)               # 결제 뒤 돌아갈 사이트 경로
     pg_mode     = Column(String(10), nullable=True)                # test | live (나이스페이 상점)
     created_at  = Column(DateTime, default=datetime.utcnow)
+
+
+class BallLabelSet(Base):
+    """공 모델 추가 학습용 장면 묶음. manifest_json: {"base": 이미지 주소 앞부분, "frames": [{"name", "burst", "w", "h"}]}"""
+    __tablename__ = "ball_label_sets"
+
+    id            = Column(String(40), primary_key=True)          # 추측하기 어려운 묶음 번호 (주소에 들어감)
+    title         = Column(String(200), default="")
+    manifest_json = Column(Text, nullable=False)
+    created_at    = Column(DateTime, default=datetime.utcnow)
+
+
+class BallLabel(Base):
+    """사람이 표시한 공 위치 (원본 픽셀). visible=False면 '공 안 보임'."""
+    __tablename__ = "ball_labels"
+    __table_args__ = (UniqueConstraint("set_id", "image", name="uq_ball_label"),)
+
+    id         = Column(Integer, primary_key=True, index=True)
+    set_id     = Column(String(40), nullable=False, index=True)
+    image      = Column(String(100), nullable=False)
+    x          = Column(Float, nullable=True)
+    y          = Column(Float, nullable=True)
+    visible    = Column(Boolean, default=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

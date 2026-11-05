@@ -403,3 +403,21 @@ def test_auto_roster_merges_and_undo(client, analyzed):
     assert client.post(f"{url}/players/auto-roster/undo").json()["unmerged"] >= 1
     heads = {p["track_id"] for p in client.get(f"{url}/result").json()["players"]}
     assert a in heads and b in heads
+
+
+def test_ball_label_set_flow(client):
+    import json
+    from app.database import SessionLocal
+    from app.models import BallLabelSet
+    db = SessionLocal()
+    db.merge(BallLabelSet(id="testset123", title="t", manifest_json=json.dumps(
+        {"base": "https://x/", "frames": [{"name": "m3_000001", "burst": 0, "w": 1920, "h": 1080}]})))
+    db.commit(); db.close()
+    assert client.get("/api/balllabel/nope").status_code == 404
+    assert client.put("/api/balllabel/testset123/m3_000001", json={"visible": True, "x": 3000, "y": 10}).status_code == 400
+    assert client.put("/api/balllabel/testset123/other", json={"visible": False}).status_code == 404
+    assert client.put("/api/balllabel/testset123/m3_000001", json={"visible": True, "x": 960.5, "y": 500}).status_code == 200
+    d = client.get("/api/balllabel/testset123").json()
+    assert d["labels"]["m3_000001"] == {"visible": True, "x": 960.5, "y": 500}
+    client.put("/api/balllabel/testset123/m3_000001", json={"visible": False})
+    assert client.get("/api/balllabel/testset123").json()["labels"]["m3_000001"]["visible"] is False

@@ -1,5 +1,5 @@
 import {
-  AnalysisStatus, BillingConfig, Calibration, CalibrationInput, Club, ClubInput, EventCreate, EventPatch, Health, Match, MatchInput, MatchResult, MatchSummary,
+  AnalysisStatus, BallLabel, BallLabelSetData, BillingConfig, Calibration, CalibrationInput, Club, ClubInput, EventCreate, EventPatch, Health, Match, MatchInput, MatchResult, MatchSummary,
   MatchAccess, Overlay, PlayerProfile, PlayerProfileDetail, PlayerReport, Season, Team, TeamMembers, TeamRole, VideoLibrary,
 } from './types'
 
@@ -137,6 +137,11 @@ export const api = {
   autoRoster: (id: number) =>
     req<{ merged: number; players: Partial<Record<Team, number>>; over_capacity: number }>(`/api/matches/${id}/players/auto-roster`, json('POST')),
   undoAutoRoster: (id: number) => req<{ ok: boolean; unmerged: number }>(`/api/matches/${id}/players/auto-roster/undo`, json('POST')),
+  ballLabelSet: (setId: string) => req<BallLabelSetData>(`/api/balllabel/${encodeURIComponent(setId)}`),
+  putBallLabel: (setId: string, image: string, body: BallLabel) =>
+    req<{ ok: boolean }>(`/api/balllabel/${encodeURIComponent(setId)}/${encodeURIComponent(image)}`, json('PUT', body)),
+  clearBallLabel: (setId: string, image: string) =>
+    req<{ ok: boolean }>(`/api/balllabel/${encodeURIComponent(setId)}/${encodeURIComponent(image)}`, json('DELETE')),
   mergePlayers: (id: number, target: string, sources: string[]) =>
     req<{ ok: boolean }>(`/api/matches/${id}/players/merge`, json('POST', { target, sources })),
   unmergePlayer: (id: number, trackId: string) =>
