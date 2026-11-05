@@ -528,15 +528,8 @@ def analyze_video(source: str, cfg: AnalysisConfig, detector: Optional[Detector]
     roster_extra = 0
     if cfg.field_type != "futsal":
         try:
-            gk_keys = {k: labels[k] in (C.HOME_GK, C.AWAY_GK) for k in labels}
-            # 상의 색이 자기 팀보다 상대·심판에 가깝거나 형광 조끼인 조각(심판·조끼 입은 GK)은 칸에 넣지 않는다
-            refs = {k: v for k, v in clf.reference_lab.items() if k in (C.HOME, C.AWAY, C.REFEREE)}
-            heads_bad = {mapping.get(t.tid, t.tid) for t in tracklets
-                         if not gk_keys.get(t.tid) and C.kit_mismatch(t.color_lab, t.team, refs)}
-            pieces = [p for p in pieces_from_tracklets(tracklets, mapping, apps, gk_keys) if p.head not in heads_bad]
-            slot_map, extra = assign_roster_slots(pieces, C.appearance_distance)
-            roster_slots = {"P" + h[1:]: "P" + lead[1:] for h, lead in slot_map.items() if h != lead}
-            roster_extra = len(extra)
+            roster_slots, roster_extra = roster_from_tracklets(
+                tracklets, mapping, apps, labels, clf.reference_lab)
         except Exception:
             logger.exception("팀당 정원 정리 실패")
     players_obs: Dict[int, List[PlayerObs]] = defaultdict(list)
@@ -722,6 +715,20 @@ def scoreboard_goals(board: Dict, events: List[Dict], left_team: str = "home", w
                       "t": shot["t"] if shot else c["t"], "player": shot["player"] if shot else None})
     score = {"home": sum(g["team"] == "home" for g in goals), "away": sum(g["team"] == "away" for g in goals)}
     return {"found": True, "box": board.get("box"), "goals": goals, "score": score}
+
+
+def roster_from_tracklets(tracklets: Sequence[Tracklet], mapping: Dict[str, str],
+                          apps: Dict[str, Tuple[Optional[np.ndarray], int]], labels: Dict[str, str],
+                          reference_lab: Dict[str, np.ndarray]) -> Tuple[Dict[str, str], int]:
+    """이어 붙인 조각을 팀당 필드 10 + GK 1 칸으로 묶는다. 반환: ({조각 P번호: 칸 대표 P번호}, 정원 초과 수).
+    상의 색이 자기 팀보다 상대·심판에 가깝거나 형광 조끼인 조각(심판·조끼 입은 GK)은 칸에 넣지 않는다."""
+    gk_keys = {k: labels.get(k) in (C.HOME_GK, C.AWAY_GK) for k in labels}
+    refs = {k: v for k, v in reference_lab.items() if k in (C.HOME, C.AWAY, C.REFEREE)}
+    bad = {mapping.get(t.tid, t.tid) for t in tracklets
+           if not gk_keys.get(t.tid) and C.kit_mismatch(t.color_lab, t.team, refs)}
+    pieces = [p for p in pieces_from_tracklets(tracklets, mapping, apps, gk_keys) if p.head not in bad]
+    slot_map, extra = assign_roster_slots(pieces, C.appearance_distance)
+    return {"P" + h[1:]: "P" + lead[1:] for h, lead in slot_map.items() if h != lead}, len(extra)
 
 
 def build_overlay(history: Dict[int, List], tid_to_pid: Dict[int, str], ball_sel: Sequence, ball_px: Sequence,

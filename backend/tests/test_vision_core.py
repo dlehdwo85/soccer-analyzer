@@ -329,3 +329,34 @@ def test_roster_slots_cap_and_reentry():
     assert len({slots[p.head] for p in ps if not p.gk and p.head in slots}) == 10
     assert extra == ["T11"] or slots.get("T11") not in {slots[p.head] for p in ps[:9]}
     assert slots["G1"] == "G1"
+
+
+def test_kit_mismatch_referee_and_vest():
+    import numpy as np
+    from app.vision import color as C
+    lab = lambda h: C.rgb_to_lab(np.array([C.hex_to_rgb(h)], dtype=float))[0]
+    refs = {"home": lab("#badce0"), "away": lab("#32311e"), "referee": lab("#facc15")}
+    assert not C.kit_mismatch(lab("#2b2a1c"), "away", refs)          # 검은 원정 유니폼
+    assert C.kit_mismatch(lab("#c6e03a"), "away", refs)              # 형광 조끼
+    assert C.kit_mismatch(lab("#7a8a2a"), "away", refs)              # 밤 조명에 어둡게 찍힌 형광 조끼
+    assert C.kit_mismatch(lab("#b8d8e0"), "away", refs)              # 홈(하늘색) 선수가 원정으로 잡힘
+    assert not C.kit_mismatch(None, "away", refs)
+
+
+def test_roster_from_tracklets_on_real_capture_shape():
+    """분석 파이프라인의 칸 정리: 화면 밖에 나갔다 돌아온 조각이 같은 칸으로, 형광 조끼 조각은 칸 밖으로."""
+    import numpy as np
+    from app.vision import color as C
+    from app.vision.pipeline import roster_from_tracklets
+    from app.vision.tracker import Tracklet
+    lab = lambda h: C.rgb_to_lab(np.array([C.hex_to_rgb(h)], dtype=float))[0]
+    refs = {C.HOME: lab("#badce0"), C.AWAY: lab("#32311e"), C.REFEREE: lab("#facc15")}
+    pts = lambda t0, t1, x, y: [(t / 5, x, y) for t in range(int(t0 * 5), int(t1 * 5))]
+    tr = [Tracklet("T1", "away", pts(0, 30, 50, 10), lab("#2b2a1c")),
+          Tracklet("T2", "away", pts(40, 80, 52, 11), lab("#2b2a1c")),      # T1이 돌아옴
+          Tracklet("T3", "away", pts(0, 80, 20, 50), lab("#2b2a1c")),
+          Tracklet("T4", "away", pts(31, 39, 80, 30), lab("#c6e03a"))]      # 형광 조끼
+    labels = {t.tid: "away" for t in tr}
+    slots, extra = roster_from_tracklets(tr, {}, {t.tid: (None, 0) for t in tr}, labels, refs)
+    assert slots.get("P2") == "P1" or slots.get("P1") == "P2"
+    assert "P4" not in slots and all(v != "P4" for v in slots.values())

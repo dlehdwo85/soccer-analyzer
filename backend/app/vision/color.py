@@ -225,8 +225,8 @@ def kit_mismatch(lab: Optional[np.ndarray], team: str, refs: Dict[str, np.ndarra
     chroma = lambda v: float(np.hypot(v[1], v[2]))
     if chroma(lab) > 30 and chroma(refs[team]) < 20:
         return True
-    own = float(C.delta_e(lab, refs[team])[0])
-    others = [float(C.delta_e(lab, v)[0]) for k, v in refs.items() if k != team]
+    own = float(delta_e(lab, refs[team])[0])
+    others = [float(delta_e(lab, v)[0]) for k, v in refs.items() if k != team]
     return bool(others) and min(others) < own
 
 
