@@ -99,7 +99,7 @@ export default function PaywallHost() {
           <button onClick={close} className="btn-ghost !p-1.5" aria-label="닫기"><X className="w-5 h-5" /></button>
         </div>
         <ul className="text-sm text-ink-300 space-y-1 list-disc pl-5">
-          <li>고정밀 GPU 분석 (초당 15장면, 대형 선수 모델, 작은 공 4분할 검출)</li>
+          <li>고정밀 GPU 분석 (초당 15장면, 대형 선수 모델, 밤 경기까지 학습한 공 모델)</li>
           <li>AI 경기 요약·MOM 후보, 선수별 AI 분석·평점</li>
         </ul>
         {access.trial_available && (
