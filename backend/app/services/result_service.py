@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy.orm import Session
 
 from app.models import Match, MatchEvent, MatchPlayer
-from app.vision.events import Event, Spell
+from app.vision.events import Event, Spell, bogus_pass
 from app.vision.stats import (BALL_KEYS, add_event_stats, empty_stats, finalize, merge_player_stats,
                               pass_network, possession_timeline, team_stats)
 
@@ -116,7 +116,8 @@ def _heads(rows: List[MatchPlayer]) -> Dict[str, str]:
 
 
 def _remap_events(ev_rows: List[MatchEvent], head: Dict[str, str], team_of: Dict[str, str],
-                  excluded: set, untrusted_bounds: bool = False) -> List[Tuple[MatchEvent, Event]]:
+                  excluded: set, untrusted_bounds: bool = False,
+                  spans: Optional[Dict[str, Tuple[float, float]]] = None) -> List[Tuple[MatchEvent, Event]]:
     """DB 이벤트 → 병합/제외/팀 변경을 반영한 이벤트. (원본 행, 이벤트) 쌍.
 
     untrusted_bounds: 보정 없이 카메라가 움직인 영상. 예전 엔진은 화면 밖으로 사라진 공을 '아웃'으로 보고
@@ -141,6 +142,11 @@ def _remap_events(ev_rows: List[MatchEvent], head: Dict[str, str], team_of: Dict
         if r.kind == "pass":
             if tgt == p:
                 continue  # 병합으로 자기 자신에게 한 패스가 됨 → 점유 지속
+            if not r.manual and not r.edited and bogus_pass(
+                    r.t, r.t_end, detail.get("length_m"), (spans or {}).get(r.player),
+                    (spans or {}).get(r.target) if r.target else None,
+                    tgt is not None and team_of.get(tgt) == team):
+                continue
             if tgt is not None and detail.get("reason") != "out":
                 success = team_of[tgt] == team
                 detail["reason"] = "completed" if success else "intercepted"
@@ -189,7 +195,12 @@ def build_view(db: Session, match: Match, include_events: bool = True, period: O
     team_of = {r.track_id: r.team for r in heads if not r.excluded}
 
     untrusted = bool(meta.get("camera_moving")) and not meta.get("calibrated")
-    pairs = _remap_events(ev_rows, head, team_of, excluded, untrusted_bounds=untrusted)
+    spans = {}
+    for r in rows:
+        st = _loads(r.stats_json, {})
+        if st.get("first_seen_s") is not None and st.get("last_seen_s") is not None:
+            spans[r.track_id] = (float(st["first_seen_s"]), float(st["last_seen_s"]))
+    pairs = _remap_events(ev_rows, head, team_of, excluded, untrusted_bounds=untrusted, spans=spans)
     ht = halftime_rel(match, meta)
     duration = meta.get("duration_s") or (max((e.t_end or e.t) for _, e in pairs) if pairs else 0)
     t_from, t_to = 0.0, float(duration or 0)

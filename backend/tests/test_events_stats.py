@@ -374,3 +374,13 @@ def test_wide_kick_is_cross_not_shot():
     assert not _is_cross(box, None, cfg, {**shot, "y_cross": 33.0})
     # 측면이지만 골문 안쪽으로 향했고 받은 사람이 없으면 슈팅으로 둔다
     assert not _is_cross(wing, None, cfg, {**shot, "y_cross": 35.0})
+
+
+def test_bogus_pass_speed_and_id_switch():
+    from app.vision.events import bogus_pass
+    assert bogus_pass(10.0, 10.2, 8.2, None, None, False)                       # 0.2초에 8m = 41m/s
+    assert not bogus_pass(10.0, 11.0, 15.0, None, None, True)                   # 15m/s 정상 패스
+    # 같은 팀: 주는 번호가 바로 끝나고 받는 번호가 바로 생김 = 한 사람의 번호 바뀜
+    assert bogus_pass(100.0, 100.3, 2.0, (50.0, 100.2), (100.3, 160.0), True)
+    # 받는 선수가 원래부터 있던 번호면 진짜 패스
+    assert not bogus_pass(100.0, 100.5, 6.0, (50.0, 140.0), (20.0, 160.0), True)
