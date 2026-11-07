@@ -261,6 +261,10 @@ export interface ResultMeta {
   analysis_fps?: number
   calibrated: boolean
   ball_detected_pct?: number | null
+  /** 공 모델이 직접 잡은 장면 비율 (ball_detected_pct는 앞뒤로 이어 붙인 추정 포함) */
+  ball_direct_pct?: number | null
+  /** 사람이 공 위치를 표시한 장면과 대조한 정확도 (처음 보는 장면 기준) */
+  ball_verified?: { pct: number; frames: number } | null
   raw_tracks?: number
   warnings: string[]
   field: { type: FieldType; length: number; width: number }

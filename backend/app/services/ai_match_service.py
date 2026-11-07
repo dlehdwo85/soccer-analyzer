@@ -64,7 +64,7 @@ def build_match_context(view: Dict) -> Dict:
     flow = [{"from": _clock(b.get("start_s")), "to": _clock(b.get("end_s")), "home_pct": b.get("home_pct")}
             for b in (view.get("possession_timeline") or [])]
 
-    ball_pct = meta.get("ball_detected_pct")
+    ball_pct = meta.get("ball_direct_pct", meta.get("ball_detected_pct"))   # 이어 붙인 추정 말고 직접 잡힌 비율
     expected = EXPECTED_PLAYERS.get(field_type, 11)
     flags = []
     if ball_pct is not None and ball_pct < LOW_BALL_PCT:

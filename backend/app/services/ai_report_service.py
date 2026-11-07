@@ -239,7 +239,7 @@ def build_player_context(view: Dict, track_id: str) -> Dict:
     }
 
     # 데이터 품질
-    ball_pct = meta.get("ball_detected_pct")
+    ball_pct = meta.get("ball_direct_pct", meta.get("ball_detected_pct"))   # 이어 붙인 추정 말고 직접 잡힌 비율
     sample = meta.get("source") == "sample" or bool(meta.get("sample"))
     calibrated = bool(meta.get("calibrated"))  # 분석 당시 보정 여부 (나중에 보정해도 이 기록엔 반영 안 됨)
     camera_moving = bool(meta.get("camera_moving"))

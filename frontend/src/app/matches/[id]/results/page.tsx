@@ -210,8 +210,16 @@ export default function ResultsPage() {
       {/* 분석 신뢰도 · 주의 사항 */}
       {meta.source === 'video' && meta.ball_detected_pct != null && (
         <p className="note mb-2">
-          분석 신뢰도 · 공 검출 비율 <span className="num text-ink-100">{meta.ball_detected_pct.toFixed(0)}%</span>
-          <span className="text-ink-500"> — 영상에서 공이 잡힌 비율입니다. 낮을수록 볼 기록이 실제보다 적게 잡힙니다.</span>
+          분석 신뢰도 · 공 위치 추정 <span className="num text-ink-100">{meta.ball_detected_pct.toFixed(0)}%</span>
+          {meta.ball_direct_pct != null && (
+            <> · 직접 검출 <span className="num text-ink-100">{meta.ball_direct_pct.toFixed(0)}%</span></>
+          )}
+          {meta.ball_verified && (
+            <> · 표시 장면 대조 정확도 <span className="num text-ink-100">{meta.ball_verified.pct.toFixed(0)}%</span>
+              <span className="text-ink-500"> ({meta.ball_verified.frames}장면)</span></>
+          )}
+          <span className="text-ink-500"> — 위치 추정은 공 모델이 직접 잡은 장면에 앞뒤 장면을 이어 붙인 추정까지 더한 비율입니다.
+            잡힌 위치가 진짜 공이 아닐 수도 있어서, 실제로 맞는 비율은 대조 정확도로 봐 주세요. 낮을수록 볼 기록이 부정확합니다.</span>
           {meta.duration_s > 0 && (
             <span className="block text-ink-500 mt-0.5">
               점유율은 공 주인이 확인된 <span className="num text-ink-300">{fmtClock(ts.home.possession_s + ts.away.possession_s)}</span>
