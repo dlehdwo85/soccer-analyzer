@@ -5,7 +5,7 @@ import { MatchEvent, MatchResult, PlayerRow, Team } from '@/lib/types'
 import { cn, eventLabel, fmtClock, playerName, teamInfo } from '@/lib/utils'
 import { Clip } from './VideoDock'
 
-type Item = { t: number; title: string; sub: string; team: Team; tags: string[]; xg?: number; player: string }
+type Item = { t: number; title: string; sub: string; team: Team; tags: string[]; xg?: number; player: string; pre?: number; post?: number }
 
 /** 슈팅(과 그 슈팅을 만든 키패스)을 모아 장면 목록으로 — 연속 재생 */
 function buildItems(result: MatchResult, players: Map<string, PlayerRow>): Item[] {
@@ -31,6 +31,19 @@ function buildItems(result: MatchResult, players: Map<string, PlayerRow>): Item[
     })
     lastPass = null
   }
+  // 골: 그 팀의 직전 슈팅 장면이 있으면 '골' 표시를 붙이고, 슈팅으로 잡히지 않은 골은 점수가 바뀌기 전 15초를 장면으로 넣는다
+  const board = result.meta.scoreboard
+  for (const g of (board?.found ? board.goals ?? [] : [])) {
+    const shot = items.find(i => i.team === g.team && i.player === g.player && Math.abs(i.t - g.t) <= 10)
+      ?? items.find(i => i.team === g.team && g.t - i.t >= -2 && g.t - i.t <= 12)
+    if (shot) { shot.tags.unshift('골'); continue }
+    items.push({
+      t: g.t_board, team: g.team, title: `${teamInfo(result.match, g.team).name} 골`,
+      sub: g.video_confirmed ? '슈팅 장면은 잡지 못해 점수가 바뀌기 전 15초를 보여 줍니다' : '점수 자막이 바뀌기 전 15초 (킥오프 재개 미확인)',
+      tags: ['골'], player: g.player ?? '', pre: 15, post: 3,
+    })
+  }
+  items.sort((a, b) => a.t - b.t)
   return items
 }
 
@@ -41,8 +54,10 @@ export default function Highlights({ result, players, onPlay, canPlay, onExport 
   const [team, setTeam] = useState<Team | 'all'>('all')
   const [onlyBig, setOnlyBig] = useState(false)
   const all = useMemo(() => buildItems(result, players), [result, players])
-  const list = all.filter(i => (team === 'all' || i.team === team) && (!onlyBig || i.tags.includes('유효 슈팅') || i.tags.includes('결정적 기회')))
-  const clips = list.map(i => ({ t: i.t, label: i.title, player: i.player }))
+  const list = all.filter(i => (team === 'all' || i.team === team)
+    && (!onlyBig || i.tags.includes('골') || i.tags.includes('유효 슈팅') || i.tags.includes('결정적 기회')))
+  const clipOf = (i: Item): Clip => ({ t: i.t, label: i.title, player: i.player || undefined, pre: i.pre, post: i.post })
+  const clips = list.map(clipOf)
 
   return (
     <section className="space-y-3">
@@ -53,7 +68,7 @@ export default function Highlights({ result, players, onPlay, canPlay, onExport 
           </button>
         ))}
         <label className="flex items-center gap-1.5 text-xs text-ink-300 ml-1 cursor-pointer">
-          <input type="checkbox" checked={onlyBig} onChange={e => setOnlyBig(e.target.checked)} />유효 슈팅·결정적 기회만
+          <input type="checkbox" checked={onlyBig} onChange={e => setOnlyBig(e.target.checked)} />골·유효 슈팅·결정적 기회만
         </label>
         <button className="btn-primary ml-auto" disabled={!canPlay || !clips.length} onClick={() => onPlay(clips)}>
           <Clapperboard className="w-4 h-4" />하이라이트 {clips.length}개 이어보기
@@ -66,16 +81,16 @@ export default function Highlights({ result, players, onPlay, canPlay, onExport 
       </div>
       {!canPlay && <p className="text-xs text-ink-500 px-1">영상이 연결된 경기에서 장면을 재생할 수 있습니다.</p>}
       {list.length === 0 ? (
-        <div className="card p-10 text-center text-ink-500 text-sm">슈팅 장면이 없습니다</div>
+        <div className="card p-10 text-center text-ink-500 text-sm">골·슈팅 장면이 없습니다</div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {list.map((i, idx) => {
             const t = teamInfo(result.match, i.team)
             return (
-              <button key={idx} disabled={!canPlay} onClick={() => onPlay([{ t: i.t, label: i.title, player: i.player }])}
+              <button key={idx} disabled={!canPlay} onClick={() => onPlay([clipOf(i)])}
                 className="card-hover p-4 text-left group disabled:cursor-default">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="num text-xs font-bold text-ink-950 bg-volt rounded-md px-1.5 py-0.5">{fmtClock(i.t)}</span>
+                  <span className="num text-xs font-bold text-ink-950 bg-volt rounded-md px-1.5 py-0.5">{fmtClock(Math.max(0, i.t - (i.pre ?? 0)))}</span>
                   <span className="w-2.5 h-2.5 rounded-full" style={{ background: t.color }} />
                   <span className="text-xs text-ink-400 truncate">{t.name}</span>
                   {canPlay && <Play className="w-4 h-4 ml-auto text-ink-600 group-hover:text-volt" />}
@@ -85,7 +100,7 @@ export default function Highlights({ result, players, onPlay, canPlay, onExport 
                 <div className="flex flex-wrap gap-1 mt-2.5">
                   {i.tags.map(tag => (
                     <span key={tag} className={cn('text-[10px] font-bold px-1.5 py-0.5 rounded',
-                      tag === '유효 슈팅' ? 'bg-volt-soft text-volt' : tag === '결정적 기회' ? 'bg-amber-500/15 text-amber-300' : 'bg-ink-800 text-ink-300')}>
+                      tag === '골' ? 'bg-volt text-ink-950' : tag === '유효 슈팅' ? 'bg-volt-soft text-volt' : tag === '결정적 기회' ? 'bg-amber-500/15 text-amber-300' : 'bg-ink-800 text-ink-300')}>
                       {tag}
                     </span>
                   ))}

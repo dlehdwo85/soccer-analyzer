@@ -88,6 +88,16 @@ export function playerName(p: Pick<PlayerRow, 'display_name' | 'jersey_number' |
   return p.track_id
 }
 
+/** 팀마다 가장 오래 뛴 n명(기본 11명) — 화면에서 먼저 보여 주는 '명단'. 나머지는 짧은 조각이다 */
+export function mainRoster(players: PlayerRow[], n = 11): Set<string> {
+  const ids = new Set<string>()
+  for (const team of ['home', 'away']) {
+    players.filter(p => p.team === team && !p.excluded && !p.minor)
+      .sort((a, b) => b.stats.seconds_tracked - a.stats.seconds_tracked).slice(0, n).forEach(p => ids.add(p.track_id))
+  }
+  return ids
+}
+
 export function isGk(p: PlayerRow) {
   return p.label.endsWith('_gk')
 }

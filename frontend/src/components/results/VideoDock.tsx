@@ -7,7 +7,8 @@ import { fmtClock, playerName, teamInfo } from '@/lib/utils'
 import { drawFrame, namesCfg, prepare } from './VideoReview'
 
 /** player: 이 장면의 주인공 (영상 위에 이름과 굵은 테두리로 표시) */
-export interface Clip { t: number; label: string; player?: string }
+/** pre/post: 기준 시각 앞뒤로 보여 줄 길이(초). 기본은 앞 3초·뒤 4초 */
+export interface Clip { t: number; label: string; player?: string; pre?: number; post?: number }
 
 export interface VideoDockHandle {
   /** 분석 기준 시각(초)으로 이동 — 3초 앞부터 재생 */
@@ -57,9 +58,9 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
     v.play().catch(() => { v.muted = true; v.play().catch(() => { /* 사용자가 재생 버튼을 누른다 */ }) })
   }, [])
 
-  const go = useCallback((t: number) => {
+  const go = useCallback((t: number, pre: number = PRE) => {
     startAtOffset.current = false
-    const target = Math.max(0, t + offset - PRE)
+    const target = Math.max(0, t + offset - pre)
     const v = video.current
     // 영상 정보가 오기 전에 위치를 바꾸면 무시되거나 첫 화면이 안 그려진다 → 정보가 오면 그때 이동한다
     if (!v || v.readyState < 1) { pendingSeek.current = target; return }
@@ -79,8 +80,8 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
     setEnded(false)
     setQInfo({ i, n: queue.current.length })
     setClip(c)
-    clipEnd.current = c.t + offset + POST
-    go(c.t)
+    clipEnd.current = c.t + offset + (c.post ?? POST)
+    go(c.t, c.pre ?? PRE)
   }, [go, offset])
 
   useImperativeHandle(ref, () => ({

@@ -2,7 +2,7 @@
 import { KeyboardEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { MatchEvent, MatchResult, Overlay, PlayerRow, Team } from '@/lib/types'
-import { cn, eventLabel, eventTone, fmtClock, inkOn, isDark, playerName, teamInfo } from '@/lib/utils'
+import { cn, eventLabel, eventTone, fmtClock, inkOn, isDark, playerName, teamInfo, mainRoster } from '@/lib/utils'
 import ReelExporter from './ReelExporter'
 
 /** 이벤트 표시가 영상 위에 남는 시간(초) */
@@ -563,9 +563,13 @@ function Review({ matchId, result, players, src, initialFollow }: Props & { src:
     return m
   }, [result.players])
 
-  const roster = useMemo(() => result.players.filter(p => !p.excluded)
-    .sort((a, b) => a.team.localeCompare(b.team) || Number(a.minor) - Number(b.minor) || playerName(a).localeCompare(playerName(b), 'ko')),
-  [result.players])
+  const roster = useMemo(() => {
+    const main = mainRoster(result.players)
+    // 따라갈 선수 목록: 팀별로 명단 11명 먼저, 짧은 조각은 뒤로
+    return result.players.filter(p => !p.excluded && (main.has(p.track_id) || !p.minor))
+      .sort((a, b) => a.team.localeCompare(b.team) || Number(main.has(b.track_id)) - Number(main.has(a.track_id))
+        || playerName(a).localeCompare(playerName(b), 'ko'))
+  }, [result.players])
 
   const cfg = useMemo<DrawCfg>(() => {
     const color = { home: match.home_team_color, away: match.away_team_color }
@@ -893,6 +897,8 @@ function Records({ result, events, poss, hasTouches, now, follow, focusKey, onTo
     return m
   }, [events, now])
   const hasNamed = result.players.some(p => p.display_name && !p.excluded)
+  // 아직 한 번도 공을 안 잡은 짧은 조각은 표에 올리지 않는다 (명단 11명은 항상 보인다)
+  const main = useMemo(() => mainRoster(result.players), [result.players])
   // 트랙이 수백 개인 영상에서 표가 무거워지지 않게 팀마다 기록이 많은 선수부터 ROWS_N명만 (더 보기로 전체)
   const [all, setAll] = useState(false)
   const busy = useMemo(() => {
@@ -921,6 +927,7 @@ function Records({ result, events, poss, hasTouches, now, follow, focusKey, onTo
           const info = teamInfo(result.match, team)
           const rows = result.players
             .filter(p => p.team === team && !p.excluded && (totals.has(p.track_id) || p.track_id === follow)
+              && (main.has(p.track_id) || p.track_id === follow || (counts.get(p.track_id)?.touches ?? 0) > 0)
               && (!namedOnly || !!p.display_name || p.track_id === follow))
             .map(p => ({ p, c: counts.get(p.track_id) ?? zero }))
             .sort((a, b) => b.c.att - a.c.att || b.c.comp - a.c.comp || b.c.touches - a.c.touches

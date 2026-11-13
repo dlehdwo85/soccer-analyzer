@@ -3,7 +3,7 @@ import { KeyboardEvent, MouseEvent, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { Match, MatchResult, PlayerRow, PlayerStats, Team } from '@/lib/types'
-import { cn, fmtClock, isGk, playerName, teamInfo } from '@/lib/utils'
+import { cn, fmtClock, isGk, playerName, teamInfo, mainRoster } from '@/lib/utils'
 import Pitch from '@/components/pitch/Pitch'
 import PlayerAvatar from './PlayerAvatar'
 
@@ -31,14 +31,16 @@ export default function LineupBoard({ matchId, result, onChanged }:
   { matchId: number; result: MatchResult; onChanged: () => Promise<void> }) {
   const [active, setActive] = useState<string | null>(null)
   const [selected, setSelected] = useState<string[]>([])
-  const [showMinor, setShowMinor] = useState(true)
+  const [showMinor, setShowMinor] = useState(false)
   const [busy, setBusy] = useState(false)
   const { match } = result
   const { length: L, width: W } = result.meta.field
 
   const byId = useMemo(() => new Map(result.players.map(p => [p.track_id, p])), [result.players])
-  const visible = useMemo(() => result.players.filter(p => !p.excluded && (showMinor || !p.minor)),
-    [result.players, showMinor])
+  // 기본은 팀마다 가장 오래 뛴 11명만 — 조각 수십 개가 한꺼번에 깔리면 볼 수가 없다
+  const main = useMemo(() => mainRoster(result.players), [result.players])
+  const visible = useMemo(() => result.players.filter(p => !p.excluded && (showMinor || main.has(p.track_id))),
+    [result.players, showMinor, main])
   const maxMin = Math.max(1, ...visible.map(p => p.stats.minutes_tracked))
   const fs = L * 0.025  // 라벨 글자 크기(경기장 단위) — 풋살장도 화면에서는 비슷한 크기로 보이게
 
@@ -87,7 +89,7 @@ export default function LineupBoard({ matchId, result, onChanged }:
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-ink-400">
         <label className="flex items-center gap-1.5 cursor-pointer">
-          <input type="checkbox" checked={showMinor} onChange={e => setShowMinor(e.target.checked)} />짧은 트랙 표시
+          <input type="checkbox" checked={showMinor} onChange={e => setShowMinor(e.target.checked)} />11명 밖 조각도 표시
         </label>
         {sel.length > 0 && (
           <>
