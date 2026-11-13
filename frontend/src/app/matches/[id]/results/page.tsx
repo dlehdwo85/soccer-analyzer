@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Download, Settings2, Share2 } from 'lucide-react'
+import { ArrowLeft, Download, Pencil, Settings2, Share2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { MatchResult, Team, TeamStats } from '@/lib/types'
@@ -66,6 +66,7 @@ export default function ResultsPage() {
   const [selected, setSelected] = useState<string | null>(null)
   const dock = useRef<VideoDockHandle>(null)
   const [reel, setReel] = useState<{ clips: Clip[]; title: string } | null>(null)
+  const [naming, setNaming] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -130,6 +131,8 @@ export default function ResultsPage() {
   const hasHalves = meta.halftime_rel_s != null && meta.halftime_rel_s > 0
   const warnings = meta.warnings?.filter(w => !w.includes('거리·속도')) ?? []
   const periodLabel = period === 1 ? ' · 전반' : period === 2 ? ' · 후반' : ''
+  // 팀 이름을 아직 안 넣은 경기(기본값 그대로)는 입력 단추를 눈에 띄게 보여 준다
+  const namesUnset = match.home_team_name === '홈팀' && match.away_team_name === '원정팀'
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
@@ -154,7 +157,13 @@ export default function ResultsPage() {
       {/* 박스 스코어 */}
       <section className="card mb-4" aria-label="경기 요약">
         <div className="px-4 sm:px-5 pt-4 pb-3 border-b border-ink-800">
-          <h1 className="font-semibold text-ink-100 truncate">{match.title}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="font-semibold text-ink-100 truncate flex-1 min-w-0">{match.title}</h1>
+            <button type="button" onClick={() => setNaming(true)}
+              className={cn('btn !px-2.5 !py-1 text-xs shrink-0', namesUnset ? 'bg-volt text-ink-950 hover:bg-volt-600' : 'text-ink-300 border border-ink-700 hover:bg-ink-800')}>
+              <Pencil className="w-3.5 h-3.5" />{namesUnset ? '팀 이름 입력' : '팀 이름'}
+            </button>
+          </div>
         </div>
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 sm:px-5 py-4">
           <TeamHead name={home.name} color={home.color} />
@@ -334,7 +343,12 @@ export default function ResultsPage() {
       {tab === 'network' && <PassNetwork result={result} players={players} onSelect={p => setSelected(p.track_id)} />}
       {tab === 'compare' && <Compare matchId={matchId} result={result} />}
       {tab === 'lineup' && <LineupBoard matchId={matchId} result={result} onChanged={load} />}
-      {tab === 'edit' && <TrackEditor matchId={matchId} result={result} onChanged={load} />}
+      {tab === 'edit' && <TrackEditor matchId={matchId} result={result} onChanged={load} videoSrc={videoSrc} />}
+
+      {naming && (
+        <TeamNames matchId={matchId} home={home} away={away} onClose={() => setNaming(false)}
+          onSaved={async () => { await load(); setNaming(false) }} />
+      )}
 
       {sel && (
         <PlayerModal matchId={matchId} result={result} player={sel} players={players}
@@ -348,6 +362,46 @@ export default function ResultsPage() {
         <ReelExporter src={videoSrc} offset={meta.start_s ?? 0} clips={reel.clips} title={reel.title} matchId={matchId} result={result}
           fileName={reel.title.replace(/[\/:*?"<>|.\s]+/g, '_')} onClose={() => setReel(null)} />
       )}
+    </div>
+  )
+}
+
+/** 팀 이름 입력 창 — 결과 화면에서 바로 고친다 (경기 설정까지 가지 않아도 된다) */
+function TeamNames({ matchId, home, away, onClose, onSaved }: {
+  matchId: number; home: { name: string; color: string }; away: { name: string; color: string }
+  onClose: () => void; onSaved: () => Promise<void>
+}) {
+  const [h, setH] = useState(home.name === '홈팀' ? '' : home.name)
+  const [a, setA] = useState(away.name === '원정팀' ? '' : away.name)
+  const [saving, setSaving] = useState(false)
+  const save = async () => {
+    setSaving(true)
+    try {
+      await api.updateMatch(matchId, { home_team_name: h.trim() || '홈팀', away_team_name: a.trim() || '원정팀' })
+      await onSaved()
+      toast.success('팀 이름을 저장했습니다')
+    } catch (e) {
+      toast.error((e as Error).message)
+      setSaving(false)
+    }
+  }
+  return (
+    <div className="fixed inset-0 z-[65] bg-black/75 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+      <form role="dialog" aria-modal="true" aria-label="팀 이름 입력"
+        className="bg-ink-900 border border-ink-700 w-full sm:max-w-sm rounded-t-lg sm:rounded-lg p-4 space-y-3"
+        onClick={e => e.stopPropagation()} onSubmit={e => { e.preventDefault(); save() }}>
+        <p className="font-semibold text-ink-100">팀 이름</p>
+        {([['홈', home.color, h, setH, '예: 월넛FC'], ['원정', away.color, a, setA, '예: 바모스']] as const).map(([side, color, v, set, ph]) => (
+          <label key={side} className="block">
+            <span className="flex items-center gap-1.5 text-xs text-ink-400 mb-1"><Swatch color={color} />{side} 팀 (유니폼 색)</span>
+            <input className="input text-base" value={v} maxLength={40} placeholder={ph} onChange={e => set(e.target.value)} />
+          </label>
+        ))}
+        <div className="flex gap-2 pt-1">
+          <button type="button" className="btn-secondary flex-1" onClick={onClose}>취소</button>
+          <button type="submit" className="btn-primary flex-1" disabled={saving}>저장</button>
+        </div>
+      </form>
     </div>
   )
 }
