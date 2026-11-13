@@ -223,6 +223,8 @@ export interface MatchEvent {
 export interface TeamStats {
   possession_pct: number | null
   possession_s: number
+  /** 경기가 멈춘 시간을 뺀, 공을 잡은 횟수 — 점유율의 기준 */
+  possession_touches?: number
   players: number
   passes_attempted: number
   passes_completed: number
@@ -273,9 +275,17 @@ export interface ResultMeta {
   /** 화면 밖에 있다 돌아와 따로 잡힌 같은 선수 후보 (트랙 → 가까운 순 후보 트랙) */
   merge_hints?: Record<string, string[]>
   /** 영상에 박힌 점수 자막에서 읽은 골 (자막이 바뀐 시각, 직전 슈팅이 있으면 그 시각·선수) */
+  /** 'touches': 점유율이 공을 잡은 횟수 기준 (멈춘 시간 제외) */
+  possession_basis?: string
   scoreboard?: {
     found: boolean
-    goals?: { t: number; t_board: number; team: Team; side: 'left' | 'right'; player: string | null }[]
+    goals?: {
+      t: number; t_board: number; team: Team; side: 'left' | 'right'; player: string | null
+      /** 골 뒤에 영상에서 찾은 킥오프(가운데 재개) 시각. 없으면 자막만 근거 */
+      kickoff_t?: number | null
+      /** 킥오프가 있었고, 킥오프를 한 팀이 실점한 팀과 맞다 */
+      video_confirmed?: boolean
+    }[]
     score?: Record<Team, number>
   }
 }

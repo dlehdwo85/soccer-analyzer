@@ -57,7 +57,16 @@ interface Props {
 
 export default function PlayerTable({ matchId, match, players, onSelect }: Props) {
   const [team, setTeam] = useState<Team | 'all'>('all')
-  const [showMinor, setShowMinor] = useState(false)
+  // 기본은 팀마다 가장 오래 뛴 11명만. 나머지 짧은 조각은 켜야 보인다
+  const [showRest, setShowRest] = useState(false)
+  const core = useMemo(() => {
+    const ids = new Set<string>()
+    for (const t of ['home', 'away'] as Team[]) {
+      players.filter(p => p.team === t && !p.excluded && !p.minor)
+        .sort((a, b) => b.stats.seconds_tracked - a.stats.seconds_tracked).slice(0, 11).forEach(p => ids.add(p.track_id))
+    }
+    return ids
+  }, [players])
   const [showAll, setShowAll] = useState(false)
   const [sort, setSort] = useState<{ key: string; desc: boolean }>({ key: 'touches', desc: true })
 
@@ -65,12 +74,12 @@ export default function PlayerTable({ matchId, match, players, onSelect }: Props
   const sortCol = cols.find(c => c.key === sort.key) ?? cols.find(c => c.key === 'touches') ?? cols[0]
 
   const rows = useMemo(() => players
-    .filter(p => !p.excluded && (showMinor || !p.minor) && (team === 'all' || p.team === team))
+    .filter(p => !p.excluded && (showRest || core.has(p.track_id)) && (team === 'all' || p.team === team))
     .sort((a, b) => {
       const av = sortCol.get(a.stats) ?? -1, bv = sortCol.get(b.stats) ?? -1
       return sort.desc ? bv - av : av - bv
-    }), [players, team, showMinor, sort.desc, sortCol])
-  const minorCount = players.filter(p => p.minor && !p.excluded).length
+    }), [players, team, showRest, core, sort.desc, sortCol])
+  const restCount = players.filter(p => !p.excluded && !core.has(p.track_id)).length
   const best = useMemo(() => Object.fromEntries(cols.map(c => [c.key, Math.max(...rows.map(r => c.get(r.stats) ?? -Infinity))])), [cols, rows])
 
   const isGroupStart = (i: number) => i > 0 && cols[i - 1].group !== cols[i].group
@@ -90,10 +99,11 @@ export default function PlayerTable({ matchId, match, players, onSelect }: Props
           <input type="checkbox" checked={showAll} onChange={e => setShowAll(e.target.checked)} />
           모든 항목
         </label>
-        {minorCount > 0 && (
-          <label className="flex items-center gap-1.5 text-xs text-ink-400 cursor-pointer">
-            <input type="checkbox" checked={showMinor} onChange={e => setShowMinor(e.target.checked)} />
-            짧게 잡힌 트랙 <span className="num">{minorCount}</span>개 포함
+        {restCount > 0 && (
+          <label className="flex items-center gap-1.5 text-xs text-ink-400 cursor-pointer"
+            title="팀마다 가장 오래 뛴 11명 밖의 짧은 조각입니다. 선수 정리에서 합치거나 제외할 수 있습니다">
+            <input type="checkbox" checked={showRest} onChange={e => setShowRest(e.target.checked)} />
+            11명 밖 조각 <span className="num">{restCount}</span>개 포함
           </label>
         )}
       </div>

@@ -171,6 +171,51 @@ def _spells_from_events(events: List[Event]) -> List[Spell]:
             for e in events if e.kind == "possession"]
 
 
+def dead_windows(events: List[Event], meta: Dict) -> List[Tuple[float, float]]:
+    """경기가 멈춰 있던 구간: 호루라기 ~ 재개, 골 ~ 킥오프. 이때 공 옆에 서 있는 것은 점유가 아니다."""
+    wins: List[Tuple[float, float]] = []
+    for e in events:
+        wt = (e.detail or {}).get("whistle_t") if e.kind == "set_piece" else None
+        if wt is not None and wt < e.t:
+            wins.append((float(wt), float(e.t)))
+    goals = {g.get("t_board"): g for g in ((meta.get("scoreboard") or {}).get("goals") or [])}
+    for k in meta.get("kickoffs") or []:
+        g = goals.get(k.get("after_goal"))
+        if g is not None and k.get("t") is not None:
+            t0 = min(float(g.get("t", g["t_board"])), float(g["t_board"]))
+            if t0 < k["t"]:
+                wins.append((t0, float(k["t"])))
+    return wins
+
+
+def live_spells(spells: List[Spell], wins: List[Tuple[float, float]]) -> List[Spell]:
+    """멈춘 구간에서 시작한 점유는 빼고, 걸친 점유는 멈추기 전까지만 남긴다."""
+    out = []
+    for sp in spells:
+        if any(a <= sp.t0 < b for a, b in wins):
+            continue
+        end = min([sp.t1] + [a for a, b in wins if sp.t0 < a < sp.t1])
+        out.append(Spell(sp.tid, sp.team, sp.t0, end, sp.x0, sp.y0, sp.x1, sp.y1, sp.s, sp.contested))
+    return out
+
+
+def confirm_goals(meta: Dict, spells: List[Spell]) -> Optional[Dict]:
+    """점수 자막으로 잡은 골마다 영상 근거를 붙인다: 골 뒤에 양 팀이 자기 진영으로 갈라서는 킥오프가 있었고,
+    그 킥오프를 한(직후 처음 공을 잡은) 팀이 실점한 팀이면 영상으로 확인된 골이다."""
+    sb = meta.get("scoreboard")
+    if not sb or not sb.get("found"):
+        return sb
+    kicks = {k.get("after_goal"): k for k in (meta.get("kickoffs") or []) if k.get("after_goal") is not None}
+    order = sorted(spells, key=lambda s: s.t0)
+    goals = []
+    for g in sb.get("goals") or []:
+        k = kicks.get(g.get("t_board"))
+        first = next((s for s in order if k["t"] - 1.0 <= s.t0 <= k["t"] + 15.0), None) if k else None
+        goals.append(dict(g, kickoff_t=k["t"] if k else None,
+                          video_confirmed=bool(k and (first is None or first.team != g.get("team")))))
+    return dict(sb, goals=goals)
+
+
 def halftime_rel(match: Match, meta: Dict) -> Optional[float]:
     """후반 시작 시각을 이벤트 시각 기준(분석 시작점 기준)으로."""
     if match.halftime_s is None:
@@ -231,6 +276,8 @@ def build_view(db: Session, match: Match, include_events: bool = True, period: O
             raw[tid]["team"] = team_of[tid]
 
     spells = _spells_from_events(events)
+    # 점유율은 경기가 멈춘 시간을 빼고, 공을 잡은 횟수의 비율로 낸다 (선수별 점유 시간은 그대로)
+    live = live_spells(spells, dead_windows(events, meta))
 
     players = []
     for r in heads:
@@ -256,16 +303,17 @@ def build_view(db: Session, match: Match, include_events: bool = True, period: O
     players.sort(key=lambda p: (p["team"], p["excluded"], p["minor"], p["jersey_number"] or 999, p["track_id"]))
 
     timeline = possession_timeline([Spell(sp.tid, sp.team, sp.t0 - t_from, sp.t1 - t_from, 0, 0, 0, 0)
-                                    for sp in spells], max(0.0, t_to - t_from))
+                                    for sp in live], max(0.0, t_to - t_from), by_touch=True)
     for b in timeline:
         b["start_s"] = round(b["start_s"] + t_from, 1)
         b["end_s"] = round(b["end_s"] + t_from, 1)
     out = {
         "version": match.analysis_version or 0,
-        "meta": dict(meta, halftime_rel_s=ht),
+        "meta": dict(meta, halftime_rel_s=ht, possession_basis="touches",
+                     **({"scoreboard": confirm_goals(meta, spells)} if meta.get("scoreboard") else {})),
         "period": period if (period in (1, 2) and ht is not None) else None,
         "players": players,
-        "team_stats": team_stats(raw, spells),
+        "team_stats": team_stats(raw, live, by_touch=True),
         "pass_network": pass_network(events, raw),
         "possession_timeline": timeline,
     }

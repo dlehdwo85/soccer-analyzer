@@ -1,6 +1,6 @@
 'use client'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { Maximize2, Minimize2, SkipForward, Tag, X } from 'lucide-react'
+import { Maximize2, Minimize2, RotateCcw, SkipBack, SkipForward, Tag, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { MatchResult, Overlay } from '@/lib/types'
 import { fmtClock, playerName, teamInfo } from '@/lib/utils'
@@ -39,6 +39,8 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
   const [overlay, setOverlay] = useState<Overlay | null>(null)
   const queue = useRef<Clip[]>([])
   const [qInfo, setQInfo] = useState<{ i: number; n: number } | null>(null)
+  // 이어보기가 마지막 장면까지 끝났다 — 장면 목록은 그대로 두고 멈춘다 (되감아도 그 장면 안에서만 재생)
+  const [ended, setEnded] = useState(false)
   const clipEnd = useRef<number | null>(null)
   const startAtOffset = useRef(false)
   const pendingSeek = useRef<number | null>(null)
@@ -67,7 +69,14 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
 
   const playIndex = useCallback((i: number) => {
     const c = queue.current[i]
-    if (!c) { setQInfo(null); clipEnd.current = null; video.current?.pause(); return }
+    if (!c) {
+      // 마지막 장면이 끝났다: 목록을 지우면 되감았을 때 경기 전체가 이어서 나온다 → 목록을 남기고 멈춘다
+      video.current?.pause()
+      if (queue.current.length) setEnded(true)
+      else { setQInfo(null); clipEnd.current = null }
+      return
+    }
+    setEnded(false)
     setQInfo({ i, n: queue.current.length })
     setClip(c)
     clipEnd.current = c.t + offset + POST
@@ -77,6 +86,7 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
   useImperativeHandle(ref, () => ({
     seek: (t, label, player) => {
       queue.current = []
+      setEnded(false)
       setQInfo(null)
       clipEnd.current = null
       setOpen(true)
@@ -92,6 +102,7 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
     currentTime: () => (open && video.current ? Math.max(0, video.current.currentTime - offset) : null),
     open: () => {
       queue.current = []
+      setEnded(false)
       setQInfo(null)
       clipEnd.current = null
       if (!open) {
@@ -144,14 +155,20 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
   if (!open) return null
   const starTeam = star && result ? teamInfo(result.match, star.team) : null
   return (
-    <div className={`fixed z-50 bottom-4 right-4 bg-black rounded-lg shadow-2xl overflow-hidden border border-ink-700 transition-all
+    <div className={`fixed z-[68] bottom-4 right-4 bg-black rounded-lg shadow-2xl overflow-hidden border border-ink-700 transition-all
       ${big ? 'left-4 sm:left-auto sm:w-[760px]' : 'w-[min(380px,calc(100vw-2rem))]'}`}>
       <div className="flex items-center gap-2 px-3 py-2 text-xs text-ink-200 bg-ink-900">
         <span className="flex-1 truncate font-semibold">{clip ? `${fmtClock(clip.t)} ${clip.label}` : '경기 영상'}</span>
         {qInfo && (
           <>
             <span className="text-volt num">{qInfo.i + 1}/{qInfo.n}</span>
-            <button onClick={() => playIndex(qInfo.i + 1)} aria-label="다음 장면" className="hover:text-white"><SkipForward className="w-4 h-4" /></button>
+            {qInfo.n > 1 && (
+              <button onClick={() => playIndex(Math.max(0, qInfo.i - 1))} aria-label="이전 장면" className="hover:text-white p-1 -m-1"><SkipBack className="w-4 h-4" /></button>
+            )}
+            <button onClick={() => playIndex(qInfo.i)} aria-label="이 장면 다시 보기" className="hover:text-white p-1 -m-1"><RotateCcw className="w-4 h-4" /></button>
+            {qInfo.n > 1 && (
+              <button onClick={() => playIndex(qInfo.i + 1)} aria-label="다음 장면" className="hover:text-white p-1 -m-1"><SkipForward className="w-4 h-4" /></button>
+            )}
           </>
         )}
         {prep && (
@@ -163,7 +180,7 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
         <button onClick={() => setBig(b => !b)} aria-label="크기 전환" className="hover:text-white">
           {big ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
         </button>
-        <button onClick={() => { video.current?.pause(); queue.current = []; setQInfo(null); setOpen(false) }} aria-label="닫기" className="hover:text-white">
+        <button onClick={() => { video.current?.pause(); queue.current = []; setQInfo(null); setEnded(false); clipEnd.current = null; setOpen(false) }} aria-label="닫기" className="hover:text-white p-1 -m-1">
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -186,8 +203,18 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
               if (v.currentTime < offset) v.currentTime = offset
             }}
             onTimeUpdate={e => {
-              if (clipEnd.current !== null && qInfo && e.currentTarget.currentTime >= clipEnd.current) playIndex(qInfo.i + 1)
+              if (clipEnd.current === null || !qInfo || e.currentTarget.currentTime < clipEnd.current) return
+              // 끝난 뒤 되감아 다시 보는 중이면 그 장면 끝에서 다시 멈춘다 (경기 전체로 넘어가지 않는다)
+              if (ended) e.currentTarget.pause()
+              else playIndex(qInfo.i + 1)
             }} />
+          {ended && qInfo && (
+            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex justify-center gap-2 z-10">
+              <button type="button" onClick={() => playIndex(0)} className="btn-primary !py-1.5 shadow-lg">
+                <RotateCcw className="w-4 h-4" />{qInfo.n > 1 ? '처음부터 다시 보기' : '다시 보기'}
+              </button>
+            </div>
+          )}
           {/* 선수 머리 위 이름표 — 클릭은 영상 조작 막대로 그대로 통과한다 */}
           <canvas ref={canvas} className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden />
           {/* 선수 위치를 모르는 순간(오버레이 없음)에만 오른쪽 위에 누구의 장면인지 적는다 */}

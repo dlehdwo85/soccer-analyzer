@@ -152,20 +152,26 @@ def compute_player_stats(frames: Sequence[Frame], events: Sequence[Event],
 
 # ── 팀 단위 ─────────────────────────────────────────────────────────────────
 
-def team_stats(player_stats: Dict[str, Dict], spells: Sequence[Spell]) -> Dict[str, Dict]:
+def team_stats(player_stats: Dict[str, Dict], spells: Sequence[Spell], by_touch: bool = False) -> Dict[str, Dict]:
+    """by_touch: 점유율을 '공을 잡고 있던 시간' 대신 '공을 잡은 횟수'의 비율로 낸다.
+    시간 기준은 멈춘 공 옆에 서 있는 시간과 공 인식이 끊긴 구간에 크게 흔들린다 (2026-11-14, 표시 장면 대조)."""
     out = {}
     poss = {"home": 0.0, "away": 0.0}
+    count = {"home": 0, "away": 0}
     for sp in spells:
         if sp.team in poss:
             poss[sp.team] += sp.duration
-    total_poss = sum(poss.values())
+            count[sp.team] += 1
+    base = count if by_touch else poss
+    total_poss = sum(base.values())
     for team in ("home", "away"):
         members = [s for s in player_stats.values() if s.get("team") == team]
         agg = merge_player_stats(members)
         fin = finalize(agg)
         out[team] = {
-            "possession_pct": round(poss[team] / total_poss * 100, 1) if total_poss else None,
+            "possession_pct": round(base[team] / total_poss * 100, 1) if total_poss else None,
             "possession_s": round(poss[team], 1),
+            "possession_touches": count[team],
             "players": len(members),
             **{k: fin[k] for k in ("passes_attempted", "passes_completed", "passes_failed", "pass_accuracy",
                                     "forward_passes", "key_passes", "shots", "shots_on_target", "shots_blocked",
@@ -201,8 +207,9 @@ def pass_network(events: Sequence[Event], player_stats: Dict[str, Dict], min_pas
     return out
 
 
-def possession_timeline(spells: Sequence[Spell], duration_s: float, bins: Optional[int] = None) -> List[Dict]:
-    """구간별 홈 점유율(%) — 구간 길이는 경기 길이에 맞춰 1~5분."""
+def possession_timeline(spells: Sequence[Spell], duration_s: float, bins: Optional[int] = None,
+                        by_touch: bool = False) -> List[Dict]:
+    """구간별 홈 점유율(%) — 구간 길이는 경기 길이에 맞춰 1~5분. by_touch: 시간 대신 공을 잡은 횟수로 센다."""
     if duration_s <= 0:
         return []
     if bins is None:
@@ -213,6 +220,9 @@ def possession_timeline(spells: Sequence[Spell], duration_s: float, bins: Option
     home = [0.0] * n
     away = [0.0] * n
     for sp in spells:
+        if by_touch:
+            (home if sp.team == "home" else away)[min(n - 1, max(0, int(sp.t0 // bin_s)))] += 1
+            continue
         # 구간 번호를 하나씩 늘려 가며 나눈다 — 경계가 소수일 때 부동소수점 오차로 같은 자리를 맴돌지 않도록.
         # 마지막 구간은 남은 시간을 모두 받는다 (점유가 영상 끝을 조금 넘는 경우).
         t = sp.t0

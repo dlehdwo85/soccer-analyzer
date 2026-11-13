@@ -128,6 +128,8 @@ export default function ResultsPage() {
   const sel = selected ? players.get(selected) ?? null : null
   const ts = result.team_stats
   const board = meta.scoreboard?.found ? meta.scoreboard : null
+  // 모든 골 뒤에 킥오프(가운데 재개)가 영상에서 확인됐는가
+  const goalsByVideo = !!board?.goals?.length && board.goals.every(g => g.video_confirmed)
   const hasHalves = meta.halftime_rel_s != null && meta.halftime_rel_s > 0
   const warnings = meta.warnings?.filter(w => !w.includes('거리·속도')) ?? []
   const periodLabel = period === 1 ? ' · 전반' : period === 2 ? ' · 후반' : ''
@@ -173,7 +175,11 @@ export default function ResultsPage() {
                 <p className="text-4xl sm:text-5xl font-semibold num text-ink-100 tracking-tight">
                   {board.score.home}<span className="text-ink-600 mx-2">:</span>{board.score.away}
                 </p>
-                <p className="label mt-1" title="영상에 박힌 점수 자막이 바뀐 횟수로 센 골입니다 (영상 시작 이후)">영상 중 골 · 점수 자막</p>
+                <p className="label mt-1" title={goalsByVideo
+                  ? '점수 자막이 바뀐 뒤, 영상에서 양 팀이 자기 진영으로 갈라서 가운데에서 다시 시작한 것(킥오프)까지 확인한 골입니다'
+                  : '영상에 박힌 점수 자막이 바뀐 횟수로 센 골입니다 (영상 시작 이후). 킥오프 재개가 확인되지 않은 골이 있습니다'}>
+                  {goalsByVideo ? '골 · 영상에서 킥오프 확인' : '영상 중 골 · 점수 자막'}
+                </p>
                 <p className="text-[11px] text-ink-500 mt-0.5 num">유효 슈팅 {ts.home.shots_on_target} : {ts.away.shots_on_target}</p>
               </>
             ) : (
@@ -195,10 +201,12 @@ export default function ResultsPage() {
               return (
                 <button key={i} type="button" disabled={!videoSrc}
                   onClick={() => dock.current?.seek(g.t, `${info.name} 골`, g.player ?? undefined)}
-                  title={g.player ? '자막이 바뀌기 직전 이 팀의 슈팅 장면입니다' : '점수 자막이 바뀐 시각입니다'}
+                  title={(g.player ? '자막이 바뀌기 직전 이 팀의 슈팅 장면입니다' : '점수 자막이 바뀐 시각입니다')
+                    + (g.video_confirmed && g.kickoff_t != null ? ` · ${fmtClock(g.kickoff_t)}에 킥오프 재개 확인` : ' · 킥오프 재개는 확인되지 않았습니다')}
                   className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full bg-ink-800 text-ink-300 hover:bg-ink-700 disabled:hover:bg-ink-800">
                   <span className="w-2 h-2 rounded-full" style={{ background: info.color }} />
                   <span className="num">{fmtClock(g.t)}</span> {info.name} 골{scorer && ` · ${playerName(scorer)}`}
+                  {g.video_confirmed ? <span className="text-volt" aria-label="영상에서 킥오프 확인">✓</span> : <span className="text-amber-300">자막만</span>}
                 </button>
               )
             })}
@@ -276,7 +284,14 @@ export default function ResultsPage() {
             위치 추정은 공 모델이 직접 잡은 장면에 앞뒤 장면을 이어 붙인 추정까지 더한 비율입니다.
             잡힌 위치가 진짜 공이 아닐 수도 있어서, 실제로 맞는 비율은 대조 정확도로 봐 주세요. 낮을수록 볼 기록이 부정확합니다.
           </p>
-          {meta.duration_s > 0 && (
+          {meta.possession_basis === 'touches' && (
+            <p className="text-ink-500 mt-1">
+              점유율은 경기가 멈춘 시간(호루라기~재개, 골~킥오프)을 빼고 <b className="text-ink-300 font-medium">공을 잡은 횟수</b>의 비율로 냅니다
+              (<span className="num text-ink-300">{ts.home.possession_touches ?? '–'}</span>회 : <span className="num text-ink-300">{ts.away.possession_touches ?? '–'}</span>회).
+              밝은 유니폼은 발밑의 공이 덜 잡혀 실제보다 조금 낮게 나올 수 있습니다.
+            </p>
+          )}
+          {meta.duration_s > 0 && meta.possession_basis !== 'touches' && (
             <p className="text-ink-500 mt-1">
               점유율은 공 주인이 확인된 <span className="num text-ink-300">{fmtClock(ts.home.possession_s + ts.away.possession_s)}</span>
               (경기의 <span className="num text-ink-300">{Math.round(((ts.home.possession_s + ts.away.possession_s) / meta.duration_s) * 100)}%</span>) 동안만 셉니다.

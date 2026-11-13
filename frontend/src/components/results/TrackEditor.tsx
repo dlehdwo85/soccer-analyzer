@@ -23,7 +23,7 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
   const [plan, setPlan] = useState<MergePlan | null>(null)
   const [identify, setIdentify] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [showMinor, setShowMinor] = useState(true)
+  const [showMinor, setShowMinor] = useState(false)
   const { match } = result
   // 경기에 연결된 팀의 명단 — 이름 칸에서 고르면 등번호가 채워지고, 같은 이름끼리는 서버가 자동으로 합친다
   const [rosters, setRosters] = useState<Partial<Record<Team, RosterEntry[]>>>({})
@@ -84,10 +84,17 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
 
   const suggestions = sameplayerSuggestions(result)
 
-  const sections: { title: string; rows: PlayerRow[] }[] = (['home', 'away'] as Team[]).map(team => ({
-    title: teamInfo(match, team).name,
-    rows: result.players.filter(p => p.team === team && !p.excluded && (showMinor || !p.minor)),
-  }))
+  // 팀마다 가장 오래 뛴 11명을 '명단'으로 먼저 보여 주고, 나머지 짧은 조각은 접어 둔다
+  const sections = (['home', 'away'] as Team[]).map(team => {
+    const all = result.players.filter(p => p.team === team && !p.excluded)
+    const byTime = [...all].filter(p => !p.minor).sort((a, b) => b.stats.seconds_tracked - a.stats.seconds_tracked)
+    const mainIds = new Set(byTime.slice(0, 11).map(p => p.track_id))
+    const main = byTime.slice(0, 11).sort((a, b) =>
+      Number(isGk(b)) - Number(isGk(a)) || (a.jersey_number ?? 999) - (b.jersey_number ?? 999) || b.stats.seconds_tracked - a.stats.seconds_tracked)
+    const rest = all.filter(p => !mainIds.has(p.track_id) && (showMinor || !p.minor))
+      .sort((a, b) => b.stats.seconds_tracked - a.stats.seconds_tracked)
+    return { team, title: teamInfo(match, team).name, main, rest, restAll: all.length - main.length, hasGk: main.some(isGk) }
+  })
   const excluded = result.players.filter(p => p.excluded)
 
   return (
@@ -125,7 +132,7 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
         )}
         <div className="ml-auto flex gap-2">
           <label className="flex items-center gap-1.5 text-xs text-ink-400 cursor-pointer mr-2">
-            <input type="checkbox" checked={showMinor} onChange={e => setShowMinor(e.target.checked)} />짧은 트랙 표시
+            <input type="checkbox" checked={showMinor} onChange={e => setShowMinor(e.target.checked)} />아주 짧은 조각도
           </label>
           {selected.length > 0 && (
             <button className="btn-secondary !py-1.5 text-xs" onClick={() => setSelected([])}>선택 해제</button>
@@ -161,16 +168,36 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
       })}
 
       {sections.map(sec => (
-        <div key={sec.title}>
-          <h3 className="text-sm font-semibold text-ink-200 mb-2">{sec.title} · {sec.rows.length}</h3>
+        <div key={sec.team}>
+          <h3 className="text-sm font-semibold text-ink-200 mb-2 flex flex-wrap items-baseline gap-x-2">
+            {sec.title} · 명단 {sec.main.length}명
+            {!sec.hasGk && sec.main.length > 0 && (
+              <span className="text-xs font-normal text-amber-300">골키퍼 미지정 — 골키퍼 카드에서 &lsquo;GK 지정&rsquo;을 눌러 주세요</span>
+            )}
+          </h3>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {sec.rows.map(p => (
+            {sec.main.map(p => (
               <TrackCard key={p.track_id} matchId={matchId} result={result} p={p} busy={busy}
                 candidates={suggestions.get(p.track_id) ?? []} roster={rosters[p.team]}
                 selected={selected.includes(p.track_id)} onToggle={() => toggle(p.track_id)} run={run}
                 onIdentify={() => setIdentify(p.track_id)} onMerge={setPlan} />
             ))}
           </div>
+          {sec.restAll > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer text-xs text-ink-400 py-2">
+                {sec.title} 남은 조각 <span className="num">{sec.restAll}</span>개 — 11명에 넣지 못한 짧은 조각입니다. 필요할 때만 펼쳐서 합치거나 제외하세요.
+              </summary>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-1">
+                {sec.rest.map(p => (
+                  <TrackCard key={p.track_id} matchId={matchId} result={result} p={p} busy={busy}
+                    candidates={suggestions.get(p.track_id) ?? []} roster={rosters[p.team]}
+                    selected={selected.includes(p.track_id)} onToggle={() => toggle(p.track_id)} run={run}
+                    onIdentify={() => setIdentify(p.track_id)} onMerge={setPlan} />
+                ))}
+              </div>
+            </details>
+          )}
         </div>
       ))}
 
