@@ -6,6 +6,8 @@ import Navbar from '@/components/layout/Navbar'
 export const metadata: Metadata = {
   title: '팬텀 · 경기 기록',
   description: '경기 영상에서 유니폼 색으로 팀을 나누고 선수별 볼 터치·패스·키패스·슈팅·수비 기록을 만듭니다',
+  // 휴대폰 '홈 화면에 추가'로 열면 주소창 없이 앱처럼 뜬다
+  appleWebApp: { capable: true, title: '팬텀', statusBarStyle: 'black' },
 }
 
 export const viewport: Viewport = { themeColor: '#070b14' }

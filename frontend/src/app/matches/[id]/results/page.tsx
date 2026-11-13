@@ -42,6 +42,15 @@ const BOX_COLS: { label: string; get: (t: TeamStats) => string }[] = [
   { label: '볼 탈취', get: t => String(t.recoveries) },
 ]
 
+/** 휴대폰에서는 옆으로 미는 표 대신 홈 | 항목 | 원정 세 칸으로 보여 준다 */
+const BOX_ROWS: { label: string; get: (t: TeamStats) => string }[] = [
+  { label: '패스 성공/시도', get: t => `${t.passes_completed}/${t.passes_attempted}` },
+  { label: '패스 성공률', get: t => pct(t.pass_accuracy) },
+  { label: '슈팅/유효', get: t => `${t.shots}/${t.shots_on_target}` },
+  { label: '가로채기', get: t => String(t.interceptions) },
+  { label: '볼 탈취', get: t => String(t.recoveries) },
+]
+
 function pct(v: number | null | undefined, digits = 0) {
   return v == null ? '–' : `${v.toFixed(digits)}%`
 }
@@ -69,6 +78,15 @@ export default function ResultsPage() {
   useEffect(() => { load() }, [load])
 
   const players = useMemo(() => new Map((result?.players ?? []).map(p => [p.track_id, p])), [result])
+
+  // 휴대폰: 탭 줄이 화면보다 길다 → 고른 탭이 가운데 오도록 줄만 옆으로 민다 (페이지는 움직이지 않는다)
+  const tabList = useRef<HTMLDivElement>(null)
+  const loaded = !!result
+  useEffect(() => {
+    const list = tabList.current
+    const on = list?.querySelector<HTMLElement>('[aria-selected="true"]')
+    if (list && on) list.scrollTo({ left: on.offsetLeft - (list.clientWidth - on.offsetWidth) / 2, behavior: 'smooth' })
+  }, [tab, loaded])
 
   // 공유 링크(?player=트랙)로 들어오면 그 선수 창을 바로 연다
   const opened = useRef(false)
@@ -117,9 +135,10 @@ export default function ResultsPage() {
     <div className="max-w-6xl mx-auto px-4 py-6">
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <Link href={`/matches/${matchId}`} className="btn-ghost !px-2.5" aria-label="경기 페이지"><ArrowLeft className="w-4 h-4" /></Link>
-        <p className="text-xs text-ink-400 flex-1 min-w-0 truncate num">
+        <p className="order-last basis-full sm:order-none sm:basis-0 text-xs text-ink-400 flex-1 min-w-0 truncate num">
           {fmtDateShort(match.date) || fmtDateShort(match.created_at)} · {SOURCE_LABEL[meta.source] ?? meta.source} 분석 · {fmtClock(meta.duration_s)}{periodLabel}
         </p>
+        <span className="flex-1 sm:hidden" aria-hidden />
         <Link href={`/matches/${matchId}`} className="btn-ghost !px-2.5" aria-label="경기 설정"><Settings2 className="w-4 h-4" /></Link>
         {videoSrc && (
           <button type="button" className="btn-secondary !py-1.5" onClick={() => dock.current?.open()}>영상 보기</button>
@@ -176,7 +195,29 @@ export default function ResultsPage() {
             })}
           </div>
         )}
-        <div className="overflow-x-auto border-t border-ink-800">
+        <div className="sm:hidden border-t border-ink-800 px-4 py-3 space-y-2.5">
+          <div>
+            <div className="flex items-baseline justify-between text-sm">
+              <span className="font-semibold num text-ink-100">{pct(ts.home.possession_pct, 1)}</span>
+              <span className="text-xs text-ink-400">점유율</span>
+              <span className="font-semibold num text-ink-100">{pct(ts.away.possession_pct, 1)}</span>
+            </div>
+            <div className="flex h-2 gap-0.5 mt-1.5" aria-hidden>
+              <div className={cn('rounded-sm', isDark(home.color) && 'ring-1 ring-inset ring-white/30')}
+                style={{ width: `${ts.home.possession_pct ?? 50}%`, background: home.color }} />
+              <div className={cn('rounded-sm flex-1', isDark(away.color) && 'ring-1 ring-inset ring-white/30')}
+                style={{ background: away.color }} />
+            </div>
+          </div>
+          {BOX_ROWS.map(r => (
+            <div key={r.label} className="grid grid-cols-[1fr_auto_1fr] items-baseline gap-2 text-sm">
+              <span className="num text-ink-100">{r.get(ts.home)}</span>
+              <span className="text-xs text-ink-400">{r.label}</span>
+              <span className="num text-ink-100 text-right">{r.get(ts.away)}</span>
+            </div>
+          ))}
+        </div>
+        <div className="hidden sm:block overflow-x-auto border-t border-ink-800">
           <table className="w-full text-sm num">
             <thead>
               <tr className="text-[11px] text-ink-400">
@@ -209,25 +250,31 @@ export default function ResultsPage() {
 
       {/* 분석 신뢰도 · 주의 사항 */}
       {meta.source === 'video' && meta.ball_detected_pct != null && (
-        <p className="note mb-2">
-          분석 신뢰도 · 공 위치 추정 <span className="num text-ink-100">{meta.ball_detected_pct.toFixed(0)}%</span>
-          {meta.ball_direct_pct != null && (
-            <> · 직접 검출 <span className="num text-ink-100">{meta.ball_direct_pct.toFixed(0)}%</span></>
-          )}
-          {meta.ball_verified && (
-            <> · 표시 장면 대조 정확도 <span className="num text-ink-100">{meta.ball_verified.pct.toFixed(0)}%</span>
-              <span className="text-ink-500"> ({meta.ball_verified.frames}장면)</span></>
-          )}
-          <span className="text-ink-500"> — 위치 추정은 공 모델이 직접 잡은 장면에 앞뒤 장면을 이어 붙인 추정까지 더한 비율입니다.
-            잡힌 위치가 진짜 공이 아닐 수도 있어서, 실제로 맞는 비율은 대조 정확도로 봐 주세요. 낮을수록 볼 기록이 부정확합니다.</span>
+        <details className="note mb-2 group">
+          <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+            분석 신뢰도 · 공 위치 추정 <span className="num text-ink-100">{meta.ball_detected_pct.toFixed(0)}%</span>
+            {meta.ball_direct_pct != null && (
+              <> · 직접 검출 <span className="num text-ink-100">{meta.ball_direct_pct.toFixed(0)}%</span></>
+            )}
+            {meta.ball_verified && (
+              <> · 표시 장면 대조 정확도 <span className="num text-ink-100">{meta.ball_verified.pct.toFixed(0)}%</span>
+                <span className="text-ink-500"> ({meta.ball_verified.frames}장면)</span></>
+            )}
+            <span className="ml-2 text-xs text-ink-400 underline underline-offset-2 group-open:hidden">설명 보기</span>
+            <span className="ml-2 text-xs text-ink-400 underline underline-offset-2 hidden group-open:inline">접기</span>
+          </summary>
+          <p className="text-ink-500 mt-1">
+            위치 추정은 공 모델이 직접 잡은 장면에 앞뒤 장면을 이어 붙인 추정까지 더한 비율입니다.
+            잡힌 위치가 진짜 공이 아닐 수도 있어서, 실제로 맞는 비율은 대조 정확도로 봐 주세요. 낮을수록 볼 기록이 부정확합니다.
+          </p>
           {meta.duration_s > 0 && (
-            <span className="block text-ink-500 mt-0.5">
+            <p className="text-ink-500 mt-1">
               점유율은 공 주인이 확인된 <span className="num text-ink-300">{fmtClock(ts.home.possession_s + ts.away.possession_s)}</span>
               (경기의 <span className="num text-ink-300">{Math.round(((ts.home.possession_s + ts.away.possession_s) / meta.duration_s) * 100)}%</span>) 동안만 셉니다.
               나머지는 공 다툼·공이 안 보인 시간입니다.
-            </span>
+            </p>
           )}
-        </p>
+        </details>
       )}
       {meta.sample && (
         <p className="note mb-2">샘플 분석입니다. 올린 영상이 아니라 가상 경기 데이터로 만든 결과이므로 화면 구성 확인용으로만 보세요.</p>
@@ -236,7 +283,8 @@ export default function ResultsPage() {
 
       {/* 탭 + 전/후반 */}
       <div className="sticky top-14 z-30 -mx-4 px-4 bg-ink-950 border-b border-ink-800 mb-4 mt-4 flex flex-wrap items-end gap-x-3 gap-y-1">
-        <div role="tablist" aria-label="결과 보기" className="flex overflow-x-auto flex-1 min-w-0 basis-full sm:basis-0">
+        <div className="relative flex-1 min-w-0 basis-full sm:basis-0">
+        <div ref={tabList} role="tablist" aria-label="결과 보기" className="flex overflow-x-auto no-scrollbar pr-6 sm:pr-0">
           {TABS.map(([k, label]) => (
             <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
               className={cn('px-3 py-2.5 text-sm whitespace-nowrap border-b-2 -mb-px transition-colors',
@@ -245,7 +293,9 @@ export default function ResultsPage() {
             </button>
           ))}
         </div>
-        <div className="flex rounded-md border border-ink-700 p-0.5 bg-ink-900 mb-1.5" role="group" aria-label="구간"
+        <div className="pointer-events-none absolute right-0 top-0 bottom-px w-8 bg-gradient-to-l from-ink-950 to-transparent sm:hidden" aria-hidden />
+        </div>
+        <div className={cn('rounded-md border border-ink-700 p-0.5 bg-ink-900 mb-1.5', hasHalves ? 'flex' : 'hidden sm:flex')} role="group" aria-label="구간"
           title={hasHalves ? '' : '경기 설정에서 후반 시작 시각을 입력하면 전반/후반을 나눠 볼 수 있습니다'}>
           {([[null, '전체'], [1, '전반'], [2, '후반']] as [Period, string][]).map(([p, l]) => (
             <button key={l} type="button" disabled={p !== null && !hasHalves} onClick={() => setPeriod(p)} aria-pressed={period === p}

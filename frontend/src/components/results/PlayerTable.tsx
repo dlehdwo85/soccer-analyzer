@@ -36,6 +36,18 @@ export const STAT_COLS: Col[] = [
   { key: 'lost', label: '볼 뺏김', get: s => s.dispossessed, group: '수비' },
 ]
 
+/** 휴대폰 카드의 작은 칸. 기본 4칸, '모든 항목'을 켜면 8칸 */
+const CARD_CELLS: { label: string; get: (s: PlayerStats) => string; core?: boolean }[] = [
+  { label: '패스 성공/시도', get: s => `${s.passes_completed}/${s.passes_attempted}`, core: true },
+  { label: '성공률', get: s => s.pass_accuracy == null ? '–' : `${s.pass_accuracy.toFixed(0)}%`, core: true },
+  { label: '가로채기', get: s => String(s.interceptions), core: true },
+  { label: '볼 탈취', get: s => String(s.recoveries), core: true },
+  { label: '볼터치', get: s => String(s.touches) },
+  { label: '받은 패스', get: s => String(s.passes_received) },
+  { label: '볼 뺏김', get: s => String(s.dispossessed) },
+  { label: '슈팅/유효', get: s => `${s.shots}/${s.shots_on_target}` },
+]
+
 interface Props {
   matchId: number
   match: Match
@@ -85,7 +97,58 @@ export default function PlayerTable({ matchId, match, players, onSelect }: Props
           </label>
         )}
       </div>
-      <div className="overflow-x-auto">
+      {/* 휴대폰: 옆으로 미는 표 대신 선수 카드 목록. 정렬 기준 값을 오른쪽에 크게 보여 준다 */}
+      <div className="sm:hidden">
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-ink-800">
+          <label htmlFor="player-sort" className="text-xs text-ink-400 shrink-0">정렬</label>
+          <select id="player-sort" className="input !w-auto flex-1 !py-1.5" value={sortCol.key}
+            onChange={e => setSort({ key: e.target.value, desc: true })}>
+            {cols.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+          </select>
+          <button type="button" className="btn-secondary !px-2.5 !py-1.5" onClick={() => setSort(s => ({ ...s, desc: !s.desc }))}
+            aria-label={sort.desc ? '높은 순으로 정렬 중 · 낮은 순으로 바꾸기' : '낮은 순으로 정렬 중 · 높은 순으로 바꾸기'}>
+            {sort.desc ? <ArrowDown className="w-4 h-4" aria-hidden /> : <ArrowUp className="w-4 h-4" aria-hidden />}
+          </button>
+        </div>
+        <ul className="divide-y divide-ink-800">
+          {rows.map((p, i) => {
+            const v = sortCol.get(p.stats)
+            const top = v !== null && v > 0 && v === best[sortCol.key]
+            return (
+              <li key={p.track_id}>
+                <button type="button" onClick={() => onSelect(p)} className="w-full text-left px-4 py-3 active:bg-ink-850">
+                  <span className="flex items-center gap-3">
+                    <span className="w-4 text-xs text-ink-500 num text-right shrink-0" aria-hidden>{i + 1}</span>
+                    <PlayerAvatar matchId={matchId} player={p} match={match} size={40} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium text-ink-100 truncate">{playerName(p)}</span>
+                      <span className="block text-xs text-ink-500 truncate">
+                        {teamInfo(match, p.team).name}{isGk(p) && ' · GK'} · 출전 <span className="num">{p.stats.minutes_tracked.toFixed(0)}</span>분
+                      </span>
+                    </span>
+                    <span className="text-right shrink-0">
+                      <span className={cn('block text-xl leading-none font-semibold num', top ? 'text-volt' : 'text-ink-100')}>
+                        {v === null ? '–' : sortCol.fmt ? sortCol.fmt(v, p.stats) : v}
+                      </span>
+                      <span className="block text-[11px] text-ink-400 mt-1">{sortCol.label}</span>
+                    </span>
+                  </span>
+                  <span className="grid grid-cols-4 gap-x-2 gap-y-2 mt-2.5 pl-7">
+                    {CARD_CELLS.filter(c => showAll || c.core).map(c => (
+                      <span key={c.label} className="min-w-0">
+                        <span className="block text-[11px] text-ink-500 truncate">{c.label}</span>
+                        <span className="block text-sm num text-ink-200">{c.get(p.stats)}</span>
+                      </span>
+                    ))}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+          {rows.length === 0 && <li className="text-center text-sm text-ink-500 py-10">표시할 선수가 없습니다</li>}
+        </ul>
+      </div>
+      <div className="hidden sm:block overflow-x-auto">
         <table className="w-full text-sm num">
           <thead>
             <tr className="text-[11px] text-ink-400">
@@ -141,7 +204,8 @@ export default function PlayerTable({ matchId, match, players, onSelect }: Props
         </table>
       </div>
       <p className="px-4 py-2 border-t border-ink-800 text-[11px] text-ink-500">
-        줄을 누르면 선수별 패스·슈팅 위치를 볼 수 있습니다. 열 제목을 누르면 정렬됩니다. 녹색 숫자는 해당 항목 최고 기록입니다.
+        <span className="sm:hidden">선수를 누르면 패스·슈팅 위치를 볼 수 있습니다. 녹색 숫자는 해당 항목 최고 기록입니다.</span>
+        <span className="hidden sm:inline">줄을 누르면 선수별 패스·슈팅 위치를 볼 수 있습니다. 열 제목을 누르면 정렬됩니다. 녹색 숫자는 해당 항목 최고 기록입니다.</span>
       </p>
     </section>
   )
