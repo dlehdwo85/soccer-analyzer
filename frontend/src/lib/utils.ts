@@ -75,10 +75,15 @@ export function isDark(hex: string): boolean {
   return (r * 299 + g * 587 + b * 114) / 1000 < 60
 }
 
+/** 화면 표시용 팀 색. 유니폼이 너무 어두우면 어두운 바탕에서 막대·점이 보이지 않으므로 눈에 띄는 색으로 바꾼다 (원정 빨강, 홈 파랑) */
+export function displayColor(hex: string, team: Team): string {
+  return isDark(hex) ? (team === 'away' ? '#ef4444' : '#3b82f6') : hex
+}
+
+/** color: 화면 표시용 색 (어두운 유니폼은 바꾼 색) · kit: 실제 유니폼 색 */
 export function teamInfo(match: Match, team: Team) {
-  return team === 'home'
-    ? { name: match.home_team_name, color: match.home_team_color }
-    : { name: match.away_team_name, color: match.away_team_color }
+  const kit = team === 'home' ? match.home_team_color : match.away_team_color
+  return { name: team === 'home' ? match.home_team_name : match.away_team_name, color: displayColor(kit, team), kit }
 }
 
 export function playerName(p: Pick<PlayerRow, 'display_name' | 'jersey_number' | 'track_id'> | undefined | null): string {
@@ -111,6 +116,7 @@ export function eventLabel(e: MatchEvent): string {
     return '패스 실패'
   }
   if (e.kind === 'shot') {
+    if ((e.detail as { goal?: boolean }).goal) return '골'
     if (e.detail.outcome === 'on_target') return '유효 슈팅'
     if (e.detail.outcome === 'blocked') return '슈팅 · 블록'
     return '슈팅 · 빗나감'

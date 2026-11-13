@@ -199,6 +199,35 @@ def live_spells(spells: List[Spell], wins: List[Tuple[float, float]]) -> List[Sp
     return out
 
 
+def apply_goals(pairs: List[Tuple[MatchEvent, Event]], meta: Dict) -> Dict:
+    """점수가 바뀐 골마다 그 팀의 직전 킥을 골 슈팅으로 맞추고, 고친 점수판 정보를 돌려준다.
+
+    카메라가 움직이는 영상은 경기장 위치가 부정확해, 골문 앞에서 찬 공도 '골문에서 먼 곳의 끊긴 패스'로 잡힌다
+    (2쿼터 9:05 월넛 골: 박스 안 슈팅이 원정 선수에게 간 실패 패스로 기록됨). 골은 반드시 슈팅이므로:
+    점수 자막이 바뀌기 전 20초 안에 그 팀 슈팅이 있으면 그 슈팅을 유효(골)로, 없으면 그 팀의 마지막 '이어지지 않은 패스'를
+    골 슈팅으로 바꾼다. 사람이 직접 고친 이벤트는 건드리지 않는다."""
+    sb = meta.get("scoreboard") or {}
+    if not sb.get("found"):
+        return meta
+    goals = []
+    for g in sb.get("goals") or []:
+        tb, team = float(g["t_board"]), g.get("team")
+        near = [(r, e) for r, e in pairs if e.team == team and tb - 20.0 <= e.t <= tb + 1.0
+                and not (getattr(r, "manual", False) or getattr(r, "edited", False))]
+        shots = [x for x in near if x[1].kind == "shot"]
+        fails = [x for x in near if x[1].kind == "pass" and not x[1].success]
+        pick = max(shots or fails, key=lambda x: x[1].t, default=None)
+        if pick is not None:
+            e = pick[1]
+            if e.kind == "pass":
+                e.kind, e.target = "shot", None
+            e.success = True
+            e.detail = dict(e.detail or {}, outcome="on_target", goal=True)
+            g = dict(g, t=round(e.t, 2), player=e.player)
+        goals.append(g)
+    return dict(meta, scoreboard=dict(sb, goals=goals))
+
+
 def confirm_goals(meta: Dict, spells: List[Spell]) -> Optional[Dict]:
     """점수 자막으로 잡은 골마다 영상 근거를 붙인다: 골 뒤에 양 팀이 자기 진영으로 갈라서는 킥오프가 있었고,
     그 킥오프를 한(직후 처음 공을 잡은) 팀이 실점한 팀이면 영상으로 확인된 골이다."""
@@ -246,6 +275,7 @@ def build_view(db: Session, match: Match, include_events: bool = True, period: O
         if st.get("first_seen_s") is not None and st.get("last_seen_s") is not None:
             spans[r.track_id] = (float(st["first_seen_s"]), float(st["last_seen_s"]))
     pairs = _remap_events(ev_rows, head, team_of, excluded, untrusted_bounds=untrusted, spans=spans)
+    meta = apply_goals(pairs, meta)
     ht = halftime_rel(match, meta)
     duration = meta.get("duration_s") or (max((e.t_end or e.t) for _, e in pairs) if pairs else 0)
     t_from, t_to = 0.0, float(duration or 0)

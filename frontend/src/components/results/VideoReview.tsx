@@ -60,7 +60,7 @@ export function prepare(ov: Overlay): Prepared {
     })
     tracks.push({ tid, ks, bx })
   }
-  const balls = isSorted(ov.ball ?? []) ? (ov.ball ?? []) : [...ov.ball].sort((a, b) => a[0] - b[0])
+  const balls = cleanBall(isSorted(ov.ball ?? []) ? (ov.ball ?? []) : [...ov.ball].sort((a, b) => a[0] - b[0]), ov)
   const ballK = new Int32Array(balls.length)
   const ballXY = new Float32Array(balls.length * 2)
   const ballDet = new Uint8Array(balls.length)
@@ -68,6 +68,103 @@ export function prepare(ov: Overlay): Prepared {
     ballK[i] = b[0]; ballXY[i * 2] = b[1]; ballXY[i * 2 + 1] = b[2]; ballDet[i] = b[3] ? 1 : 0
   })
   return { w: ov.w, h: ov.h, start: ov.start_s, step: ov.step, tracks, ballK, ballXY, ballDet }
+}
+
+/**
+ * 화면에 그릴 공 궤적 정리 (분석 엔진의 ball.drop_excursions와 같은 규칙 + 배경 물체 제거).
+ * 1) 짧게 딴 곳으로 튀었다 돌아오는 묶음: 들어갈 때·나올 때 모두 공이 낼 수 없는 속도이고 앞뒤 점은 자연스럽게 이어지면 지운다.
+ * 2) 모든 선수보다 위쪽(경기장 건너편 배경)에 높이가 변하지 않고 머무는 '공': 조명·시설물이다.
+ * 지운 점에 기대어 이어 붙였던 추정 점도 걷어 내고, 남은 직접 검출 사이가 1.5초 이하면 다시 직선으로 잇는다.
+ */
+export function cleanBall(balls: Overlay['ball'], ov: Overlay): Overlay['ball'] {
+  if (!balls?.length || !(ov.step > 0)) return balls ?? []
+  const scale = (ov.w || 1920) / 1920
+  const vmax = 1152 * scale * ov.step          // 프레임 한 칸에 움직일 수 있는 최대 픽셀
+  const maxLen = Math.round(1.5 / ov.step)
+  const dist = (p: readonly number[], q: readonly number[]) => Math.hypot(p[1] - q[1], p[2] - q[2])
+  const bad = new Set<number>()
+
+  // 2) 배경 물체: 프레임마다 가장 위에 있는 선수 머리 높이
+  const top = new Map<number, number>()
+  for (const rows of Object.values(ov.tracks ?? {})) {
+    for (const r of rows) {
+      const cur = top.get(r[0])
+      if (cur === undefined || r[2] < cur) top.set(r[0], r[2])
+    }
+  }
+  let run: Overlay['ball'] = []
+  const flush = () => {
+    if (run.length >= 8) {
+      const ys = run.map(p => p[2])
+      if (Math.max(...ys) - Math.min(...ys) <= 12 * scale) run.forEach(p => bad.add(p[0]))
+    }
+    run = []
+  }
+  for (const p of balls) {
+    if (!p[3]) continue
+    const tp = top.get(p[0])
+    const above = tp !== undefined && p[2] < tp - 40 * scale
+    if (!above) { flush(); continue }
+    if (run.length && p[0] - run[run.length - 1][0] > 5) flush()
+    run.push(p)
+  }
+  flush()
+
+  // 1) 튀었다 돌아오는 묶음 (최대 3번 되풀이)
+  for (let pass = 0; pass < 3; pass++) {
+    const D = balls.filter(p => p[3] && !bad.has(p[0]))
+    let found = false
+    let n = 1
+    while (n < D.length - 1) {
+      const a = D[n - 1]
+      if (dist(a, D[n]) / Math.max(1, D[n][0] - a[0]) <= vmax) { n++; continue }
+      let m = n
+      while (m + 1 < D.length && D[m + 1][0] - D[n][0] <= maxLen
+        && dist(D[m], D[m + 1]) / Math.max(1, D[m + 1][0] - D[m][0]) <= vmax) m++
+      if (m + 1 >= D.length) break
+      const z = D[m + 1]
+      if (dist(D[m], z) / Math.max(1, z[0] - D[m][0]) > vmax && dist(a, z) / Math.max(1, z[0] - a[0]) <= vmax * 0.5) {
+        for (let i = n; i <= m; i++) bad.add(D[i][0])
+        found = true
+        n = m + 1
+      } else n++
+    }
+    if (!found) break
+  }
+  if (!bad.size) return balls
+
+  // 지운 직접 검출 옆의 추정 점을 걷어 낸다: 추정 점은 양옆 직접 검출이 모두 살아 있을 때만 남긴다
+  const out: Overlay['ball'] = []
+  let leftOk = true
+  for (let i = 0; i < balls.length; i++) {
+    const p = balls[i]
+    if (p[3]) { leftOk = !bad.has(p[0]); if (leftOk) out.push(p); continue }
+    let j = i + 1
+    while (j < balls.length && !balls[j][3]) j++
+    const rightOk = j >= balls.length || !bad.has(balls[j][0])
+    if (leftOk && rightOk) out.push(p)
+  }
+  // 남은 직접 검출 사이의 빈 곳을 다시 잇는다
+  const res: Overlay['ball'] = []
+  let prev: Overlay['ball'][number] | null = null     // 직전 직접 검출
+  let between = false                                  // prev 뒤에 다른 점(추정)이 있었는가
+  for (const p of out) {
+    if (p[3]) {
+      if (prev && !between) {
+        const gap = p[0] - prev[0]
+        if (gap > 1 && gap <= maxLen && dist(prev, p) / gap <= vmax) {
+          for (let k = prev[0] + 1; k < p[0]; k++) {
+            const f = (k - prev[0]) / gap
+            res.push([k, Math.round(prev[1] + (p[1] - prev[1]) * f), Math.round(prev[2] + (p[2] - prev[2]) * f), 0] as Overlay['ball'][number])
+          }
+        }
+      }
+      prev = p
+      between = false
+    } else between = true
+    res.push(p)
+  }
+  return res
 }
 
 function isSorted(rows: readonly (readonly number[])[]): boolean {
@@ -454,7 +551,7 @@ export function shortLabel(p: PlayerRow): string {
 /** 선수 박스·이름표만 그리는 설정 (하이라이트 플레이어용). follow 선수는 굵게 강조 */
 export function namesCfg(result: MatchResult, prep: Prepared | null, follow = '', showBoxes = true, followTag?: string): DrawCfg {
   const { match } = result
-  const color = { home: match.home_team_color, away: match.away_team_color }
+  const color = { home: teamInfo(match, 'home').color, away: teamInfo(match, 'away').color }
   const headOf = new Map<string, PlayerRow>()
   for (const p of result.players) {
     headOf.set(p.track_id, p)
@@ -572,7 +669,7 @@ function Review({ matchId, result, players, src, initialFollow }: Props & { src:
   }, [result.players])
 
   const cfg = useMemo<DrawCfg>(() => {
-    const color = { home: match.home_team_color, away: match.away_team_color }
+    const color = { home: teamInfo(match, 'home').color, away: teamInfo(match, 'away').color }
     return {
       prep,
       headOf,

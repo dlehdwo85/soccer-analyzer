@@ -1,7 +1,7 @@
 'use client'
 import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { isPlaced, MatchResult, PlayerRow, TeamStats } from '@/lib/types'
-import { cn, fmtClock, playerName, teamInfo } from '@/lib/utils'
+import { cn, fmtClock, playerName, teamInfo, eventLabel } from '@/lib/utils'
 import Pitch from '@/components/pitch/Pitch'
 import PlayerAvatar from './PlayerAvatar'
 
@@ -31,6 +31,8 @@ const ROWS: Row[] = [
 export function TeamComparison({ result }: { result: MatchResult }) {
   const { match, team_stats: ts } = result
   const home = teamInfo(match, 'home'), away = teamInfo(match, 'away')
+  // 카메라가 움직이고 경기장 지정이 없으면 슈팅 위치를 믿을 수 없다 → 위치로 계산하는 xG는 보여 주지 않는다
+  const untrusted = !!result.meta.camera_moving && !result.meta.calibrated
   return (
     <section className="card p-5">
       <div className="flex items-center justify-between mb-5 gap-2">
@@ -43,6 +45,7 @@ export function TeamComparison({ result }: { result: MatchResult }) {
           const h = r.get(ts.home), a = r.get(ts.away)
           if (h === null && a === null) return null
           if (r.hideIfZero && !h && !a) return null
+          if (untrusted && r.label.startsWith('xG')) return null
           const hv = h ?? 0, av = a ?? 0
           const total = hv + av
           const hp = total ? (hv / total) * 100 : 50
@@ -109,7 +112,7 @@ export function PossessionChart({ result }: { result: MatchResult }) {
               }}
               labelFormatter={l => `${l}부터`} />
             <Bar dataKey="home" radius={3} isAnimationActive={false}>
-              {data.map((d, i) => <Cell key={i} fill={d.home >= 0 ? match.home_team_color : match.away_team_color} />)}
+              {data.map((d, i) => <Cell key={i} fill={teamInfo(match, d.home >= 0 ? 'home' : 'away').color} />)}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
@@ -122,6 +125,41 @@ export function ShotMap({ result, players, onSeek }:
   { result: MatchResult; players: Map<string, PlayerRow>; onSeek?: (t: number) => void }) {
   const { length, width } = result.meta.field
   const shots = result.events.filter(isPlaced).filter(e => e.kind === 'shot')
+  // 카메라가 움직이는 영상(경기장 지정 없음)은 경기장 안 위치가 부정확하다 → 틀린 지도 대신 목록으로 보여 준다
+  if (result.meta.camera_moving && !result.meta.calibrated) {
+    const list = result.events.filter(e => e.kind === 'shot').sort((a, b) => a.t - b.t)
+    return (
+      <section className="card p-5">
+        <h2 className="font-semibold text-ink-100">골 · 슈팅</h2>
+        <p className="text-xs text-ink-400 mt-1 mb-2">
+          카메라가 움직이는 영상은 경기장 안 위치를 정확히 알 수 없어, 지도 대신 시간 순 목록으로 보여 줍니다.
+          슈팅으로 잡히지 않은 장면이나 롱패스가 슈팅으로 잡힌 장면이 있을 수 있습니다{onSeek && ' — 눌러서 장면을 확인하세요'}.
+        </p>
+        {list.length === 0 ? (
+          <p className="text-sm text-ink-500 py-6 text-center">기록된 슈팅이 없습니다</p>
+        ) : (
+          <ul className="divide-y divide-ink-800">
+            {list.map(s => {
+              const info = teamInfo(result.match, s.team)
+              const goal = !!(s.detail as { goal?: boolean }).goal
+              return (
+                <li key={s.id}>
+                  <button type="button" disabled={!onSeek} onClick={() => onSeek?.(s.t)}
+                    className="w-full flex items-center gap-3 py-2.5 text-left disabled:cursor-default">
+                    <span className="num text-xs text-ink-400 w-10 shrink-0">{fmtClock(s.t)}</span>
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: info.color }} aria-hidden />
+                    <span className="flex-1 min-w-0 truncate text-sm text-ink-100">{playerName(players.get(s.player))}
+                      <span className="text-ink-500"> · {info.name}</span></span>
+                    <span className={cn('text-xs shrink-0', goal ? 'font-semibold text-volt' : 'text-ink-300')}>{eventLabel(s)}</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </section>
+    )
+  }
   return (
     <section className="card p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
@@ -165,7 +203,9 @@ export function Leaders({ matchId, result, onSelect }: { matchId: number; result
     ['패스 성공률', pick(p => p.stats.pass_accuracy ?? 0, p => p.stats.passes_attempted >= 10),
       p => `${p.stats.pass_accuracy?.toFixed(0)}% (${p.stats.passes_completed}/${p.stats.passes_attempted})`],
     ['키패스', pick(p => p.stats.key_passes), p => `${p.stats.key_passes}회`],
-    ['xG', pick(p => p.stats.xg), p => `${p.stats.xg.toFixed(2)} · 슈팅 ${p.stats.shots}`],
+    (result.meta.camera_moving && !result.meta.calibrated)
+      ? ['슈팅', pick(p => p.stats.shots), p => `${p.stats.shots}회 · 유효 ${p.stats.shots_on_target}`]
+      : ['xG', pick(p => p.stats.xg), p => `${p.stats.xg.toFixed(2)} · 슈팅 ${p.stats.shots}`],
     ['수비 (가로채기+탈취)', pick(p => p.stats.interceptions + p.stats.recoveries),
       p => `${p.stats.interceptions + p.stats.recoveries}회`],
   ]

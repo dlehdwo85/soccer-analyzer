@@ -47,3 +47,40 @@ def test_confirm_goals_by_kickoff():
     assert [g["video_confirmed"] for g in goals] == [True, False, False]
     assert [g["kickoff_t"] for g in goals] == [120.0, None, 530.0]
     assert confirm_goals({"scoreboard": {"found": False}}, spells) == {"found": False}
+
+
+def test_drop_excursions_removes_short_detour_only():
+    from app.vision.ball import drop_excursions
+    times = [i / 15 for i in range(40)]
+    pos = [(100.0 + 5 * i, 500.0) for i in range(40)]          # 공이 천천히 오른쪽으로 굴러간다
+    for i in range(10, 16):                                     # 0.4초 동안 엉뚱한 곳(신발)을 공으로 잡음
+        pos[i] = (1400.0 + i, 200.0)
+    out = drop_excursions(list(pos), times, frame_w=1920)
+    assert all(out[i] is None for i in range(10, 16))
+    assert all(out[i] == pos[i] for i in list(range(10)) + list(range(16, 40)))
+    # 진짜로 멀리 간 공(돌아오지 않음)은 그대로 둔다
+    far = [(100.0, 500.0)] * 10 + [(1400.0, 200.0)] * 30
+    assert drop_excursions(list(far), times, frame_w=1920) == far
+
+
+def test_apply_goals_turns_last_kick_into_goal_shot():
+    from types import SimpleNamespace as NS
+    from app.services.result_service import apply_goals
+    row = lambda **kw: NS(manual=False, edited=False, **kw)
+    # 월넛 골(9:07 자막): 박스 안 슈팅이 '원정 선수에게 간 실패 패스'로 잡혀 있었다 → 골 슈팅으로
+    fail = Event("pass", 545.07, "home", "P340", t_end=546.53, target="P10", success=False)
+    early = Event("pass", 533.47, "home", "P695", t_end=534.8, target="P426", success=True)
+    # 바모스 골(1:35 자막): 직전 슈팅이 '블록'으로 잡혀 있었다 → 유효(골)로
+    shot = Event("shot", 90.33, "away", "P227", detail={"outcome": "blocked", "xg": 0.01})
+    edited = Event("pass", 700.0, "home", "P9", success=False)
+    pairs = [(row(), shot), (row(), early), (row(), fail), (NS(manual=False, edited=True), edited)]
+    meta = {"scoreboard": {"found": True, "goals": [
+        {"t": 90.33, "t_board": 95.0, "team": "away", "player": "P227"},
+        {"t": 547.0, "t_board": 547.0, "team": "home", "player": None},
+        {"t": 705.0, "t_board": 705.0, "team": "home", "player": None}]}}       # 사람이 고친 이벤트뿐 → 그대로
+    out = apply_goals(pairs, meta)["scoreboard"]["goals"]
+    assert (fail.kind, fail.success, fail.target, fail.detail["goal"]) == ("shot", True, None, True)
+    assert (shot.success, shot.detail["outcome"], shot.detail["goal"]) == (True, "on_target", True)
+    assert early.kind == "pass" and edited.kind == "pass"
+    assert [(g["t"], g["player"]) for g in out] == [(90.33, "P227"), (545.07, "P340"), (705.0, None)]
+    assert apply_goals(pairs, {"scoreboard": {"found": False}}) == {"scoreboard": {"found": False}}

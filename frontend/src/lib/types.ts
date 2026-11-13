@@ -275,6 +275,8 @@ export interface ResultMeta {
   /** 화면 밖에 있다 돌아와 따로 잡힌 같은 선수 후보 (트랙 → 가까운 순 후보 트랙) */
   merge_hints?: Record<string, string[]>
   /** 영상에 박힌 점수 자막에서 읽은 골 (자막이 바뀐 시각, 직전 슈팅이 있으면 그 시각·선수) */
+  /** 카메라가 움직이는 영상 — 경기장 지정이 없으면 경기장 안 위치(슈팅 지도·xG)를 믿을 수 없다 */
+  camera_moving?: boolean
   /** 'touches': 점유율이 공을 잡은 횟수 기준 (멈춘 시간 제외) */
   possession_basis?: string
   scoreboard?: {
