@@ -22,10 +22,15 @@ const ROWS: Row[] = [
   // 세트피스: 종류 구분은 경기장 지정(보정)이 있을 때만 나온다. 없으면 '재개' 합계만 보인다.
   { label: '코너킥', get: t => t.corners ?? 0, hideIfZero: true },
   { label: '프리킥', get: t => t.free_kicks ?? 0, hideIfZero: true },
-  { label: '스로인', get: t => t.throw_ins ?? 0, hideIfZero: true },
+  { label: '드로잉', get: t => t.throw_ins ?? 0, hideIfZero: true },
   { label: '골킥', get: t => t.goal_kicks ?? 0, hideIfZero: true },
+  { label: '페널티킥', get: t => t.penalties ?? 0, hideIfZero: true },
+  { label: '파울', get: t => t.fouls ?? 0, hideIfZero: true,
+    hint: '호루라기 뒤 상대 프리킥·페널티킥으로 다시 시작한 횟수 (오프사이드 포함). 호루라기 직전 공 가까이 있던 선수로 추정합니다' },
   { label: '재개(세트피스)', get: t => t.set_pieces ?? 0, hideIfZero: true,
-    hint: '경기 중단 뒤 다시 시작한 횟수. 경기장 지정이 있으면 코너킥·프리킥·스로인·골킥으로 나뉩니다' },
+    hint: '경기 중단 뒤 다시 시작한 횟수. 경기장 선이 인식되면 코너킥·프리킥·드로잉·골킥으로 나뉩니다' },
+  { label: '이동 거리', get: t => t.distance_km ?? 0, fmt: v => `${v.toFixed(1)}km`, hideIfZero: true,
+    hint: '선수들이 화면에 잡힌 동안 움직인 거리의 합. 화면 밖에 있던 시간은 빠져 실제보다 적습니다' },
 ]
 
 export function TeamComparison({ result }: { result: MatchResult }) {

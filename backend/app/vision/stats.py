@@ -21,11 +21,18 @@ BALL_KEYS = ("touches", "possession_s", "passes_attempted", "passes_completed", 
              "passes_received", "forward_passes", "key_passes", "shots", "shots_on_target", "shots_blocked",
              "interceptions", "recoveries", "dispossessed", "xg",
              # 세트피스(재개): 보정된 경기장에서만 종류가 나뉘고, 아니면 set_pieces만 센다
-             "set_pieces", "corners", "free_kicks", "throw_ins", "goal_kicks", "kick_offs")
+             "set_pieces", "corners", "free_kicks", "throw_ins", "goal_kicks", "kick_offs", "penalties",
+             # 파울: 호루라기 뒤 경기장 안에서 프리킥·페널티킥으로 재개됐을 때, 재개하지 않은 팀의 선수 (추정)
+             "fouls")
 SET_PIECE_KEY = {"corner": "corners", "free_kick": "free_kicks", "throw_in": "throw_ins",
-                 "goal_kick": "goal_kicks", "kick_off": "kick_offs"}
+                 "goal_kick": "goal_kicks", "kick_off": "kick_offs", "penalty": "penalties"}
 PRESENCE_KEYS = ("seconds_tracked",)
 SUM_KEYS = BALL_KEYS + PRESENCE_KEYS + ("pos_sum_x", "pos_sum_y", "pos_weight", "pass_length_sum")
+# 이동 거리·최고 속도: 위치를 미터로 알 때(경기장 선 인식·경기장 지정)만 잰다. 화면 좌표뿐인 영상은 카메라 시점·원근
+# 때문에 믿을 수 없어 아예 항목을 만들지 않는다 — 그래서 기본 항목(empty_stats)에는 없고, 잰 선수에게만 붙는다.
+METRIC_SUM_KEYS = ("distance_m",)
+METRIC_MAX_KEYS = ("top_speed_ms",)
+MAX_PLAYER_SPEED = 10.5    # m/s — 이보다 빠른 이동은 위치가 튄 것으로 보고 거리·속도에 넣지 않는다
 
 
 def empty_stats() -> Dict:
@@ -37,12 +44,30 @@ def empty_stats() -> Dict:
 # ── 출전 시간·평균 위치 ──────────────────────────────────────────────────────
 
 def presence_stats(points: Sequence[Tuple[float, float, float, float]], length: float, width: float,
-                   max_gap_s: float = 1.5) -> Dict:
-    """points: [(t, x, y, s)] — 화면에 잡힌 시간과 시간가중 평균 위치(0~1)."""
+                   max_gap_s: float = 1.5, metric: bool = False) -> Dict:
+    """points: [(t, x, y, s)] — 화면에 잡힌 시간과 시간가중 평균 위치(0~1).
+    metric: 좌표가 미터일 때 이동 거리와 최고 속도도 잰다. 장면마다 위치가 조금씩 떨리므로 1초 단위 평균 위치
+    사이의 거리로 잰다 (장면 단위로 더하면 떨림이 거리로 쌓여 몇 배로 부풀려진다)."""
     st = empty_stats()
     if not points:
         return st
     pts = sorted(points, key=lambda p: p[0])
+    if metric:
+        st["distance_m"], st["top_speed_ms"] = 0.0, 0.0
+        sec: Dict[int, List[float]] = {}
+        for t, x, y, _ in pts:
+            b = sec.setdefault(int(t), [0.0, 0.0, 0])
+            b[0] += x
+            b[1] += y
+            b[2] += 1
+        keys = sorted(sec)
+        for a, b in zip(keys, keys[1:]):
+            if b - a != 1:
+                continue
+            d = math.hypot(sec[b][0] / sec[b][2] - sec[a][0] / sec[a][2], sec[b][1] / sec[b][2] - sec[a][1] / sec[a][2])
+            if d <= MAX_PLAYER_SPEED:
+                st["distance_m"] += d
+                st["top_speed_ms"] = max(st["top_speed_ms"], d)
     st["first_seen_s"], st["last_seen_s"] = pts[0][0], pts[-1][0]
     for (t0, x0, y0, _), (t1, x1, y1, _) in zip(pts, pts[1:]):
         dt = t1 - t0
@@ -108,6 +133,8 @@ def add_event_stats(stats: Dict[str, Dict], events: Iterable[Event]) -> None:
             key = SET_PIECE_KEY.get(e.detail.get("type") or "")
             if key:
                 s[key] += 1
+            if e.detail.get("foul") and e.target:
+                g(e.target)["fouls"] += 1
 
 
 def finalize(st: Dict) -> Dict:
@@ -120,6 +147,9 @@ def finalize(st: Dict) -> Dict:
     out["avg_x"] = round(st["pos_sum_x"] / w, 4) if w else None
     out["avg_y"] = round(st["pos_sum_y"] / w, 4) if w else None
     out["minutes_tracked"] = round(st["seconds_tracked"] / 60, 1)
+    if "distance_m" in st:
+        out["distance_km"] = round(st["distance_m"] / 1000, 2)
+        out["top_speed_kmh"] = round(st.get("top_speed_ms", 0.0) * 3.6, 1)
     return out
 
 
@@ -128,6 +158,12 @@ def merge_player_stats(items: Sequence[Dict]) -> Dict:
     for it in items:
         for k in SUM_KEYS:
             st[k] += it.get(k, 0) or 0
+        for k in METRIC_SUM_KEYS:
+            if k in it:
+                st[k] = st.get(k, 0.0) + (it[k] or 0)
+        for k in METRIC_MAX_KEYS:
+            if k in it:
+                st[k] = max(st.get(k, 0.0), it[k] or 0)
         for key, fn in (("first_seen_s", min), ("last_seen_s", max)):
             vals = [v for v in (st[key], it.get(key)) if v is not None]
             st[key] = fn(vals) if vals else None
@@ -135,7 +171,7 @@ def merge_player_stats(items: Sequence[Dict]) -> Dict:
 
 
 def compute_player_stats(frames: Sequence[Frame], events: Sequence[Event],
-                         length: float, width: float) -> Dict[str, Dict]:
+                         length: float, width: float, metric: bool = False) -> Dict[str, Dict]:
     """선수별 원시(합산 가능) 통계. 키에 'team' 포함."""
     traj: Dict[str, List[Tuple[float, float, float, float]]] = defaultdict(list)
     team_of: Dict[str, str] = {}
@@ -143,7 +179,7 @@ def compute_player_stats(frames: Sequence[Frame], events: Sequence[Event],
         for p in f.players:
             traj[p.tid].append((f.t, p.x, p.y, p.s))
             team_of[p.tid] = p.team
-    stats: Dict[str, Dict] = {tid: presence_stats(pts, length, width) for tid, pts in traj.items()}
+    stats: Dict[str, Dict] = {tid: presence_stats(pts, length, width, metric=metric) for tid, pts in traj.items()}
     add_event_stats(stats, events)
     for tid, st in stats.items():
         st["team"] = team_of.get(tid, "home")
@@ -176,8 +212,10 @@ def team_stats(player_stats: Dict[str, Dict], spells: Sequence[Spell], by_touch:
             **{k: fin[k] for k in ("passes_attempted", "passes_completed", "passes_failed", "pass_accuracy",
                                     "forward_passes", "key_passes", "shots", "shots_on_target", "shots_blocked",
                                     "interceptions", "recoveries", "dispossessed", "touches",
-                                    "set_pieces", "corners", "free_kicks", "throw_ins", "goal_kicks", "kick_offs")},
+                                    "set_pieces", "corners", "free_kicks", "throw_ins", "goal_kicks", "kick_offs",
+                                    "penalties", "fouls")},
             "xg": round(agg["xg"], 2),
+            **({"distance_km": fin["distance_km"]} if "distance_km" in fin else {}),
         }
     return out
 

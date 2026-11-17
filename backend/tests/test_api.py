@@ -72,8 +72,10 @@ def test_sample_result_shape_and_consistency(client, analyzed):
     for k in ("touches", "passes_completed", "passes_failed", "key_passes", "shots_on_target", "xg",
               "interceptions", "recoveries", "pass_accuracy", "minutes_tracked"):
         assert k in p
-    for k in ("distance_m", "sprint_m", "top_speed_kmh", "heat"):
+    for k in ("sprint_m", "heat"):
         assert k not in p
+    # 샘플은 위치가 미터라 이동 거리·최고 속도를 잰다 (화면 좌표뿐인 영상에는 이 항목이 없다 — test_events_stats)
+    assert p["distance_km"] is not None and p["top_speed_kmh"] is not None
     assert res["pass_network"]["home"]["nodes"]
     assert res["possession_timeline"]
     assert res["possessions"]

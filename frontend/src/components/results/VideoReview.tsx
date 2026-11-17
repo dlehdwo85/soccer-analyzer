@@ -1135,7 +1135,8 @@ function eventReason(e: MatchEvent, follow: string, players: Map<string, PlayerR
     return `${sp}골문 쪽으로 찬 빠른 공 · ${res}`
   }
   if (e.kind === 'set_piece') {
-    return d.type === 'whistle' || d.type === 'kick_off' ? '호루라기 뒤 처음 공을 찬 선수' : '공이 멈춘 뒤 다시 시작'
+    if (d.foul) return `호루라기 뒤 경기장 안에서 다시 시작 · 상대 ${e.target ? who(e.target) : '선수'}의 파울(또는 오프사이드)로 추정`
+    return d.whistle_t != null || d.type === 'whistle' || d.type === 'kick_off' ? '호루라기 뒤 처음 공을 찬 선수' : '공이 멈춘 뒤 다시 시작'
   }
   return ''
 }

@@ -34,6 +34,11 @@ export const STAT_COLS: Col[] = [
   { key: 'int', label: '가로채기', get: s => s.interceptions, group: '수비', core: true },
   { key: 'rec', label: '볼 탈취', title: '상대 볼을 빼앗음', get: s => s.recoveries, group: '수비', core: true },
   { key: 'lost', label: '볼 뺏김', get: s => s.dispossessed, group: '수비' },
+  { key: 'fouls', label: '파울', title: '호루라기 직전 공 가까이 있던 선수로 추정한 파울', get: s => s.fouls ?? 0, group: '수비' },
+  { key: 'dist', label: '이동(km)', title: '화면에 잡힌 동안 움직인 거리 (경기장 선이 인식된 경기만)', get: s => s.distance_km ?? null,
+    fmt: v => v.toFixed(2), group: '출전' },
+  { key: 'vmax', label: '최고 속도', title: '1초 동안 가장 빨리 움직인 속도 (km/h)', get: s => s.top_speed_kmh ?? null,
+    fmt: v => v.toFixed(0), group: '출전' },
 ]
 
 /** 휴대폰 카드의 작은 칸. 기본 4칸, '모든 항목'을 켜면 8칸 */

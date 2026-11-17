@@ -129,6 +129,10 @@ export interface PlayerStats {
   avg_x: number | null
   avg_y: number | null
   minutes_tracked: number
+  fouls?: number
+  /** 화면에 잡힌 동안 움직인 거리·최고 속도 (경기장 선 인식이 있을 때만) */
+  distance_km?: number | null
+  top_speed_kmh?: number | null
 }
 
 export interface PlayerRow {
@@ -189,10 +193,10 @@ export interface MatchSummary {
 
 export type EventKind = 'pass' | 'shot' | 'recovery' | 'set_piece'
 /** 세트피스 종류 — 경기장 지정(보정)이 있을 때만 나뉘고, 없으면 'restart' */
-export type SetPieceType = 'corner' | 'free_kick' | 'throw_in' | 'goal_kick' | 'kick_off' | 'restart' | 'whistle'
+export type SetPieceType = 'corner' | 'free_kick' | 'throw_in' | 'goal_kick' | 'kick_off' | 'penalty' | 'restart' | 'whistle'
 export const SET_PIECE_LABEL: Record<SetPieceType, string> = {
-  corner: '코너킥', free_kick: '프리킥', throw_in: '스로인', goal_kick: '골킥', kick_off: '킥오프', restart: '재개',
-  whistle: '호루라기 뒤 재개',
+  corner: '코너킥', free_kick: '프리킥', throw_in: '드로잉', goal_kick: '골킥', kick_off: '킥오프', penalty: '페널티킥',
+  restart: '재개', whistle: '호루라기 뒤 재개',
 }
 
 export interface MatchEvent {
@@ -217,6 +221,11 @@ export interface MatchEvent {
     outcome?: 'on_target' | 'off_target' | 'blocked'
     speed_ms?: number
     xg?: number
+    /** 세트피스 종류 */
+    type?: SetPieceType
+    /** 호루라기 뒤 프리킥·페널티킥 — 재개하지 않은 팀의 파울(또는 오프사이드). 파울한 선수(추정)는 target */
+    foul?: boolean
+    whistle_t?: number
   }
 }
 
@@ -246,6 +255,11 @@ export interface TeamStats {
   throw_ins: number
   goal_kicks: number
   kick_offs: number
+  penalties?: number
+  /** 파울 (호루라기 뒤 상대 프리킥·페널티킥으로 재개된 횟수 — 파울한 선수를 추정한 것만) */
+  fouls?: number
+  /** 화면에 잡힌 동안 움직인 거리 합 (경기장 선 인식이 있을 때만) */
+  distance_km?: number | null
 }
 
 export interface PassNetworkTeam {
@@ -277,6 +291,10 @@ export interface ResultMeta {
   /** 영상에 박힌 점수 자막에서 읽은 골 (자막이 바뀐 시각, 직전 슈팅이 있으면 그 시각·선수) */
   /** 카메라가 움직이는 영상 — 경기장 지정이 없으면 경기장 안 위치(슈팅 지도·xG)를 믿을 수 없다 */
   camera_moving?: boolean
+  /** 경기장 선을 자동으로 인식해 위치를 미터로 계산함 (사용자가 경기장을 지정하지 않아도 calibrated = true) */
+  auto_calibrated?: boolean
+  registration?: { covered_pct: number; direct_pct: number; length: number; width: number; used?: boolean } | null
+  goalkeepers?: { home_side: 'left' | 'right'; pieces?: number } | null
   /** 'touches': 점유율이 공을 잡은 횟수 기준 (멈춘 시간 제외) */
   possession_basis?: string
   scoreboard?: {

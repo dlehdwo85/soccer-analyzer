@@ -62,6 +62,9 @@ def _clean_detail(d: Dict) -> Dict:
 def save_result(db: Session, match: Match, result: Dict, source: str) -> None:
     if result.get("version") != CURRENT_VERSION:
         raise ValueError("지원하지 않는 결과 형식입니다. 분석 워커 이미지를 최신 버전으로 갱신하세요.")
+    # 다시 분석이면 사람이 해 둔 작업(이름·역할·제외·이벤트 검수)을 지우기 전에 적어 두었다가 새 결과로 옮긴다
+    from app.services import carryover_service
+    carry = carryover_service.snapshot(db, match)
     db.query(MatchEvent).filter(MatchEvent.match_id == match.id).delete()
     db.query(MatchPlayer).filter(MatchPlayer.match_id == match.id).delete()
     db.flush()
@@ -89,7 +92,11 @@ def save_result(db: Session, match: Match, result: Dict, source: str) -> None:
             detail_json=json.dumps(_clean_detail(e.get("detail"))),
         ))
     db.add_all(rows)
-    match.result_meta_json = json.dumps(result.get("meta") or {}, ensure_ascii=False)
+    meta = dict(result.get("meta") or {})
+    carried = carryover_service.apply(db, match, carry, result)   # 실패해도 새 결과는 그대로 저장된다
+    if carried:
+        meta["carried_over"] = carried
+    match.result_meta_json = json.dumps(meta, ensure_ascii=False)
     overlay = result.get("overlay")
     match.overlay_gz = pack_overlay(overlay) if overlay else None
     match.analysis_version = CURRENT_VERSION
