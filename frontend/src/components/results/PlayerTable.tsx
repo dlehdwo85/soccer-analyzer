@@ -37,8 +37,7 @@ export const STAT_COLS: Col[] = [
   { key: 'fouls', label: '파울', title: '호루라기 직전 공 가까이 있던 선수로 추정한 파울', get: s => s.fouls ?? 0, group: '수비' },
   { key: 'dist', label: '이동(km)', title: '화면에 잡힌 동안 움직인 거리 (경기장 선이 인식된 경기만)', get: s => s.distance_km ?? null,
     fmt: v => v.toFixed(2), group: '출전' },
-  { key: 'vmax', label: '최고 속도', title: '1초 동안 가장 빨리 움직인 속도 (km/h)', get: s => s.top_speed_kmh ?? null,
-    fmt: v => v.toFixed(0), group: '출전' },
+  // 최고 속도는 위치 떨림에 부풀어(아마추어가 시속 37km) 엔진을 고칠 때까지 보여 주지 않는다 (2026-11-20)
 ]
 
 /** 휴대폰 카드의 작은 칸. 기본 4칸, '모든 항목'을 켜면 8칸 */

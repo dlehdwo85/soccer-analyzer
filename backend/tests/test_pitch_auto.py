@@ -94,6 +94,22 @@ def test_goalkeeper_is_the_one_who_stays_in_the_box():
     assert find_goalkeepers({"mid_h": chains["mid_h"]}, L, W) == ({}, None)     # 근거가 없으면 정하지 않는다
 
 
+def test_goalkeeper_team_follows_the_goal_not_the_kit():
+    from app.vision.situations import home_goal_side
+    # 월넛 골키퍼가 어두운 옷이라 원정(바모스)으로 분류됐다 — 그래도 월넛 골문(왼쪽) 앞에 있었으니 월넛 골키퍼다
+    chains = {
+        "dark_gk_left": chain("away", 0, 300, 4.0, 34.0),
+        "away_gk_right": chain("away", 0, 200, 101.0, 33.0),
+        "home_mid": chain("home", 0, 300, 40.0, 30.0), "away_mid": chain("away", 0, 300, 62.0, 30.0),
+    }
+    assert home_goal_side(chains, L) == "left"
+    gks, info = find_goalkeepers(chains, L, W, home_side="left")
+    assert gks == {"dark_gk_left": "home", "away_gk_right": "away"} and info["home_side"] == "left"
+    # 위치 근거 없이 옷 색만 보면 두 골키퍼가 다 원정이라 한쪽만 맞힌다 — 그래서 위치로 정한다
+    gks2, _ = find_goalkeepers(chains, L, W)
+    assert gks2 != gks
+
+
 def frame(t, ball, home_xs, away_xs):
     ps = [PlayerObs(f"H{i}", "home", x, 20 + 5 * i, 1.6) for i, x in enumerate(home_xs)]
     ps += [PlayerObs(f"A{i}", "away", x, 20 + 5 * i, 1.6) for i, x in enumerate(away_xs)]
@@ -183,7 +199,7 @@ def test_distance_uses_one_second_averages():
     pts = [(i / 15, 10 + 5 * i / 15 + rng.normal(0, 0.3), 30 + rng.normal(0, 0.3), 1.0) for i in range(150)]
     st = presence_stats(pts, L, W, metric=True)
     assert 40 <= st["distance_m"] <= 50                    # 실제 45m (떨림을 장면 단위로 더하면 80m를 넘는다)
-    assert 4.0 <= st["top_speed_ms"] <= 6.5
+    assert 4.0 <= st["top_speed_ms"] <= 5.6
     assert "distance_m" not in presence_stats(pts, L, W)    # 미터 좌표가 아니면 재지 않고 항목도 만들지 않는다
     m = merge_player_stats([st, dict(empty_stats(), distance_m=100.0, top_speed_ms=7.0), empty_stats()])
     f = finalize(m)
