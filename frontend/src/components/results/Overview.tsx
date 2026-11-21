@@ -29,8 +29,8 @@ const ROWS: Row[] = [
     hint: '호루라기 뒤 상대 프리킥·페널티킥으로 다시 시작한 횟수 (오프사이드 포함). 호루라기 직전 공 가까이 있던 선수로 추정합니다' },
   { label: '재개(세트피스)', get: t => t.set_pieces ?? 0, hideIfZero: true,
     hint: '경기 중단 뒤 다시 시작한 횟수. 경기장 선이 인식되면 코너킥·프리킥·드로잉·골킥으로 나뉩니다' },
-  { label: '이동 거리', get: t => t.distance_km ?? 0, fmt: v => `${v.toFixed(1)}km`, hideIfZero: true,
-    hint: '선수들이 화면에 잡힌 동안 움직인 거리의 합. 화면 밖에 있던 시간은 빠져 실제보다 적습니다' },
+  // 이동 거리·최고 속도는 보여 주지 않는다 (2026-11-21): 한 카메라가 따라가는 영상이라 화면 밖 시간이 빠지고
+  // 위치 떨림이 더해져 GPS 조끼 같은 수치가 나오지 않는다. 엔진은 계속 계산해 meta·stats에 남긴다.
 ]
 
 export function TeamComparison({ result }: { result: MatchResult }) {
