@@ -7,6 +7,7 @@ import { MatchResult, PlayerRow, RosterEntry, Team } from '@/lib/types'
 import { cn, fmtClock, isGk, playerName, teamInfo } from '@/lib/utils'
 import PlayerAvatar from './PlayerAvatar'
 import PlayerIdentify from './PlayerIdentify'
+import KickoffNaming from './KickoffNaming'
 
 /** 합치기 전 최종 확인에 올리는 묶음 — target 쪽으로 sources를 합친다 */
 type MergePlan = { target: PlayerRow; sources: PlayerRow[] }
@@ -104,7 +105,7 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
         <p>영상 추적은 한 선수를 여러 트랙으로 나누거나 벤치·관중을 잡을 수 있습니다. 이름과 등번호를 붙이고,
           같은 선수의 트랙을 선택해 <b>합치기</b>, 선수가 아닌 트랙은 <b>제외</b>하세요.
           카드 아래 <b>같은 선수 후보</b>는 카메라가 돌아간 사이 화면 밖에 있다 돌아와 따로 잡혔을 수 있는 선수입니다. 모든 수치에 바로 반영되고 언제든 되돌릴 수 있습니다.</p>
-        <p>선수 사진이나 <b>확대·영상</b>을 누르면 그 선수만 크게 따라가는 영상을 보면서 번호와 이름을 넣을 수 있습니다.
+        <p>이름은 바로 아래 <b>경기 화면</b>에서 넣는 것이 가장 쉽습니다. 아래 카드의 사진이나 <b>확대·영상</b>을 누르면 그 선수만 따라가는 영상도 볼 수 있습니다.
           합치기는 사진을 나란히 보여 주는 <b>확인 창</b>에서 한 번 더 눌러야 실행됩니다.</p>
         <p className="text-xs text-ink-500">이름을 붙인 선수는 &lsquo;선수 프로필&rsquo;에서 여러 경기 기록이 합산됩니다.</p>
         <div className="flex flex-wrap items-center gap-2 pt-2">
@@ -123,6 +124,8 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
           </span>
         </div>
       </div>
+
+      {videoSrc && <KickoffNaming matchId={matchId} result={result} src={videoSrc} rosters={rosters} onChanged={onChanged} />}
 
       <div className="sticky top-14 z-20 card p-3 flex flex-wrap items-center gap-2 shadow-lg shadow-black/30">
         <span className="text-sm text-ink-300">{selected.length ? `${selected.length}개 선택` : '합칠 트랙을 선택하세요'}</span>
