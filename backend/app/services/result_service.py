@@ -212,27 +212,75 @@ def apply_goals(pairs: List[Tuple[MatchEvent, Event]], meta: Dict) -> Dict:
     카메라가 움직이는 영상은 경기장 위치가 부정확해, 골문 앞에서 찬 공도 '골문에서 먼 곳의 끊긴 패스'로 잡힌다
     (2쿼터 9:05 월넛 골: 박스 안 슈팅이 원정 선수에게 간 실패 패스로 기록됨). 골은 반드시 슈팅이므로:
     점수 자막이 바뀌기 전 20초 안에 그 팀 슈팅이 있으면 그 슈팅을 유효(골)로, 없으면 그 팀의 마지막 '이어지지 않은 패스'를
-    골 슈팅으로 바꾼다. 사람이 직접 고친 이벤트는 건드리지 않는다."""
+    골 슈팅으로 바꾼다. 사람이 직접 고친 이벤트는 건드리지 않는다.
+
+    둘 다 없으면(공이 골문으로 가는 순간을 못 잡았다) 자막이 바뀌기 전 25초 안에 그 팀이 마지막으로 공을 잡은
+    선수가 점유를 끝낸 시각에 골 슈팅을 하나 만든다 — 2쿼터 재분석(2026-11-21) 뒤 두 골 모두 근처에 슈팅·실패 패스가
+    없어 1:1 경기가 유효 슈팅 0으로 나왔다. 자막은 골보다 2~10초 늦게 바뀐다. 만든 이벤트는 음수 id로 내보낸다."""
     sb = meta.get("scoreboard") or {}
     if not sb.get("found"):
         return meta
     goals = []
+    made = 0
     for g in sb.get("goals") or []:
         tb, team = float(g["t_board"]), g.get("team")
-        near = [(r, e) for r, e in pairs if e.team == team and tb - 20.0 <= e.t <= tb + 1.0
+        mine = [(r, e) for r, e in pairs if e.team == team and tb - 25.0 <= e.t <= tb + 1.0]
+        hand = [x for x in mine if x[1].kind == "shot" and (getattr(x[0], "manual", False) or getattr(x[0], "edited", False))]
+        near = [(r, e) for r, e in mine if e.t >= tb - 20.0
                 and not (getattr(r, "manual", False) or getattr(r, "edited", False))]
         shots = [x for x in near if x[1].kind == "shot"]
         fails = [x for x in near if x[1].kind == "pass" and not x[1].success]
         pick = max(shots or fails, key=lambda x: x[1].t, default=None)
-        if pick is not None:
+        if hand:
+            # 사람이 넣거나 고친 슈팅이 있으면 그것이 골 장면이다 — 건드리지 않고 득점자만 표시
+            e = max(hand, key=lambda x: x[1].t)[1]
+            g = dict(g, t=round(e.t, 2), player=e.player)
+        elif pick is not None:
             e = pick[1]
             if e.kind == "pass":
                 e.kind, e.target = "shot", None
             e.success = True
             e.detail = dict(e.detail or {}, outcome="on_target", goal=True)
             g = dict(g, t=round(e.t, 2), player=e.player)
+        else:
+            # 자막은 골보다 1~3초 늦게 바뀐다(2쿼터 영상 대조). 그 팀 점유가 자막 6초 안에 끝났으면 그 선수의 슈팅으로,
+            # 아니면 득점자를 모르는 슈팅으로 둔다 — 2쿼터 1:35 골은 카메라가 반대편 골문으로 급히 돌아가는 사이에 들어가
+            # 아무 점유도 안 잡혔고, 10초 전 미드필드에서 공을 잡은 선수를 득점자로 잡으면 틀린다.
+            last = max((x for x in mine if x[1].kind == "possession" and tb - 6.0 <= (x[1].t_end or x[1].t) <= tb + 1.0),
+                       key=lambda x: x[1].t_end or x[1].t, default=None)
+            made += 1
+            detail = {"outcome": "on_target", "goal": True, "from_scoreboard": True}
+            if last is not None:
+                p = last[1]
+                t = round(p.t_end or p.t, 2)
+                x, y = (p.x2 if p.x2 is not None else p.x), (p.y2 if p.y2 is not None else p.y)
+                ev = Event("shot", t, team, p.player, t_end=t, x=x, y=y, success=True, detail=detail)
+            else:
+                t = round(tb - 2.0, 2)
+                ev = Event("shot", t, team, "", t_end=t, x=None, y=None, success=True, detail=dict(detail, scorer_unknown=True))
+            pairs.append((_Synthetic(id=-made), ev))
+            g = dict(g, t=t, player=ev.player or None)
         goals.append(g)
+    if made:
+        pairs.sort(key=lambda x: x[1].t)
     return dict(meta, scoreboard=dict(sb, goals=goals))
+
+
+def _add_unknown_shots(ts: Dict, events: List[Event]) -> Dict:
+    """득점자를 모르는 골 슈팅은 선수 기록에는 없지만 팀 슈팅·유효 슈팅에는 넣는다."""
+    for e in events:
+        if e.kind == "shot" and not e.player and e.team in ts:
+            ts[e.team]["shots"] += 1
+            if e.success:
+                ts[e.team]["shots_on_target"] += 1
+    return ts
+
+
+class _Synthetic:
+    """DB에 없는, 조회할 때 만든 이벤트의 자리표시 행 (편집 불가)."""
+
+    def __init__(self, id: int):
+        self.id, self.manual, self.edited = id, False, False
 
 
 def confirm_goals(meta: Dict, spells: List[Spell]) -> Optional[Dict]:
@@ -350,7 +398,7 @@ def build_view(db: Session, match: Match, include_events: bool = True, period: O
                      **({"scoreboard": confirm_goals(meta, spells)} if meta.get("scoreboard") else {})),
         "period": period if (period in (1, 2) and ht is not None) else None,
         "players": players,
-        "team_stats": team_stats(raw, live, by_touch=True),
+        "team_stats": _add_unknown_shots(team_stats(raw, live, by_touch=True), events),
         "pass_network": pass_network(events, raw),
         "possession_timeline": timeline,
     }

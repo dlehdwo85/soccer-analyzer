@@ -161,9 +161,15 @@ export default function EventReview({ matchId, result, players, onSeek, getVideo
                 {(e.manual || e.edited) && <Badge className="border-sky-500/30 text-sky-300 bg-sky-500/10">{e.manual ? '추가' : '수정'}</Badge>}
                 {onSeek && <Play className="w-3.5 h-3.5 text-ink-600 group-hover:text-volt shrink-0" />}
               </button>
-              <button onClick={() => { setEditing(e.id); setAdding(false) }} className="btn-ghost !p-1.5" aria-label="이벤트 고치기">
-                <Pencil className="w-3.5 h-3.5" />
-              </button>
+              {e.id < 0 ? (
+                <span className="text-[11px] text-ink-500 shrink-0" title="점수 자막이 바뀌기 직전 그 팀이 마지막으로 공을 잡은 장면을 골 슈팅으로 잡았습니다. 틀렸으면 '이벤트 추가'로 슈팅을 넣으면 이 표시는 사라집니다.">
+                  자막 기준
+                </span>
+              ) : (
+                <button onClick={() => { setEditing(e.id); setAdding(false) }} className="btn-ghost !p-1.5" aria-label="이벤트 고치기">
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           )
         })}

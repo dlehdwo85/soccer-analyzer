@@ -77,10 +77,31 @@ def test_apply_goals_turns_last_kick_into_goal_shot():
     meta = {"scoreboard": {"found": True, "goals": [
         {"t": 90.33, "t_board": 95.0, "team": "away", "player": "P227"},
         {"t": 547.0, "t_board": 547.0, "team": "home", "player": None},
-        {"t": 705.0, "t_board": 705.0, "team": "home", "player": None}]}}       # 사람이 고친 이벤트뿐 → 그대로
+        # 사람이 고친 패스뿐 → 그 패스는 그대로 두고, 득점자를 모르는 골 슈팅을 하나 만든다
+        {"t": 705.0, "t_board": 705.0, "team": "home", "player": None}]}}
     out = apply_goals(pairs, meta)["scoreboard"]["goals"]
     assert (fail.kind, fail.success, fail.target, fail.detail["goal"]) == ("shot", True, None, True)
     assert (shot.success, shot.detail["outcome"], shot.detail["goal"]) == (True, "on_target", True)
     assert early.kind == "pass" and edited.kind == "pass"
-    assert [(g["t"], g["player"]) for g in out] == [(90.33, "P227"), (545.07, "P340"), (705.0, None)]
+    assert [(g["t"], g["player"]) for g in out] == [(90.33, "P227"), (545.07, "P340"), (703.0, None)]
+    made = [(r, e) for r, e in pairs if getattr(r, "id", 0) < 0]
+    assert [(e.kind, e.player, e.success, e.x) for _, e in made] == [("shot", "", True, None)]
     assert apply_goals(pairs, {"scoreboard": {"found": False}}) == {"scoreboard": {"found": False}}
+
+
+def test_apply_goals_falls_back_to_last_touch_only_if_recent():
+    """슈팅·실패 패스가 없으면: 자막 6초 안에 끝난 그 팀 점유 → 그 선수의 골 슈팅, 더 오래전이면 득점자 미확인.
+    2쿼터(재분석 뒤) 9:05 P411 점유 → 9:07 자막(맞음), 1:25 미드필드 P6 점유 → 1:35 자막(틀림, 카메라가 돈 사이 골)."""
+    from types import SimpleNamespace as NS
+    from app.services.result_service import apply_goals
+    row = NS(manual=False, edited=False)
+    near = Event("possession", 541.67, "home", "P411", t_end=545.4, x=90, y=30, x2=95, y2=33)
+    far = Event("possession", 84.8, "away", "P6", t_end=85.13, x=60, y=30)
+    pairs = [(row, far), (row, near)]
+    meta = {"scoreboard": {"found": True, "goals": [
+        {"t_board": 95.0, "team": "away"}, {"t_board": 547.0, "team": "home"}]}}
+    out = apply_goals(pairs, meta)["scoreboard"]["goals"]
+    assert [(g["t"], g["player"]) for g in out] == [(93.0, None), (545.4, "P411")]
+    shots = [e for _, e in pairs if e.kind == "shot"]
+    assert [(e.team, e.player, e.success, e.x, e.y) for e in shots] == [("away", "", True, None, None), ("home", "P411", True, 95, 33)]
+    assert [e.t for _, e in pairs] == sorted(e.t for _, e in pairs)

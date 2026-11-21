@@ -1,6 +1,6 @@
 'use client'
 import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { isPlaced, MatchResult, PlayerRow, TeamStats } from '@/lib/types'
+import { isPlaced, MatchResult, PlayerRow, Team, TeamStats } from '@/lib/types'
 import { cn, fmtClock, playerName, teamInfo, eventLabel } from '@/lib/utils'
 import Pitch from '@/components/pitch/Pitch'
 import PlayerAvatar from './PlayerAvatar'
@@ -198,36 +198,57 @@ export function ShotMap({ result, players, onSeek }:
 
 export function Leaders({ matchId, result, onSelect }: { matchId: number; result: MatchResult; onSelect: (p: PlayerRow) => void }) {
   const pool = result.players.filter(p => !p.excluded && !p.minor)
-  const pick = (score: (p: PlayerRow) => number, filter: (p: PlayerRow) => boolean = () => true) => {
-    const c = pool.filter(filter).sort((a, b) => score(b) - score(a))[0]
+  // 팀마다 1위를 따로 보여 준다 — 한 줄에 한 명만 뽑으면 동점일 때 늘 원정 선수가 먼저 나와(목록이 원정부터 정렬)
+  // 2쿼터처럼 '전부 상대 팀'으로 보였다
+  const pick = (team: Team, score: (p: PlayerRow) => number, filter: (p: PlayerRow) => boolean = () => true) => {
+    const c = pool.filter(p => p.team === team && filter(p))
+      .sort((a, b) => score(b) - score(a) || b.stats.minutes_tracked - a.stats.minutes_tracked)[0]
     return c && score(c) > 0 ? c : undefined
   }
-  const items: [string, PlayerRow | undefined, (p: PlayerRow) => string][] = [
-    ['볼 터치', pick(p => p.stats.touches), p => `${p.stats.touches}회`],
-    ['패스 성공', pick(p => p.stats.passes_completed), p => `${p.stats.passes_completed}회 · ${p.stats.pass_accuracy?.toFixed(0) ?? '-'}%`],
-    ['패스 성공률', pick(p => p.stats.pass_accuracy ?? 0, p => p.stats.passes_attempted >= 10),
-      p => `${p.stats.pass_accuracy?.toFixed(0)}% (${p.stats.passes_completed}/${p.stats.passes_attempted})`],
-    ['키패스', pick(p => p.stats.key_passes), p => `${p.stats.key_passes}회`],
+  type Item = [string, (p: PlayerRow) => number, (p: PlayerRow) => string, ((p: PlayerRow) => boolean)?]
+  const items: Item[] = [
+    ['볼 터치', p => p.stats.touches, p => `${p.stats.touches}회`],
+    ['패스 성공', p => p.stats.passes_completed, p => `${p.stats.passes_completed}회`],
+    ['패스 성공률', p => p.stats.pass_accuracy ?? 0, p => `${p.stats.pass_accuracy?.toFixed(0)}%`, p => p.stats.passes_attempted >= 10],
+    ['키패스', p => p.stats.key_passes, p => `${p.stats.key_passes}회`],
     (result.meta.camera_moving && !result.meta.calibrated)
-      ? ['슈팅', pick(p => p.stats.shots), p => `${p.stats.shots}회 · 유효 ${p.stats.shots_on_target}`]
-      : ['xG', pick(p => p.stats.xg), p => `${p.stats.xg.toFixed(2)} · 슈팅 ${p.stats.shots}`],
-    ['수비 (가로채기+탈취)', pick(p => p.stats.interceptions + p.stats.recoveries),
-      p => `${p.stats.interceptions + p.stats.recoveries}회`],
+      ? ['슈팅', p => p.stats.shots, p => `${p.stats.shots}회`]
+      : ['xG', p => p.stats.xg, p => p.stats.xg.toFixed(2)],
+    ['수비', p => p.stats.interceptions + p.stats.recoveries, p => `${p.stats.interceptions + p.stats.recoveries}회`],
   ]
+  const teams: Team[] = ['home', 'away']
   return (
     <section className="card">
-      <h2 className="font-semibold text-ink-100 px-5 pt-4 pb-3 border-b border-ink-800">부문별 1위</h2>
+      <div className="grid grid-cols-[4.5rem_1fr_1fr] sm:grid-cols-[6rem_1fr_1fr] gap-2 px-4 sm:px-5 pt-4 pb-3 border-b border-ink-800 items-center">
+        <h2 className="font-semibold text-ink-100">부문별 1위</h2>
+        {teams.map(t => {
+          const info = teamInfo(result.match, t)
+          return (
+            <span key={t} className="flex items-center gap-1.5 min-w-0 text-xs text-ink-300">
+              <span className="w-2.5 h-2.5 rounded-sm shrink-0 ring-1 ring-white/20" style={{ background: info.color }} aria-hidden />
+              <span className="truncate">{info.name}</span>
+            </span>
+          )
+        })}
+      </div>
       <ul className="divide-y divide-ink-800">
-        {items.map(([label, p, fmt]) => (
-          <li key={label}>
-            <button type="button" disabled={!p} onClick={() => p && onSelect(p)}
-              className="w-full flex items-center gap-3 px-5 py-2 text-left hover:bg-ink-850 disabled:opacity-50 disabled:hover:bg-transparent transition-colors">
-              <span className="w-28 shrink-0 text-xs text-ink-400">{label}</span>
-              {p ? <PlayerAvatar matchId={matchId} match={result.match} player={p} size={26} />
-                : <span className="w-[26px] h-[26px] rounded-md bg-ink-800" aria-hidden />}
-              <span className="flex-1 min-w-0 text-sm font-medium text-ink-100 truncate">{p ? playerName(p) : '–'}</span>
-              <span className="shrink-0 text-sm text-ink-200 num">{p ? fmt(p) : ''}</span>
-            </button>
+        {items.map(([label, score, fmt, filter]) => (
+          <li key={label} className="grid grid-cols-[4.5rem_1fr_1fr] sm:grid-cols-[6rem_1fr_1fr] gap-2 items-center px-4 sm:px-5 py-1.5">
+            <span className="text-xs text-ink-400">{label}</span>
+            {teams.map(t => {
+              const p = pick(t, score, filter)
+              return (
+                <button key={t} type="button" disabled={!p} onClick={() => p && onSelect(p)}
+                  className="flex items-center gap-2 min-w-0 rounded-md px-1 py-1 text-left hover:bg-ink-850 disabled:hover:bg-transparent">
+                  {p ? <PlayerAvatar matchId={matchId} match={result.match} player={p} size={24} />
+                    : <span className="w-6 h-6 rounded-md bg-ink-800 shrink-0" aria-hidden />}
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm font-medium text-ink-100 truncate">{p ? playerName(p) : '–'}</span>
+                    {p && <span className="block text-[11px] text-ink-400 num">{fmt(p)}</span>}
+                  </span>
+                </button>
+              )
+            })}
           </li>
         ))}
       </ul>
