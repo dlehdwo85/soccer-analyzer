@@ -400,9 +400,9 @@ def pieces_from_tracklets(tracklets: Sequence[Tracklet], mapping: Dict[str, str]
 def assign_roster_slots(pieces: Sequence[RosterPiece],
                         appearance_distance: Callable[[Optional[np.ndarray], Optional[np.ndarray]], Optional[float]],
                         field_slots: int = 10, gk_slots: int = 1, min_seconds: float = 2.0,
-                        overlap_tol_s: float = 0.5, avg_speed: float = 6.0, slack_m: float = 8.0,
-                        max_app_de: float = 25.0, open_cost: float = 1.0, batch_s: float = 1.0
-                        ) -> Tuple[Dict[str, str], List[str]]:
+                        overlap_tol_s: float = 0.5, avg_speed: float = 4.0, slack_m: float = 8.0,
+                        max_app_de: float = 25.0, open_cost: float = 1.0, batch_s: float = 1.0,
+                        move_w: float = 4.0) -> Tuple[Dict[str, str], List[str]]:
     """경기장 안에는 팀마다 필드 선수 10명 + GK 1명뿐이다. 선수 조각을 시간 순으로 보며 팀·역할별 정원만큼의
     칸에 담아, 화면 밖에 나갔다 돌아와 새 번호가 붙은 사람을 '지금 비어 있는 칸'(화면 밖에 나가 있는 선수) 중
     하나로 모은다.
@@ -447,7 +447,10 @@ def assign_roster_slots(pieces: Sequence[RosterPiece],
                                 continue
                             move = d / reach
                         da = appearance_distance(s.appearance(), p.appearance)
-                        cost = (0.5 if da is None else min(da / max_app_de, 1.5))                             + abs(s.lateral() - p.lateral) / 15.0 + 0.5 * move
+                        # 이동 거리를 무겁게 본다(4배, 평균 4m/s): 2쿼터에서 끊기지 않은 체인을 일부러 잘라 재 보니
+                        # 다시 같은 칸으로 이은 비율이 5초 공백 29%→46%, 10초 공백 18%→32%로 올랐다 (2026-11-22).
+                        # 같은 유니폼이라 색 단서는 약하고, 팀 중심 기준 자리 단서는 오히려 낮췄다(25%).
+                        cost = (0.5 if da is None else min(da / max_app_de, 1.5))                             + abs(s.lateral() - p.lateral) / 15.0 + move_w * move
                         pairs.append((cost, bi, si))
                 pairs.sort()
                 used_b, used_s = set(), set()

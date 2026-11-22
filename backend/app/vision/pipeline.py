@@ -89,7 +89,9 @@ class AnalysisConfig:
 # 품질 단계별 검출 설정. 표준은 환경변수(YOLO_MODEL 등)를 따르고, 고정밀은 이 값이 우선한다.
 QUALITY_PRESETS: Dict[str, Dict] = {
     "standard": {},
-    "max": {"analysis_fps": 15.0, "model": "yolov8x.pt", "imgsz": 1280, "ball_tiles": 2, "ball_full_every": 1},
+    # 공은 화면을 3x3으로 나눠(원본 해상도) 본다. 2쿼터에서 4분할이 직접 못 찾은 경기 장면 30개 중 9분할은
+    # 14개에서 후보를 냈고 사진으로 보니 약 11개가 진짜 공이었다 (2026-11-22). 공 검출 계산은 약 2배.
+    "max": {"analysis_fps": 15.0, "model": "yolov8x.pt", "imgsz": 1280, "ball_tiles": 3, "ball_full_every": 1},
 }
 
 
