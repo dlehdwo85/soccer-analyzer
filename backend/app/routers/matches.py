@@ -388,9 +388,13 @@ def player_thumbnail(match_id: int, track_id: str, db: Session = Depends(get_db)
 @router.patch("/{match_id}/players/{track_id}")
 def update_player(match_id: int, track_id: str, body: PlayerUpdate, db: Session = Depends(get_db)):
     p = _player(db, match_id, track_id)
-    if p.merged_into:
-        raise HTTPException(400, "다른 선수에 병합된 트랙입니다. 병합을 먼저 해제하세요.")
     data = body.model_dump(exclude_unset=True)
+    if p.merged_into:
+        # 경기 화면에서 '이 장면의 이 사람'(합쳐진 조각)에 이름을 넣었다 → 그 조각을 떼어 따로 이름을 붙인다.
+        # 같은 이름이면 아래에서 다시 합쳐지고, 이제는 사람이 확인한 연결이 된다.
+        if p.excluded or not ({"display_name", "jersey_number", "excluded"} & set(data)):
+            raise HTTPException(400, "다른 선수에 병합된 트랙입니다. 병합을 먼저 해제하세요.")
+        p.merged_into, p.auto_merged = None, False
     if "display_name" in data:
         p.display_name = (data["display_name"] or "").strip() or None
     if "jersey_number" in data:
@@ -418,6 +422,18 @@ def update_player(match_id: int, track_id: str, body: PlayerUpdate, db: Session 
         if same:
             def secs(r: MatchPlayer) -> float:
                 return float(json.loads(r.stats_json or "{}").get("seconds_tracked") or 0)
+            members = {r.track_id: [r] for r in [p, *same]}
+            for c in db.query(MatchPlayer).filter(MatchPlayer.match_id == match_id,
+                                                  MatchPlayer.merged_into.in_(list(members))).all():
+                members[c.merged_into].append(c)
+            from app.services.roster_service import drop_conflicting_guesses, name_conflict
+            conflict = name_conflict(members)
+            if conflict:
+                raise HTTPException(409, f"'{p.display_name}' 선수가 {conflict}에 다른 자리에도 보입니다. "
+                                         "같은 시간에 두 곳에 있을 수 없으니 이름을 확인하세요.")
+            for r in drop_conflicting_guesses(members):
+                r.merged_into, r.auto_merged = None, False     # 짐작으로 붙었던, 확인된 선수와 시간이 겹치는 조각
+            db.flush()   # 세션이 autoflush=False라, 아래 자식 조회가 떼어 낸 조각을 다시 끌어오지 않게
             group = [p, *same]
             target = max(group, key=secs)
             for src in group:

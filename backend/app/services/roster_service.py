@@ -136,3 +136,51 @@ def undo_auto_roster(db: Session, match: Match) -> int:
         r.merged_into, r.auto_merged = None, False
     db.commit()
     return len(rows)
+
+
+# ── 이름으로 합칠 때 같은 시간에 두 곳에 있는지 확인 ─────────────────────────────
+
+OVERLAP_TOL_S = 1.0
+
+
+def _span(r: MatchPlayer):
+    st = _loads(r.stats_json, {}) or {}
+    a, b = st.get("first_seen_s"), st.get("last_seen_s")
+    return (float(a), float(b)) if a is not None and b is not None else None
+
+
+def _overlap_s(a, b) -> float:
+    if a is None or b is None:
+        return 0.0
+    return min(a[1], b[1]) - max(a[0], b[0])
+
+
+def _confirmed(rows: List[MatchPlayer]) -> List[MatchPlayer]:
+    """대표 조각과 사람이 합친 조각. 자동 정리(auto_merged)가 짐작으로 붙인 조각은 뺀다."""
+    return [r for i, r in enumerate(rows) if i == 0 or not r.auto_merged]
+
+
+def name_conflict(groups: Dict[str, List[MatchPlayer]], tol_s: float = OVERLAP_TOL_S) -> Optional[str]:
+    """같은 이름으로 합치려는 선수들(대표 → [대표, 합쳐진 조각...]) 중 확인된 조각끼리 시간이 겹치면 그 시각(m:ss).
+    같은 사람은 같은 시간에 두 곳에 있을 수 없다 — 다른 사람에게 같은 이름을 넣은 것이다."""
+    heads = list(groups)
+    for i, a in enumerate(heads):
+        for b in heads[i + 1:]:
+            for ra in _confirmed(groups[a]):
+                for rb in _confirmed(groups[b]):
+                    sa, sb = _span(ra), _span(rb)
+                    if _overlap_s(sa, sb) > tol_s:
+                        t = max(sa[0], sb[0])
+                        return f"{int(t // 60)}:{int(t % 60):02d}"
+    return None
+
+
+def drop_conflicting_guesses(groups: Dict[str, List[MatchPlayer]], tol_s: float = OVERLAP_TOL_S) -> List[MatchPlayer]:
+    """짐작으로 붙은 조각 중, 같은 이름의 다른 선수의 확인된 조각과 시간이 겹치는 것 — 그 시간에 그 선수는 다른 곳에 있었다."""
+    out = []
+    for h, rows in groups.items():
+        others = [r for g, rs in groups.items() if g != h for r in _confirmed(rs)]
+        for r in rows[1:]:
+            if r.auto_merged and any(_overlap_s(_span(r), _span(o)) > tol_s for o in others):
+                out.append(r)
+    return out

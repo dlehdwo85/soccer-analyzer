@@ -383,6 +383,8 @@ def build_view(db: Session, match: Match, include_events: bool = True, period: O
             "display_name": r.display_name,
             "jersey_number": r.jersey_number,
             "merged_from": merged_from,
+            # 자동 정리(정원 칸)가 짐작으로 붙인 조각 — 사람이 이름으로 확인한 조각과 구분해 화면에 '추정'으로 보인다
+            "guessed_from": [t for t in merged_from if getattr(by_tid[t], "auto_merged", False)],
             "stats": st,
         })
     players.sort(key=lambda p: (p["team"], p["excluded"], p["minor"], p["jersey_number"] or 999, p["track_id"]))

@@ -146,6 +146,8 @@ export interface PlayerRow {
   display_name: string | null
   jersey_number: number | null
   merged_from: string[]
+  /** merged_from 중 자동 정리가 짐작으로 붙인 조각 (사람이 확인하지 않음) */
+  guessed_from?: string[]
   stats: PlayerStats
   /** AI 분석을 만든 시각 (없으면 null) */
   ai_report_at?: string | null

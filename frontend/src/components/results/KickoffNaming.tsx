@@ -7,7 +7,9 @@ import { MatchResult, Overlay, PlayerRow, RosterEntry } from '@/lib/types'
 import { cn, fmtClock, isGk, mainRoster, ourTeam, playerName, teamInfo } from '@/lib/utils'
 
 type Box = [number, number, number, number]
-type Seen = { p: PlayerRow; box: Box }
+/** 한 장면의 한 사람 = 트랙 조각 하나. p는 그 조각이 지금 속한 선수, guessed는 자동 정리가 짐작으로 붙인 조각,
+ *  dup은 같은 장면에 같은 선수(확인된 조각)가 둘 이상 — 한 명은 다른 사람이다 */
+type Seen = { tid: string; p: PlayerRow; box: Box; guessed: boolean; dup: boolean }
 
 /** 선수 위치 데이터(수 MB)는 경기당 한 번만 받는다 */
 const overlayCache = new Map<number, Promise<Overlay | null>>()
@@ -37,12 +39,13 @@ export default function KickoffNaming({ matchId, result, src, rosters, onChanged
   const [overlay, setOverlay] = useState<Overlay | null | undefined>(undefined)
   useEffect(() => { loadOverlay(matchId).then(setOverlay) }, [matchId])
 
-  // 합쳐진 조각 id → 지금 기록상의 선수
+  // 조각 id → 지금 기록상의 선수, 그리고 자동 정리가 짐작으로 붙인 조각인지
   const head = useMemo(() => {
-    const m = new Map<string, PlayerRow>()
+    const m = new Map<string, { p: PlayerRow; guessed: boolean }>()
     for (const p of result.players) {
-      m.set(p.track_id, p)
-      for (const id of p.merged_from) m.set(id, p)
+      m.set(p.track_id, { p, guessed: false })
+      const g = new Set(p.guessed_from ?? [])
+      for (const id of p.merged_from) m.set(id, { p, guessed: g.has(id) })
     }
     return m
   }, [result.players])
@@ -65,17 +68,40 @@ export default function KickoffNaming({ matchId, result, src, rosters, onChanged
     return m
   }, [overlay])
 
-  /** 프레임 k에 보이는 선수 (같은 선수 조각이 둘이면 큰 박스 하나), 왼쪽부터 */
-  const seenAt = (k: number): Seen[] => {
-    const out = new Map<string, Seen>()
-    for (const [tid, box] of byK.get(k) ?? []) {
-      const p = head.get(tid)
-      if (!p || p.excluded || p.team !== us) continue
-      const prev = out.get(p.track_id)
-      if (!prev || box[3] - box[1] > prev.box[3] - prev.box[1]) out.set(p.track_id, { p, box })
+  // 조각마다 처음·마지막으로 보인 시각(초)
+  const spans = useMemo(() => {
+    const m = new Map<string, [number, number]>()
+    if (!overlay) return m
+    for (const [tid, rows] of Object.entries(overlay.tracks ?? {})) {
+      if (rows.length) m.set(tid, [overlay.start_s + rows[0][0] * overlay.step, overlay.start_s + rows[rows.length - 1][0] * overlay.step])
     }
-    return [...out.values()].sort((a, b) => a.box[0] - b.box[0])
+    return m
+  }, [overlay])
+
+  /** 프레임 k에 보이는 우리 팀 사람마다 상자 하나 (같은 선수로 묶인 조각이 둘이어도 둘 다 보여 준다), 왼쪽부터 */
+  const seenAt = (k: number): Seen[] => {
+    const out: Seen[] = []
+    for (const [tid, box] of byK.get(k) ?? []) {
+      const h = head.get(tid)
+      if (!h || h.p.excluded || h.p.team !== us) continue
+      out.push({ tid, p: h.p, box, guessed: h.guessed, dup: false })
+    }
+    // 같은 장면에 같은 선수가 둘: 확인된 조각끼리면 이름이 잘못 들어간 것이고, 짐작 조각은 그 사람이 아니다
+    const conf = new Map<string, number>()
+    for (const x of out) if (!x.guessed) conf.set(x.p.track_id, (conf.get(x.p.track_id) ?? 0) + 1)
+    for (const x of out) {
+      const n = conf.get(x.p.track_id) ?? 0
+      if (x.guessed && n > 0) {
+        x.guessed = false
+        x.p = { ...x.p, display_name: null, jersey_number: null }
+      } else if (!x.guessed && n > 1 && x.p.display_name) {
+        x.dup = true
+      }
+    }
+    return out.sort((a, b) => a.box[0] - b.box[0])
   }
+  /** 사람이 확인한 이름이 붙은 상자 */
+  const isNamed = (x: Seen) => !!x.p.display_name && !x.guessed && !x.dup
 
   /** from~to 사이에서 (점수가 가장 높은) 장면 — 주전 선수가 많이, 이름 없는 선수가 많이 보일수록 높다 */
   const bestFrame = (from: number, to: number, unnamedOnly: boolean): number | null => {
@@ -84,9 +110,9 @@ export default function KickoffNaming({ matchId, result, src, rosters, onChanged
       const s = seenAt(k)
       if (!s.length) continue
       let score = 0
-      for (const { p } of s) {
-        if (unnamedOnly && p.display_name) continue
-        score += main.has(p.track_id) ? 1 : 0.2
+      for (const x of s) {
+        if (unnamedOnly && isNamed(x)) continue
+        score += main.has(x.p.track_id) ? 1 : 0.2
       }
       if (score > bestScore + 0.01) { best = k; bestScore = score }
     }
@@ -175,7 +201,7 @@ export default function KickoffNaming({ matchId, result, src, rosters, onChanged
   }
 
   const W = overlay?.w ?? 1920, H = overlay?.h ?? 1080
-  const named = seen.filter(s => s.p.display_name).length
+  const named = seen.filter(isNamed).length
   const unnamedMain = result.players.filter(p => p.team === us && !p.excluded && main.has(p.track_id) && !p.display_name).length
 
   return (
@@ -190,7 +216,8 @@ export default function KickoffNaming({ matchId, result, src, rosters, onChanged
       </div>
       <p className="text-xs text-ink-500">
         경기 시작 무렵 선수가 가장 많이 보이는 장면입니다. 우리 팀({usName}) 선수에만 상자가 그려지고, 상대 팀은 이름을 넣지 않습니다.
-        상자를 누르거나 아래 확대 사진 옆에 번호·이름을 넣으세요.
+        상자를 누르거나 아래 확대 사진 옆에 번호·이름을 넣으세요. 이름은 <b>이 장면의 그 사람</b>에게 붙습니다.
+        이름 뒤에 물음표가 붙은 상자는 카메라가 끊긴 뒤 자동으로 이어 붙여 본 추정이라, 맞으면 저장, 틀리면 이름을 고치세요.
         같은 이름을 넣은 선수는 자동으로 한 사람으로 합쳐집니다. 안 보이는 선수는 &lsquo;이름 없는 선수 장면&rsquo;으로 넘어가 찾으세요.
       </p>
 
@@ -202,13 +229,15 @@ export default function KickoffNaming({ matchId, result, src, rosters, onChanged
           onSeeked={() => setFrameTick(t => t + 1)}
           onPlay={() => setPlaying(true)} onPause={onPause}
           onError={() => setVideoError(true)} />
-        {!playing && seen.map(({ p, box }) => {
+        {!playing && seen.map(x => {
+          const { p, box } = x
           const color = teamInfo(result.match, p.team).color
-          const on = active === p.track_id
-          const label = p.jersey_number != null && p.display_name ? `${p.jersey_number} ${p.display_name}`
+          const on = active === x.tid
+          const base = p.jersey_number != null && p.display_name ? `${p.jersey_number} ${p.display_name}`
             : p.display_name ?? (p.jersey_number != null ? `${p.jersey_number}번` : '?')
+          const label = x.guessed && p.display_name ? `${base}?` : x.dup ? `${base} 겹침` : base
           return (
-            <button key={p.track_id} type="button" onClick={() => pickBox(p.track_id)}
+            <button key={x.tid} type="button" onClick={() => pickBox(x.tid)}
               aria-label={`${playerName(p)} 이름 넣기`}
               className="absolute group"
               style={{
@@ -219,7 +248,9 @@ export default function KickoffNaming({ matchId, result, src, rosters, onChanged
               <span className={cn('absolute inset-0 rounded-sm', on ? 'border-2 border-volt' : 'border')}
                 style={on ? undefined : { borderColor: color, boxShadow: '0 0 0 1px rgba(0,0,0,.55)' }} />
               <span className={cn('absolute left-1/2 -translate-x-1/2 bottom-full mb-0.5 whitespace-nowrap rounded px-1 text-[10px] leading-[14px] font-semibold',
-                p.display_name ? 'bg-black/70 text-white' : 'bg-amber-400 text-ink-950', on && '!bg-volt !text-ink-950')}>
+                x.dup ? 'bg-red-500 text-white' : isNamed(x) ? 'bg-black/70 text-white'
+                  : x.guessed && p.display_name ? 'bg-black/70 text-amber-300 ring-1 ring-amber-300' : 'bg-amber-400 text-ink-950',
+                on && '!bg-volt !text-ink-950')}>
                 {label}
               </span>
             </button>
@@ -253,11 +284,12 @@ export default function KickoffNaming({ matchId, result, src, rosters, onChanged
 
       {!playing && seen.length > 0 && (
         <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2 lg:max-h-[560px] lg:overflow-y-auto lg:pr-1 content-start" aria-label="이 장면의 선수">
-          {seen.map(({ p, box }) => (
-            <NameRow key={`${p.track_id}:${p.display_name ?? ''}:${p.jersey_number ?? ''}`} matchId={matchId} result={result}
-              p={p} box={box} video={video} frameTick={frameTick} W={W} H={H} roster={rosters[p.team]}
-              active={active === p.track_id} onFocus={() => setActive(p.track_id)}
-              inputRef={el => { if (el) cards.current.set(p.track_id, el); else cards.current.delete(p.track_id) }}
+          {seen.map(x => (
+            <NameRow key={`${x.tid}:${x.p.track_id}:${x.p.display_name ?? ''}:${x.p.jersey_number ?? ''}:${x.guessed}:${x.dup}`}
+              matchId={matchId} result={result} s={x} span={spans.get(x.tid)}
+              video={video} frameTick={frameTick} W={W} H={H} roster={rosters[x.p.team]}
+              active={active === x.tid} onFocus={() => setActive(x.tid)}
+              inputRef={el => { if (el) cards.current.set(x.tid, el); else cards.current.delete(x.tid) }}
               onChanged={onChanged} />
           ))}
         </ul>
@@ -267,12 +299,13 @@ export default function KickoffNaming({ matchId, result, src, rosters, onChanged
   )
 }
 
-function NameRow({ matchId, result, p, box, video, frameTick, W, H, roster, active, onFocus, inputRef, onChanged }: {
-  matchId: number; result: MatchResult; p: PlayerRow; box: Box
+function NameRow({ matchId, result, s, span, video, frameTick, W, H, roster, active, onFocus, inputRef, onChanged }: {
+  matchId: number; result: MatchResult; s: Seen; span?: [number, number]
   video: RefObject<HTMLVideoElement>; frameTick: number; W: number; H: number
   roster?: RosterEntry[]; active: boolean; onFocus: () => void
   inputRef: (el: HTMLInputElement | null) => void; onChanged: () => Promise<void>
 }) {
+  const { p, box, tid } = s
   const canvas = useRef<HTMLCanvasElement>(null)
   // 멈춘 영상 프레임에서 이 선수 부분만 잘라 크게 보여 준다
   useEffect(() => {
@@ -292,8 +325,10 @@ function NameRow({ matchId, result, p, box, video, frameTick, W, H, roster, acti
   const [name, setName] = useState(p.display_name ?? '')
   const [num, setNum] = useState(p.jersey_number?.toString() ?? '')
   const [busy, setBusy] = useState(false)
-  const dirty = name !== (p.display_name ?? '') || num !== (p.jersey_number?.toString() ?? '')
+  // 추정 이름은 그대로 저장해도 '확인'이 된다
+  const dirty = (s.guessed && !!name.trim()) || name !== (p.display_name ?? '') || num !== (p.jersey_number?.toString() ?? '')
   const team = teamInfo(result.match, p.team)
+  const off = result.meta.start_s ?? 0
 
   const onName = (v: string) => {
     setName(v)
@@ -303,7 +338,8 @@ function NameRow({ matchId, result, p, box, video, frameTick, W, H, roster, acti
   const call = async (body: Parameters<typeof api.updatePlayer>[2], ok: (merged?: string | null) => string) => {
     setBusy(true)
     try {
-      const r = await api.updatePlayer(matchId, p.track_id, body)
+      // 이 장면의 조각(tid)에 넣는다 — 다른 선수로 묶여 있었으면 서버가 떼어 내 따로 이름을 붙인다
+      const r = await api.updatePlayer(matchId, tid, body)
       await onChanged()
       toast.success(ok(r.merged_into))
     } catch (e) {
@@ -320,8 +356,15 @@ function NameRow({ matchId, result, p, box, video, frameTick, W, H, roster, acti
       <div className="flex-1 min-w-0 space-y-1.5">
         <p className="text-[11px] text-ink-400 truncate">
           <span className="inline-block w-2 h-2 rounded-full mr-1 align-middle ring-1 ring-white/20" style={{ background: team.color }} />
-          {team.name}{isGk(p) && ' · GK'} · {p.stats.minutes_tracked.toFixed(0)}분 · 터치 {p.stats.touches}
+          {team.name}{isGk(p) && ' · GK'}
+          {span && <> · 이 조각 <span className="num">{fmtClock(span[0] - off)}~{fmtClock(span[1] - off)}</span></>}
         </p>
+        {s.guessed && p.display_name && (
+          <p className="text-[11px] text-amber-300">추정: {p.display_name} — 맞으면 저장, 아니면 이름을 고치세요</p>
+        )}
+        {s.dup && (
+          <p className="text-[11px] text-red-300">이 장면에 &lsquo;{p.display_name}&rsquo;이(가) 둘입니다. 다른 사람이면 이름을 고치세요</p>
+        )}
         <div className="flex gap-1.5">
           <input className="input !py-1 !px-2 text-sm w-14 shrink-0" placeholder="번호" inputMode="numeric" value={num}
             onFocus={onFocus} onChange={e => setNum(e.target.value.replace(/\D/g, '').slice(0, 3))} aria-label="등번호"

@@ -96,7 +96,8 @@ def test_merge_unmerge_exclude_and_team_change(client, analyzed):
     assert merged["merged_from"] == [b["track_id"]]
     assert merged["stats"]["seconds_tracked"] == pytest.approx(time_sum, abs=0.01)
     assert all(e["player"] != b["track_id"] for e in after["events"])
-    assert client.patch(f"{url}/players/{b['track_id']}", json={"display_name": "x"}).status_code == 400
+    # 합쳐진 조각은 역할을 바꿀 수 없다 (이름은 경기 화면에서 조각에 넣을 수 있다 — test_name_on_fragment...)
+    assert client.patch(f"{url}/players/{b['track_id']}", json={"role": "gk"}).status_code == 400
 
     assert client.post(f"{url}/players/{b['track_id']}/unmerge").status_code == 200
     restored = client.get(f"{url}/result").json()
@@ -329,6 +330,8 @@ def test_team_roster_auto_merge_and_season(client):
     url = f"/api/matches/{m['id']}"
     home = [p for p in client.get(f"{url}/result").json()["players"] if p["team"] == "home" and not p["minor"]]
     a, b = home[0], home[1]
+    _set_span(m["id"], a["track_id"], 0, 100)     # 같은 사람이려면 시간이 겹치지 않아야 한다 (겹치면 409)
+    _set_span(m["id"], b["track_id"], 120, 200)
     assert client.patch(f"{url}/players/{a['track_id']}", json={"display_name": "김철수"}).json()["merged_into"] is None
     # 같은 이름을 고르면 같은 사람 → 자동으로 합쳐진다
     merged = client.patch(f"{url}/players/{b['track_id']}", json={"display_name": "김철수"}).json()["merged_into"]
@@ -346,6 +349,58 @@ def test_team_roster_auto_merge_and_season(client):
     assert client.get(f"/api/teams/{team['id']}/season", params={"year": 2025}).json()["record"]["played"] == 0
     assert client.delete(f"/api/teams/{team['id']}").status_code == 204
     assert client.get(url).json()["home_team_id"] is None
+
+
+def _set_span(match_id, tid, t0, t1):
+    """테스트용: 트랙이 보인 시간(첫·마지막)을 정한다."""
+    import json
+    from app.database import SessionLocal
+    from app.models import MatchPlayer
+    db = SessionLocal()
+    r = db.query(MatchPlayer).filter(MatchPlayer.match_id == match_id, MatchPlayer.track_id == tid).one()
+    st = json.loads(r.stats_json or "{}")
+    st["first_seen_s"], st["last_seen_s"] = t0, t1
+    r.stats_json = json.dumps(st)
+    db.commit()
+    db.close()
+
+
+def test_name_on_fragment_detaches_and_overlap_blocks(client):
+    """경기 화면에서 이름을 넣으면 그 장면의 조각에 붙는다. 같은 시간에 두 곳에 있는 같은 이름은 막고,
+    자동 정리가 짐작으로 붙인 조각이 확인된 선수와 시간이 겹치면 떼어 낸다."""
+    m = client.post("/api/matches", json={"title": "이름 조각"}).json()
+    url = f"/api/matches/{m['id']}"
+    client.post(f"{url}/analyze", json={"mode": "sample", "max_seconds": 300})
+    home = [p["track_id"] for p in client.get(f"{url}/result").json()["players"] if p["team"] == "home" and not p["minor"]]
+    h1, g1, h2, x1 = home[:4]
+    for tid, (t0, t1) in {h1: (0, 60), g1: (130, 160), h2: (140, 170), x1: (30, 50)}.items():
+        _set_span(m["id"], tid, t0, t1)
+    # 자동 정리가 g1을 h1에 짐작으로 붙였다
+    from app.database import SessionLocal
+    from app.models import MatchPlayer
+    db = SessionLocal()
+    r = db.query(MatchPlayer).filter(MatchPlayer.match_id == m["id"], MatchPlayer.track_id == g1).one()
+    r.merged_into, r.auto_merged = h1, True
+    db.commit(); db.close()
+    p1 = next(p for p in client.get(f"{url}/result").json()["players"] if p["track_id"] == h1)
+    assert p1["merged_from"] == [g1] and p1["guessed_from"] == [g1]
+
+    assert client.patch(f"{url}/players/{h1}", json={"display_name": "김철수"}).status_code == 200
+    # x1은 0:30~0:50에 h1과 함께 보였다 → 같은 사람일 수 없다
+    r = client.patch(f"{url}/players/{x1}", json={"display_name": "김철수"})
+    assert r.status_code == 409 and "0:30" in r.json()["detail"]
+    # h2(2:20~2:50)는 확인된 김철수(h1)와 겹치지 않는다 → 합친다. 짐작 조각 g1(2:10~2:40)은 h2와 겹치니 떼어 낸다
+    assert client.patch(f"{url}/players/{h2}", json={"display_name": "김철수"}).json()["merged_into"] in (h1, h2)
+    after = {p["track_id"]: p for p in client.get(f"{url}/result").json()["players"]}
+    kim = next(p for p in after.values() if p["display_name"] == "김철수")
+    assert sorted([kim["track_id"], *kim["merged_from"]]) == sorted([h1, h2]) and kim["guessed_from"] == []
+    assert g1 in after and after[g1]["display_name"] is None
+
+    # 합쳐진 조각에 다른 이름을 넣으면 그 조각만 떨어져 나와 이름을 받는다
+    child = h2 if kim["track_id"] == h1 else h1
+    assert client.patch(f"{url}/players/{child}", json={"display_name": "이영희"}).json()["merged_into"] is None
+    after = {p["track_id"]: p for p in client.get(f"{url}/result").json()["players"]}
+    assert after[child]["display_name"] == "이영희" and after[kim["track_id"]]["merged_from"] == []
 
 
 def test_save_result_restores_stringified_booleans():
