@@ -4,7 +4,7 @@ import { Ban, Check, Combine, RotateCcw, ScanSearch, Undo2, Users } from 'lucide
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { MatchResult, PlayerRow, RosterEntry, Team } from '@/lib/types'
-import { cn, fmtClock, isGk, playerName, teamInfo } from '@/lib/utils'
+import { cn, fmtClock, isGk, ourTeam, playerName, teamInfo } from '@/lib/utils'
 import PlayerAvatar from './PlayerAvatar'
 import PlayerIdentify from './PlayerIdentify'
 import KickoffNaming from './KickoffNaming'
@@ -105,7 +105,8 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
         <p>영상 추적은 한 선수를 여러 트랙으로 나누거나 벤치·관중을 잡을 수 있습니다. 이름과 등번호를 붙이고,
           같은 선수의 트랙을 선택해 <b>합치기</b>, 선수가 아닌 트랙은 <b>제외</b>하세요.
           카드 아래 <b>같은 선수 후보</b>는 카메라가 돌아간 사이 화면 밖에 있다 돌아와 따로 잡혔을 수 있는 선수입니다. 모든 수치에 바로 반영되고 언제든 되돌릴 수 있습니다.</p>
-        <p>이름은 바로 아래 <b>경기 화면</b>에서 넣는 것이 가장 쉽습니다. 아래 카드의 사진이나 <b>확대·영상</b>을 누르면 그 선수만 따라가는 영상도 볼 수 있습니다.
+        <p>이름과 등번호는 우리 팀(<b>{teamInfo(match, ourTeam(match)).name}</b>) 선수만 넣습니다. 상대 선수는 합치기·제외만 하면 됩니다.
+          이름은 바로 아래 <b>경기 화면</b>에서 넣는 것이 가장 쉽습니다. 아래 카드의 사진이나 <b>확대·영상</b>을 누르면 그 선수만 따라가는 영상도 볼 수 있습니다.
           합치기는 사진을 나란히 보여 주는 <b>확인 창</b>에서 한 번 더 눌러야 실행됩니다.</p>
         <p className="text-xs text-ink-500">이름을 붙인 선수는 &lsquo;선수 프로필&rsquo;에서 여러 경기 기록이 합산됩니다.</p>
         <div className="flex flex-wrap items-center gap-2 pt-2">
@@ -317,6 +318,7 @@ function TrackCard({ matchId, result, p, candidates, roster, selected, onToggle,
   const [num, setNum] = useState(p.jersey_number?.toString() ?? '')
   const dirty = name !== (p.display_name ?? '') || num !== (p.jersey_number?.toString() ?? '')
   const other: Team = p.team === 'home' ? 'away' : 'home'
+  const ours = p.team === ourTeam(result.match)   // 상대 선수 이름은 모르므로 우리 팀만 이름·번호를 넣는다
   const s = p.stats
 
   const save = async () => {
@@ -347,13 +349,17 @@ function TrackCard({ matchId, result, p, candidates, roster, selected, onToggle,
           </span>
         </button>
         <div className="flex-1 min-w-0 space-y-1.5">
-          <div className="flex gap-1.5">
-            <input className="input !py-1 !px-2 text-xs w-12 shrink-0" placeholder="번호" inputMode="numeric" value={num}
-              onChange={e => setNum(e.target.value.replace(/\D/g, '').slice(0, 3))} aria-label="등번호" />
-            <input className="input !py-1 !px-2 text-xs" placeholder={roster?.length ? '이름 (명단에서 고르기)' : '이름'} value={name} maxLength={100}
-              list={roster?.length ? `roster-${p.team}` : undefined}
-              onChange={e => onName(e.target.value)} onKeyDown={e => e.key === 'Enter' && dirty && save()} aria-label="이름" />
-          </div>
+          {ours ? (
+            <div className="flex gap-1.5">
+              <input className="input !py-1 !px-2 text-xs w-12 shrink-0" placeholder="번호" inputMode="numeric" value={num}
+                onChange={e => setNum(e.target.value.replace(/\D/g, '').slice(0, 3))} aria-label="등번호" />
+              <input className="input !py-1 !px-2 text-xs" placeholder={roster?.length ? '이름 (명단에서 고르기)' : '이름'} value={name} maxLength={100}
+                list={roster?.length ? `roster-${p.team}` : undefined}
+                onChange={e => onName(e.target.value)} onKeyDown={e => e.key === 'Enter' && dirty && save()} aria-label="이름" />
+            </div>
+          ) : (
+            <p className="text-sm text-ink-200 truncate">{playerName(p)} <span className="text-[11px] text-ink-500">· 상대 선수(이름 없음)</span></p>
+          )}
           <p className="text-[11px] text-ink-500 truncate">
             {p.track_id}{isGk(p) && ' · GK'} · {fmtClock(s.first_seen_s ?? 0)}~{fmtClock(s.last_seen_s ?? 0)} · {s.minutes_tracked.toFixed(0)}분 · 터치 {s.touches}
             {p.minor && ' · 짧은 트랙'}
@@ -366,7 +372,7 @@ function TrackCard({ matchId, result, p, candidates, roster, selected, onToggle,
         </button>
       </div>
       <div className="flex flex-wrap gap-1.5 mt-2">
-        {dirty && <button className="btn-primary !py-1 !px-2 text-xs" disabled={busy} onClick={save}>저장</button>}
+        {ours && dirty && <button className="btn-primary !py-1 !px-2 text-xs" disabled={busy} onClick={save}>저장</button>}
         <button type="button" className="btn-secondary !py-1 !px-2 text-xs" onClick={onIdentify}>
           <ScanSearch className="w-3 h-3" />확대·영상
         </button>

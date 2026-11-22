@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, Pause, Play, SkipForward } from 'lucide-reac
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { MatchResult, Overlay, PlayerRow, RosterEntry } from '@/lib/types'
-import { cn, fmtClock, isGk, mainRoster, playerName, teamInfo } from '@/lib/utils'
+import { cn, fmtClock, isGk, mainRoster, ourTeam, playerName, teamInfo } from '@/lib/utils'
 
 type Box = [number, number, number, number]
 type Seen = { p: PlayerRow; box: Box }
@@ -47,6 +47,9 @@ export default function KickoffNaming({ matchId, result, src, rosters, onChanged
     return m
   }, [result.players])
   const main = useMemo(() => mainRoster(result.players), [result.players])
+  // 상대 선수 이름은 모르므로 우리 팀 선수에만 상자를 그린다
+  const us = ourTeam(result.match)
+  const usName = teamInfo(result.match, us).name
 
   // 프레임 번호 → 그 프레임에 잡힌 [트랙, 박스]
   const byK = useMemo(() => {
@@ -67,7 +70,7 @@ export default function KickoffNaming({ matchId, result, src, rosters, onChanged
     const out = new Map<string, Seen>()
     for (const [tid, box] of byK.get(k) ?? []) {
       const p = head.get(tid)
-      if (!p || p.excluded) continue
+      if (!p || p.excluded || p.team !== us) continue
       const prev = out.get(p.track_id)
       if (!prev || box[3] - box[1] > prev.box[3] - prev.box[1]) out.set(p.track_id, { p, box })
     }
@@ -173,20 +176,21 @@ export default function KickoffNaming({ matchId, result, src, rosters, onChanged
 
   const W = overlay?.w ?? 1920, H = overlay?.h ?? 1080
   const named = seen.filter(s => s.p.display_name).length
-  const unnamedMain = result.players.filter(p => !p.excluded && main.has(p.track_id) && !p.display_name).length
+  const unnamedMain = result.players.filter(p => p.team === us && !p.excluded && main.has(p.track_id) && !p.display_name).length
 
   return (
     <section className="card p-3 sm:p-4 space-y-3" aria-label="경기 화면에서 선수 이름 넣기">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <p className="font-semibold text-ink-100">경기 화면에서 이름 넣기</p>
+        <p className="font-semibold text-ink-100">경기 화면에서 {usName} 선수 이름 넣기</p>
         <p className="text-xs text-ink-400">
           {k != null && <>이 장면 <span className="num text-ink-200">{fmtClock(timeOf(k) - (result.meta.start_s ?? 0))}</span> · </>}
-          보이는 선수 <span className="num text-ink-200">{seen.length}</span>명 중 이름 <span className="num text-ink-200">{named}</span>명
+          보이는 {usName} 선수 <span className="num text-ink-200">{seen.length}</span>명 중 이름 <span className="num text-ink-200">{named}</span>명
           · 주전 중 이름 없는 선수 <span className="num text-ink-200">{unnamedMain}</span>명
         </p>
       </div>
       <p className="text-xs text-ink-500">
-        경기 시작 무렵 선수가 가장 많이 보이는 장면입니다. 상자를 누르거나 아래 확대 사진 옆에 번호·이름을 넣으세요.
+        경기 시작 무렵 선수가 가장 많이 보이는 장면입니다. 우리 팀({usName}) 선수에만 상자가 그려지고, 상대 팀은 이름을 넣지 않습니다.
+        상자를 누르거나 아래 확대 사진 옆에 번호·이름을 넣으세요.
         같은 이름을 넣은 선수는 자동으로 한 사람으로 합쳐집니다. 안 보이는 선수는 &lsquo;이름 없는 선수 장면&rsquo;으로 넘어가 찾으세요.
       </p>
 

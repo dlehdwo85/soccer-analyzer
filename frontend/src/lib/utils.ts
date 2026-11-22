@@ -86,6 +86,12 @@ export function teamInfo(match: Match, team: Team) {
   return { name: team === 'home' ? match.home_team_name : match.away_team_name, color: displayColor(kit, team), kit }
 }
 
+/** 이름을 넣는 '우리 팀'. 상대 선수 이름은 모르므로 우리 팀만 이름·등번호를 받는다.
+ *  등록한 팀이 원정 쪽에만 연결돼 있으면 원정, 그 밖에는 홈(경기 등록에서 우리 팀을 홈에 넣는다) */
+export function ourTeam(match: Match): Team {
+  return match.away_team_id && !match.home_team_id ? 'away' : 'home'
+}
+
 export function playerName(p: Pick<PlayerRow, 'display_name' | 'jersey_number' | 'track_id'> | undefined | null): string {
   if (!p) return '알 수 없음'
   if (p.display_name) return p.jersey_number != null ? `${p.jersey_number}. ${p.display_name}` : p.display_name

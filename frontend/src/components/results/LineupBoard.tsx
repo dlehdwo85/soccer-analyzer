@@ -3,7 +3,7 @@ import { KeyboardEvent, MouseEvent, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { Match, MatchResult, PlayerRow, PlayerStats, Team } from '@/lib/types'
-import { cn, fmtClock, isGk, playerName, teamInfo, mainRoster } from '@/lib/utils'
+import { cn, fmtClock, isGk, ourTeam, playerName, teamInfo, mainRoster } from '@/lib/utils'
 import Pitch from '@/components/pitch/Pitch'
 import PlayerAvatar from './PlayerAvatar'
 
@@ -82,7 +82,7 @@ export default function LineupBoard({ matchId, result, onChanged }:
     <div className="space-y-4">
       <div className="card p-4 text-sm text-ink-300 space-y-1">
         <p className="font-semibold text-ink-100">라인업 보드</p>
-        <p>점 위치는 경기 중 평균 위치, 점 크기는 추적된 시간입니다. 점이나 아래 목록을 누르면 이름과 등번호를 붙일 수 있습니다.</p>
+        <p>점 위치는 경기 중 평균 위치, 점 크기는 추적된 시간입니다. 점이나 아래 목록을 누르면 우리 팀({teamInfo(match, ourTeam(match)).name}) 선수는 이름과 등번호를 붙일 수 있습니다.</p>
         <p className="text-xs text-ink-500">같은 선수가 가려지거나 화면 밖으로 나가 여러 트랙으로 나뉘면 가까운 자리에 점이 여러 개 보입니다.
           기준 선수를 연 뒤 조각을 Shift+클릭(또는 목록에서 체크)해 합치세요.</p>
       </div>
@@ -224,6 +224,7 @@ function Editor({ matchId, match, p, candidates, busy, run, onClose, onUnselect,
   const [name, setName] = useState(p.display_name ?? '')
   const [num, setNum] = useState(p.jersey_number?.toString() ?? '')
   const dirty = name !== (p.display_name ?? '') || num !== (p.jersey_number?.toString() ?? '')
+  const ours = p.team === ourTeam(match)   // 상대 선수 이름은 모르므로 우리 팀만 이름·번호를 넣는다
   const s = p.stats
 
   const save = () => run(() => api.updatePlayer(matchId, p.track_id, {
@@ -240,16 +241,20 @@ function Editor({ matchId, match, p, candidates, busy, run, onClose, onUnselect,
             {p.track_id}{isGk(p) && ' · GK'} · {fmtClock(s.first_seen_s ?? 0)}~{fmtClock(s.last_seen_s ?? 0)} · {s.minutes_tracked.toFixed(0)}분 · 터치 {s.touches}
             {p.minor && ' · 짧은 트랙'}
           </p>
-          <div className="flex gap-1.5">
-            <input className="input !py-1 !px-2 text-xs w-14 shrink-0" placeholder="번호" inputMode="numeric" value={num}
-              onChange={e => setNum(e.target.value.replace(/\D/g, '').slice(0, 3))} aria-label="등번호" />
-            <input className="input !py-1 !px-2 text-xs" placeholder="이름" value={name} maxLength={100} autoFocus
-              onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && dirty && save()} aria-label="이름" />
-          </div>
+          {ours ? (
+            <div className="flex gap-1.5">
+              <input className="input !py-1 !px-2 text-xs w-14 shrink-0" placeholder="번호" inputMode="numeric" value={num}
+                onChange={e => setNum(e.target.value.replace(/\D/g, '').slice(0, 3))} aria-label="등번호" />
+              <input className="input !py-1 !px-2 text-xs" placeholder="이름" value={name} maxLength={100} autoFocus
+                onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && dirty && save()} aria-label="이름" />
+            </div>
+          ) : (
+            <p className="text-xs text-ink-500">상대 팀 선수는 이름을 넣지 않습니다. 같은 선수 조각 합치기만 할 수 있습니다.</p>
+          )}
         </div>
       </div>
       <div className="flex flex-wrap gap-1.5">
-        <button type="button" className="btn-primary !py-1 !px-2.5 text-xs" disabled={busy || !dirty} onClick={save}>저장</button>
+        {ours && <button type="button" className="btn-primary !py-1 !px-2.5 text-xs" disabled={busy || !dirty} onClick={save}>저장</button>}
         <button type="button" className="btn-secondary !py-1 !px-2.5 text-xs" onClick={onClose}>닫기</button>
       </div>
 

@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, Pause, Play, X, ZoomIn, ZoomOut } from 'luci
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { MatchResult, Overlay, PlayerRow, RosterEntry } from '@/lib/types'
-import { fmtClock, isGk, playerName, teamInfo } from '@/lib/utils'
+import { fmtClock, isGk, ourTeam, playerName, teamInfo } from '@/lib/utils'
 import PlayerAvatar from './PlayerAvatar'
 
 /** 선수 위치 데이터는 크다(수 MB) → 경기당 한 번만 받는다 */
@@ -261,6 +261,12 @@ export default function PlayerIdentify({ matchId, result, player, src, roster, o
             </div>
           )}
 
+          {player.team !== ourTeam(result.match) ? (
+            <div className="border-t border-ink-800 pt-3 flex items-center gap-2">
+              <p className="flex-1 text-xs text-ink-500">상대 팀 선수는 이름을 넣지 않습니다.</p>
+              <button type="button" className="btn-secondary" onClick={onClose}>닫기</button>
+            </div>
+          ) : (
           <div className="border-t border-ink-800 pt-3">
             <p className="label mb-1.5">이 선수는 누구인가요</p>
             <div className="flex gap-2">
@@ -275,6 +281,7 @@ export default function PlayerIdentify({ matchId, result, player, src, roster, o
               <button type="button" className="btn-primary flex-1" disabled={!dirty || saving} onClick={save}>저장</button>
             </div>
           </div>
+          )}
         </div>
       </div>
     </div>
