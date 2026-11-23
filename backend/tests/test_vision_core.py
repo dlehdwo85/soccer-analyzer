@@ -331,6 +331,47 @@ def test_roster_slots_cap_and_reentry():
     assert slots["G1"] == "G1"
 
 
+def test_relink_chains_after_camera_whip():
+    """카메라가 확 돌아 세 선수가 한꺼번에 끊겼다가 4초 뒤 새 번호로 나타났다. 끝 위치만 보면 A의 끝 근처에 C'가 나타나
+    헷갈리지만, 달리던 방향(속도)과 외형으로 한 번에 짝지으면 모두 제자리로 이어진다. GK·다른 팀·오래전 조각은 잇지 않는다."""
+    import numpy as np
+    from app.vision import color as C
+    from app.vision.tracker import Tracklet, relink_chains
+
+    def run(tid, team, t0, t1, x0, y0, vx, vy=0.0):
+        ts = np.arange(t0, t1, 0.5)
+        return Tracklet(tid, team, [(float(t), x0 + vx * (t - t0), y0 + vy * (t - t0)) for t in ts])
+    # A: x 40→50 오른쪽으로 달림(2.5m/s), C: x 56에 서 있음. 4초 공백 뒤 A' x 60(계속 달림), C' x 56
+    trs = [run("A", "home", 0, 4, 40, 30, 2.5), run("C", "home", 0, 4, 56, 31, 0.0), run("D", "home", 0, 4, 20, 10, 0.0),
+           run("A2", "home", 8, 12, 60, 30, 2.5), run("C2", "home", 8, 12, 56, 31, 0.0), run("D2", "home", 8, 12, 20, 10, 0.0),
+           run("X", "away", 8, 12, 50, 30, 0.0), run("G", "home", 8, 12, 3, 34, 0.0), run("OLD", "home", -40, -30, 20, 10, 0)]
+    app = lambda i: (np.concatenate([np.array([40.0 + 10 * i, 0, 0] * 3), np.full(C.HIST_LEN, np.nan)]), 20)
+    apps = {"A": app(1), "A2": app(1), "C": app(2), "C2": app(2), "D": app(3), "D2": app(3), "X": app(1),
+            "G": app(4), "OLD": app(3)}
+    links = relink_chains(trs, {}, apps, {"G": True}, C.reid_distance)
+    assert links["A2"] == "A" and links["C2"] == "C" and links["D2"] == "D"
+    assert "X" not in links and "G" not in links and "OLD" not in links.values()
+
+
+def test_body_hist_and_reid_distance():
+    import numpy as np
+    from app.vision import color as C
+    img = np.zeros((200, 100, 3), np.uint8)
+    img[:, :] = (40, 140, 40)                        # 잔디
+    img[40:120, 30:70] = (200, 220, 240)             # 하늘색 상의
+    img[120:190, 30:70] = (20, 20, 20)               # 검은 반바지·다리
+    h1 = C.body_hist(img, (25, 20, 75, 195))
+    assert h1 is not None and h1.shape == (C.HIST_LEN,) and abs(np.nansum(h1) - 2.0) < 1e-4
+    img2 = img.copy()
+    img2[120:190, 30:70] = (230, 230, 230)           # 흰 반바지
+    h2 = C.hist_distance(h1, C.body_hist(img2, (25, 20, 75, 195)))
+    assert C.hist_distance(h1, h1) < 1e-6 and h2 > 0.3
+    lab = np.array([50.0, 0, 0] * 3)
+    a, b = np.concatenate([lab, h1]), np.concatenate([lab, C.body_hist(img2, (25, 20, 75, 195))])
+    assert C.reid_distance(a, a) < 1e-6 < C.reid_distance(a, b)
+    assert C.appearance_distance(a, b) == 0.0          # 앞 9칸(LAB)만 보는 기존 거리는 그대로
+
+
 def test_kit_mismatch_referee_and_vest():
     import numpy as np
     from app.vision import color as C
