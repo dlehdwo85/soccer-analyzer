@@ -189,12 +189,30 @@ def _apply(db: Session, match: Match, snap: Dict, result: Dict) -> Optional[Dict
     # 팀 색을 바꿔 다시 분석했으면 홈·원정이 통째로 뒤집힌다 → 이어진 트랙들의 다수결로 알아낸다
     agree = sum(v if by[n].team == olds[g].team else -v for n, (g, v) in found.items() if not olds[g].excluded)
     flip = {"home": "away", "away": "home"} if agree < 0 else {}
-    out = _carry_players(olds, ohead, rows, found, flip)
+    # 선수(이름·합치기)는 사람이 확인한 묶음만 옮긴다. 자동 정리가 짐작으로 붙였던 조각까지 옛 선수로 묶으면
+    # 그 짐작이 '확인된' 합치기로 굳어 다른 사람에게 이름이 붙는다 (2쿼터 v2.6.0 재분석에서 강석 23조각 전부가 확인됨으로).
+    # 짐작 조각은 새 엔진의 묶음을 따른다.
+    chead = _confirmed_heads(snap["players"])
+    cfound = {n: gv for n, gv in match_tracks(old, new, chead).items() if n in by and gv[0] in olds}
+    out = _carry_players(olds, chead, rows, cfound, flip)
     ev = _carry_events(db, match, snap["events"], old, new, ohead, rows, found, flip)
     out["unmatched"].update(ev.pop("unmatched"))
     out.update(ev)
     moved = sum(v for v in out.values() if isinstance(v, int)) + sum(out["unmatched"].values())
     return out if moved else None
+
+
+def _confirmed_heads(players) -> Dict[str, str]:
+    """사람이 확인한 연결(auto_merged가 아닌 merged_into)만 따라간 대표. 자동 정리로 붙은 조각은 자기 자신이 대표."""
+    by = {p.track_id: p for p in players}
+    out: Dict[str, str] = {}
+    for p in players:
+        cur, seen = p, set()
+        while cur.merged_into and not cur.auto_merged and cur.merged_into in by and cur.track_id not in seen:
+            seen.add(cur.track_id)
+            cur = by[cur.merged_into]
+        out[p.track_id] = cur.track_id
+    return out
 
 
 def _gk(label: Optional[str]) -> bool:

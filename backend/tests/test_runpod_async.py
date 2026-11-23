@@ -152,3 +152,19 @@ def test_api_max_quality_requires_gpu(monkeypatch):
         c.post(f"/api/matches/{mid}/set-video-url", json={"video_url": "https://pub.example/v.mp4", "filename": "v.mp4"})
         r = c.post(f"/api/matches/{mid}/analyze", json={"mode": "video", "quality": "max"})
         assert r.status_code in (400, 503), r.text
+
+
+def test_max_quality_ball_tiles_apply_when_image_default_is_zero(monkeypatch):
+    """워커 이미지는 YOLO_BALL_TILES=0을 깔아 둔다. '0'을 지정으로 보면 고정밀 공 분할이 꺼진 채로 돈다."""
+    import os
+    from app.vision import pipeline as P
+
+    def fake_init(self, model=None, imgsz=None, **kw):
+        self.ball_tiles = int(os.environ.get("YOLO_BALL_TILES", "0"))
+        self.BALL_FULL_EVERY = 3
+    monkeypatch.setattr(P.YoloDetector, "__init__", fake_init)
+    monkeypatch.setenv("YOLO_BALL_TILES", "0")
+    assert P.YoloDetector.for_quality("max").ball_tiles == P.QUALITY_PRESETS["max"]["ball_tiles"] == 3
+    assert P.YoloDetector.for_quality("standard").ball_tiles == 0
+    monkeypatch.setenv("YOLO_BALL_TILES", "2")      # 운영자가 직접 정한 값은 그대로
+    assert P.YoloDetector.for_quality("max").ball_tiles == 2

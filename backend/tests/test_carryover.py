@@ -321,3 +321,25 @@ def test_same_track_ids_can_be_different_people(client):
     assert ps["P3"]["merged_from"] == ["P2"] and ps["P3"]["label"] == "home_gk"
     assert res["meta"]["carried_over"]["names"] == 1 and res["meta"]["carried_over"]["merges"] == 0
     assert client.post(f"{url}/players/auto-roster/undo").json()["unmerged"] == 1
+
+
+def test_guessed_pieces_of_named_player_stay_guesses(client):
+    """이름 붙은 선수에 자동 정리가 짐작으로 붙인 조각은 다시 분석해도 '확인된' 합치기가 되지 않는다.
+    (2쿼터 v2.6.0 재분석: 강석 23조각 중 21조각이 짐작이었는데 전부 확인됨으로 굳어 다른 사람에게 이름이 붙었다)"""
+    mid = _match(client, "짐작 조각")
+    url = f"/api/matches/{mid}"
+    home = lambda s: ("home", "home", s)  # noqa: E731
+    # A(0~30초) 이름 '가', G(31~60초)는 자동 정리가 A에 짐작으로 붙였다(실제로는 다른 사람)
+    _save(mid, _result({"A": home(30), "G": home(29)}, _ov({"A": (.1, 0, 30), "G": (.5, 31, 60)}), slots={"G": "A"}))
+    client.patch(f"{url}/players/A", json={"display_name": "가"})
+    _, ps = _view(client, mid)
+    assert ps["A"]["guessed_from"] == ["G"]
+    # 같은 화면으로 다시 분석: 새 엔진은 G 자리 조각(NG)을 따로 둔다
+    _save(mid, _result({"NA": home(30), "NG": home(29)}, _ov({"NA": (.1, 0, 30), "NG": (.5, 31, 60)})))
+    _, ps = _view(client, mid)
+    assert ps["NA"]["display_name"] == "가" and ps["NA"]["merged_from"] == []
+    assert ps["NG"]["display_name"] is None
+    # 새 엔진이 NG를 NA에 다시 짐작으로 붙이면 그대로 '추정'으로 남는다
+    _save(mid, _result({"MA": home(30), "MG": home(29)}, _ov({"MA": (.1, 0, 30), "MG": (.5, 31, 60)}), slots={"MG": "MA"}))
+    _, ps = _view(client, mid)
+    assert ps["MA"]["display_name"] == "가" and ps["MA"]["guessed_from"] == ["MG"]
