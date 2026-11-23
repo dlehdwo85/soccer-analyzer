@@ -363,6 +363,38 @@ def test_contested_dribble_keeps_possession():
     assert len(merge_same_player([a1, opp_long, a3], cfg)) == 3
 
 
+def test_shot_found_when_ball_crossed_line_before_possession_ended():
+    """바모스전 2쿼터 8:39: 골문 바로 앞에서 찬 공이 라인을 넘은 뒤까지 공을 가진 것으로 잡혀,
+    그 뒤 0.4초 속도(느림)로는 슈팅이 안 됐다 → 라인을 빠르게 넘어 머문 공은 슈팅(유효 아님)."""
+    from app.vision.events import Spell, _BallIndex, _shot_check
+
+    def index(path):
+        return _BallIndex([Frame(t, [], b) for t, b in path])
+
+    base = [(0.0, (98.0, 34.0)), (0.2, (100.0, 34.0)), (0.4, (102.0, 34.0)), (0.6, (103.8, 34.0)),
+            (0.8, (105.9, 33.5)), (1.0, (107.5, 33.2))]
+    after = [(1.2, (104.8, 34.0)), (1.4, (107.5, 33.2)), (1.6, (107.5, 33.2)), (2.0, (107.5, 33.2))]
+    spell = Spell("A18", "away", 0.0, 1.2, 98.0, 34.0, 104.8, 34.0)
+    cfg = EventConfig()
+    shot = _shot_check(spell, index(base + after), cfg, 1)
+    assert shot is not None and shot["outcome"] == "off_target" and shot["speed_ms"] >= 9
+
+    # 골문에서 먼 곳(측면)으로 나간 공·천천히 굴러 나간 공·경계를 못 믿는 영상은 슈팅이 아니다
+    wide = [(t, (x, 50.0)) for t, (x, _) in base + after]
+    assert _shot_check(Spell("A18", "away", 0.0, 1.2, 98.0, 50.0, 104.8, 50.0), index(wide), cfg, 1) is None
+    slow = [(i * 0.2, (103.0 + 0.6 * i, 34.0)) for i in range(12)]
+    assert _shot_check(Spell("A18", "away", 0.0, 1.2, 103.0, 34.0, 106.6, 34.0), index(slow), cfg, 1) is None
+    # 라인을 넘기 전에 다음 선수가 받았으면 슈팅이 아니다
+    assert _shot_check(spell, index(base + after), cfg, 1, next_t0=1.25) is not None   # 넘은 뒤 받음 → 슈팅
+    from app.vision.events import _shot_over_line
+    early = Spell("A18", "away", 0.0, 0.5, 98.0, 34.0, 102.0, 34.0)
+    assert _shot_over_line(early, index(base + after), cfg, 1) is not None
+    assert _shot_over_line(early, index(base + after), cfg, 1, next_t0=0.7) is None      # 넘기 전에 받음
+    cfg_moving = EventConfig()
+    cfg_moving.trust_bounds = False
+    assert _shot_check(spell, index(base + after), cfg_moving, 1) is None
+
+
 def test_wide_kick_is_cross_not_shot():
     from app.vision.events import EventConfig, Spell, _is_cross
     cfg = EventConfig()
