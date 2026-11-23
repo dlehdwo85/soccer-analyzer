@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Download, Pencil, Settings2, Share2 } from 'lucide-react'
+import { ArrowLeft, Download, Pencil, Play, Settings2, Share2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { MatchResult, Team, TeamStats } from '@/lib/types'
@@ -138,6 +138,22 @@ export default function ResultsPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
+      {/* 휴대폰: 유튜브 시청 화면처럼 맨 위에 16:9 영상 자리 — 누르면 영상이 위에 고정되고 기록은 그 아래에서 넘긴다 */}
+      {videoSrc && (
+        <button type="button" onClick={() => dock.current?.open()} aria-label="경기 영상 재생"
+          className="sm:hidden relative block w-[calc(100%+2rem)] -mx-4 -mt-6 mb-3 aspect-video overflow-hidden"
+          style={{ background: `linear-gradient(115deg, ${home.color} 0 49.6%, #070b14 49.6% 50.4%, ${away.color} 50.4% 100%)` }}>
+          <span className="absolute inset-0 bg-black/45" />
+          <span className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white">
+            <span className="w-14 h-14 rounded-full bg-black/60 flex items-center justify-center">
+              <Play className="w-7 h-7 translate-x-0.5" fill="currentColor" />
+            </span>
+            <span className="text-sm font-semibold drop-shadow">경기 영상 보기</span>
+          </span>
+          <span className="absolute right-2 bottom-2 rounded bg-black/80 px-1.5 py-0.5 text-xs font-semibold text-white num">{fmtClock(meta.duration_s)}</span>
+        </button>
+      )}
+
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <Link href={`/matches/${matchId}`} className="btn-ghost !px-2.5" aria-label="경기 페이지"><ArrowLeft className="w-4 h-4" /></Link>
         <p className="order-last basis-full sm:order-none sm:basis-0 text-xs text-ink-400 flex-1 min-w-0 truncate num">
@@ -146,7 +162,7 @@ export default function ResultsPage() {
         <span className="flex-1 sm:hidden" aria-hidden />
         <Link href={`/matches/${matchId}`} className="btn-ghost !px-2.5" aria-label="경기 설정"><Settings2 className="w-4 h-4" /></Link>
         {videoSrc && (
-          <button type="button" className="btn-secondary !py-1.5" onClick={() => dock.current?.open()}>영상 보기</button>
+          <button type="button" className="hidden sm:inline-flex btn-secondary !py-1.5" onClick={() => dock.current?.open()}>영상 보기</button>
         )}
         <button type="button" className="btn-secondary !py-1.5" onClick={shareMatch}>
           <Share2 className="w-4 h-4" /><span className="hidden sm:inline">공유</span>
@@ -269,7 +285,7 @@ export default function ResultsPage() {
       {meta.source === 'video' && meta.ball_detected_pct != null && (
         <details className="note mb-2 group">
           <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-            분석 신뢰도 · 공 위치 추정 <span className="num text-ink-100">{meta.ball_detected_pct.toFixed(0)}%</span>
+            분석 신뢰도 · 공 위치 파악 <span className="num text-ink-100">{meta.ball_detected_pct.toFixed(0)}%</span>
             {meta.ball_direct_pct != null && (
               <> · 직접 검출 <span className="num text-ink-100">{meta.ball_direct_pct.toFixed(0)}%</span></>
             )}
@@ -281,9 +297,16 @@ export default function ResultsPage() {
             <span className="ml-2 text-xs text-ink-400 underline underline-offset-2 hidden group-open:inline">접기</span>
           </summary>
           <p className="text-ink-500 mt-1">
-            위치 추정은 공 모델이 직접 잡은 장면에 앞뒤 장면을 이어 붙인 추정까지 더한 비율입니다.
+            위치 파악은 공 모델이 직접 잡은 장면에 앞뒤 장면을 이어 붙인 추정까지 더한 비율입니다.
             잡힌 위치가 진짜 공이 아닐 수도 있어서, 실제로 맞는 비율은 대조 정확도로 봐 주세요. 낮을수록 볼 기록이 부정확합니다.
           </p>
+          {meta.ball_events_pct != null && meta.ball_direct_pct != null && (
+            <ul className="text-ink-500 mt-1 space-y-0.5">
+              <li>· 직접 검출 <span className="num text-ink-300">{meta.ball_direct_pct.toFixed(0)}%</span> — 모델이 공을 찾은 장면</li>
+              <li>· 짧은 공백 이음 <span className="num text-ink-300">{Math.max(0, meta.ball_events_pct - meta.ball_direct_pct).toFixed(0)}%</span> — 앞뒤로 이은 위치, 패스·슈팅 판정에 씁니다</li>
+              <li>· 긴 공백 대략 위치 <span className="num text-ink-300">{Math.max(0, meta.ball_detected_pct - meta.ball_events_pct).toFixed(0)}%</span> — 영상에 흐린 점선으로만 보이고 기록 계산에는 쓰지 않습니다</li>
+            </ul>
+          )}
           {meta.possession_basis === 'touches' && (
             <p className="text-ink-500 mt-1">
               점유율은 경기가 멈춘 시간(호루라기~재개, 골~킥오프)을 빼고 <b className="text-ink-300 font-medium">공을 잡은 횟수</b>의 비율로 냅니다
@@ -306,20 +329,19 @@ export default function ResultsPage() {
       {warnings.map(w => <p key={w} className="note-warn mb-2">{w}</p>)}
 
       {/* 탭 + 전/후반 */}
-      <div className="sticky top-14 z-30 -mx-4 px-4 bg-ink-950 border-b border-ink-800 mb-4 mt-4 flex flex-wrap items-end gap-x-3 gap-y-1">
+      <div className="sticky top-[var(--top-h)] z-30 -mx-4 px-4 py-2 bg-ink-950/95 backdrop-blur mb-4 mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="relative flex-1 min-w-0 basis-full sm:basis-0">
-        <div ref={tabList} role="tablist" aria-label="결과 보기" className="flex overflow-x-auto no-scrollbar pr-6 sm:pr-0">
+        <div ref={tabList} role="tablist" aria-label="결과 보기" className="flex gap-2 overflow-x-auto no-scrollbar pr-6 sm:pr-0">
           {TABS.map(([k, label]) => (
             <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
-              className={cn('px-3 py-2.5 text-sm whitespace-nowrap border-b-2 -mb-px transition-colors',
-                tab === k ? 'border-volt text-ink-100 font-medium' : 'border-transparent text-ink-400 hover:text-ink-100')}>
+              className={cn('yt-chip', tab === k && 'yt-chip-on')}>
               {label}
             </button>
           ))}
         </div>
-        <div className="pointer-events-none absolute right-0 top-0 bottom-px w-8 bg-gradient-to-l from-ink-950 to-transparent sm:hidden" aria-hidden />
+        <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-ink-950 to-transparent sm:hidden" aria-hidden />
         </div>
-        <div className={cn('rounded-md border border-ink-700 p-0.5 bg-ink-900 mb-1.5', hasHalves ? 'flex' : 'hidden sm:flex')} role="group" aria-label="구간"
+        <div className={cn('rounded-lg border border-ink-700 p-0.5 bg-ink-900', hasHalves ? 'flex' : 'hidden sm:flex')} role="group" aria-label="구간"
           title={hasHalves ? '' : '경기 설정에서 후반 시작 시각을 입력하면 전반/후반을 나눠 볼 수 있습니다'}>
           {([[null, '전체'], [1, '전반'], [2, '후반']] as [Period, string][]).map(([p, l]) => (
             <button key={l} type="button" disabled={p !== null && !hasHalves} onClick={() => setPeriod(p)} aria-pressed={period === p}

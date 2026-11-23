@@ -281,6 +281,8 @@ export interface ResultMeta {
   ball_detected_pct?: number | null
   /** 공 모델이 직접 잡은 장면 비율 (ball_detected_pct는 앞뒤로 이어 붙인 추정 포함) */
   ball_direct_pct?: number | null
+  /** 이벤트 판정에 쓴 장면 비율 (직접 + 짧은 공백 이음). ball_detected_pct는 긴 공백 대략 위치까지 포함 */
+  ball_events_pct?: number | null
   /** 사람이 공 위치를 표시한 장면과 대조한 정확도 (처음 보는 장면 기준) */
   ball_verified?: { pct: number; frames: number } | null
   raw_tracks?: number
@@ -329,8 +331,8 @@ export interface MatchResult {
 
 /** 영상 검수용 선수 박스 한 행: [분석 프레임 번호, x1, y1, x2, y2] (원본 영상 픽셀) */
 export type OverlayBox = [k: number, x1: number, y1: number, x2: number, y2: number]
-/** 공 위치 한 행: [분석 프레임 번호, x, y, 검출 여부(1) / 보간(0)] */
-export type OverlayBall = [k: number, x: number, y: number, detected: 0 | 1]
+/** 공 위치 한 행: [분석 프레임 번호, x, y, 검출(1) / 짧은 공백 이음(0) / 긴 공백 대략 위치(2)] */
+export type OverlayBall = [k: number, x: number, y: number, detected: 0 | 1 | 2]
 
 /** GET /api/matches/{id}/overlay — 프레임 k의 영상 시각 = start_s + k * step (원본 영상 기준 초) */
 export interface Overlay {

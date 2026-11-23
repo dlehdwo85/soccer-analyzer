@@ -36,8 +36,8 @@ export default function HomePage() {
   const stale = matches?.filter(m => m.video_url && (m.analysis_version !== 2 || m.data_source !== 'video') && m.status !== 'analyzing') ?? []
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <div className="flex flex-wrap items-end justify-between gap-3 mb-5 pb-4 border-b border-ink-800">
+    <div className="max-w-6xl mx-auto px-4 pt-3 pb-8 sm:py-8">
+      <div className="hidden sm:flex flex-wrap items-end justify-between gap-3 mb-5 pb-4 border-b border-ink-800">
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-semibold text-ink-100">경기 기록</h1>
           <p className="text-sm text-ink-400 mt-1">경기 영상에서 유니폼 색으로 팀을 나누고 선수별 볼 터치·패스·슈팅·수비를 기록합니다.</p>
@@ -68,8 +68,13 @@ export default function HomePage() {
       </div>
 
       {sorted === null ? (
-        <div className="card divide-y divide-ink-800" aria-busy="true">
-          {[1, 2, 3].map(i => <div key={i} className="h-[4.5rem] animate-pulse" />)}
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-6" aria-busy="true">
+          {[1, 2, 3].map(i => (
+            <div key={i}>
+              <div className="-mx-4 sm:mx-0 aspect-video sm:rounded-xl bg-ink-900 animate-pulse" />
+              <div className="h-4 w-3/4 mt-3 rounded bg-ink-900 animate-pulse" />
+            </div>
+          ))}
         </div>
       ) : sorted.length === 0 ? (
         <div className="card px-4 py-12 text-center">
@@ -78,7 +83,7 @@ export default function HomePage() {
           <Link href="/matches/new" className="btn-primary">새 경기 등록</Link>
         </div>
       ) : (
-        <div className="card divide-y divide-ink-800">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-4 sm:gap-y-6">
           {sorted.map(m => <MatchCard key={m.id} match={m} />)}
         </div>
       )}

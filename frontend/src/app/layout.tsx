@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import { Providers } from './providers'
-import Navbar from '@/components/layout/Navbar'
+import Navbar, { MobileTabBar } from '@/components/layout/Navbar'
 
 export const metadata: Metadata = {
   title: '팬텀 · 경기 기록',
@@ -10,7 +10,8 @@ export const metadata: Metadata = {
   appleWebApp: { capable: true, title: '팬텀', statusBarStyle: 'black' },
 }
 
-export const viewport: Viewport = { themeColor: '#070b14' }
+// viewportFit cover: 아이폰 아래 홈 막대 영역(safe-area)까지 그려야 아래 메뉴 막대가 바닥에 붙는다
+export const viewport: Viewport = { themeColor: '#070b14', viewportFit: 'cover' }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -22,12 +23,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <Navbar />
         <main className="min-h-[calc(100vh-56px)]">{children}</main>
-        <footer className="border-t border-ink-800">
+        <footer className="hidden sm:block border-t border-ink-800">
           <div className="max-w-6xl mx-auto px-4 py-5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-ink-500">
             <span className="text-ink-400">팬텀 PHANTOM</span>
             <span>경기 영상에서 만든 기록</span>
           </div>
         </footer>
+        <MobileTabBar />
         <Providers />
       </body>
     </html>

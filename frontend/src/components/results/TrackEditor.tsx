@@ -128,7 +128,7 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
 
       {videoSrc && <KickoffNaming matchId={matchId} result={result} src={videoSrc} rosters={rosters} onChanged={onChanged} />}
 
-      <div className="sticky top-14 z-20 card p-3 flex flex-wrap items-center gap-2 shadow-lg shadow-black/30">
+      <div className="sticky top-[var(--top-h)] z-20 card p-3 flex flex-wrap items-center gap-2 shadow-lg shadow-black/30">
         <span className="text-sm text-ink-300">{selected.length ? `${selected.length}개 선택` : '합칠 트랙을 선택하세요'}</span>
         {selected.length >= 2 && !sameTeam && <span className="text-xs text-red-300">같은 팀 트랙만 합칠 수 있습니다</span>}
         {selected.length >= 2 && sameTeam && mergeTarget && (

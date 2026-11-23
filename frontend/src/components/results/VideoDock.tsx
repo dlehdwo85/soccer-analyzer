@@ -1,6 +1,6 @@
 'use client'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { Maximize2, Minimize2, RotateCcw, SkipBack, SkipForward, Tag, X } from 'lucide-react'
+import { ChevronDown, Maximize2, Minimize2, Pause, Play, RotateCcw, SkipBack, SkipForward, Tag, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { MatchResult, Overlay } from '@/lib/types'
 import { fmtClock, playerName, teamInfo } from '@/lib/utils'
@@ -45,6 +45,36 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
   const clipEnd = useRef<number | null>(null)
   const startAtOffset = useRef(false)
   const pendingSeek = useRef<number | null>(null)
+  // 휴대폰(폭 640 미만): 유튜브처럼 영상을 맨 위에 고정하고 내용은 그 아래에서 넘긴다. 접으면 아래 작은 플레이어
+  const [mobile, setMobile] = useState(false)
+  const [mini, setMini] = useState(false)
+  const [paused, setPaused] = useState(true)
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)')
+    const on = () => setMobile(mq.matches)
+    on()
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  const pinned = open && mobile && !mini
+  const minied = open && mobile && mini
+  useEffect(() => {
+    if (!minied) return
+    document.documentElement.classList.add('player-mini')
+    return () => document.documentElement.classList.remove('player-mini')
+  }, [minied])
+  useEffect(() => {
+    const root = document.documentElement
+    if (!pinned || !box.current) return
+    const el = box.current
+    const set = () => root.style.setProperty('--player-h', `${Math.ceil(el.getBoundingClientRect().height)}px`)
+    set()
+    root.classList.add('player-pinned')
+    const ro = new ResizeObserver(set)
+    ro.observe(el)
+    return () => { ro.disconnect(); root.classList.remove('player-pinned'); root.style.removeProperty('--player-h') }
+  }, [pinned])
 
   // 이름표용 선수 위치 — 처음 열 때 한 번 받는다
   useEffect(() => {
@@ -86,6 +116,7 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
 
   useImperativeHandle(ref, () => ({
     seek: (t, label, player) => {
+      setMini(false)
       queue.current = []
       setEnded(false)
       setQInfo(null)
@@ -96,12 +127,14 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
     },
     playClips: clips => {
       if (!clips.length) return
+      setMini(false)
       queue.current = clips
       setOpen(true)
       playIndex(0)
     },
     currentTime: () => (open && video.current ? Math.max(0, video.current.currentTime - offset) : null),
     open: () => {
+      setMini(false)
       queue.current = []
       setEnded(false)
       setQInfo(null)
@@ -151,46 +184,79 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
       v.removeEventListener('seeked', onStill)
       v.removeEventListener('loadeddata', onStill)
     }
-  }, [open, cfg, big])
+  }, [open, cfg, big, mobile, mini])
 
   if (!open) return null
   const starTeam = star && result ? teamInfo(result.match, star.team) : null
+  const close = () => { video.current?.pause(); queue.current = []; setQInfo(null); setEnded(false); clipEnd.current = null; setMini(false); setOpen(false) }
+  const title = clip ? `${fmtClock(clip.t)} ${clip.label}` : '경기 영상'
+  const togglePlay = () => { const v = video.current; if (v) { if (v.paused) play(v); else v.pause() } }
+  const miniMode = mobile && mini
+  // 같은 <video>를 그대로 두고 겉모양만 바꾼다 (모양이 바뀔 때 영상이 처음부터 다시 불러와지지 않게)
+  const shell = mobile
+    ? (mini
+      ? 'fixed z-[68] inset-x-0 bottom-[var(--bottom-h)] bg-ink-900 border-t border-ink-700 flex items-center shadow-2xl'
+      : 'fixed z-[68] inset-x-0 top-0 bg-black flex flex-col')
+    : `fixed z-[68] bottom-4 right-4 bg-black rounded-lg shadow-2xl overflow-hidden border border-ink-700 transition-all flex flex-col
+      ${big ? 'left-4 sm:left-auto sm:w-[760px]' : 'w-[min(380px,calc(100vw-2rem))]'}`
   return (
-    <div className={`fixed z-[68] bottom-4 right-4 bg-black rounded-lg shadow-2xl overflow-hidden border border-ink-700 transition-all
-      ${big ? 'left-4 sm:left-auto sm:w-[760px]' : 'w-[min(380px,calc(100vw-2rem))]'}`}>
-      <div className="flex items-center gap-2 px-3 py-2 text-xs text-ink-200 bg-ink-900">
-        <span className="flex-1 truncate font-semibold">{clip ? `${fmtClock(clip.t)} ${clip.label}` : '경기 영상'}</span>
-        {qInfo && (
+    <div ref={box} className={shell} style={mobile && !mini ? { paddingTop: 'env(safe-area-inset-top)' } : undefined}>
+      <div className={miniMode
+        ? 'order-2 flex-1 min-w-0 flex items-center gap-1 pl-3 pr-1 text-ink-100'
+        : `${mobile ? 'order-2 bg-ink-950 border-b border-ink-800 py-1.5' : 'order-1 bg-ink-900 py-2'} flex items-center gap-2 px-3 text-xs text-ink-200`}>
+        {miniMode ? (
+          <button type="button" onClick={() => setMini(false)} className="flex-1 min-w-0 text-left py-2" aria-label="영상 크게 보기">
+            <span className="block text-[13px] font-semibold truncate">{title}</span>
+            <span className="block text-[11px] text-ink-400 truncate">{result?.match.title ?? ''}</span>
+          </button>
+        ) : (
+          <span className="flex-1 truncate font-semibold">{title}</span>
+        )}
+        {!miniMode && qInfo && (
           <>
             <span className="text-volt num">{qInfo.i + 1}/{qInfo.n}</span>
             {qInfo.n > 1 && (
-              <button onClick={() => playIndex(Math.max(0, qInfo.i - 1))} aria-label="이전 장면" className="hover:text-white p-1 -m-1"><SkipBack className="w-4 h-4" /></button>
+              <button onClick={() => playIndex(Math.max(0, qInfo.i - 1))} aria-label="이전 장면" className="hover:text-white p-1.5 -m-1"><SkipBack className="w-4 h-4" /></button>
             )}
-            <button onClick={() => playIndex(qInfo.i)} aria-label="이 장면 다시 보기" className="hover:text-white p-1 -m-1"><RotateCcw className="w-4 h-4" /></button>
+            <button onClick={() => playIndex(qInfo.i)} aria-label="이 장면 다시 보기" className="hover:text-white p-1.5 -m-1"><RotateCcw className="w-4 h-4" /></button>
             {qInfo.n > 1 && (
-              <button onClick={() => playIndex(qInfo.i + 1)} aria-label="다음 장면" className="hover:text-white p-1 -m-1"><SkipForward className="w-4 h-4" /></button>
+              <button onClick={() => playIndex(qInfo.i + 1)} aria-label="다음 장면" className="hover:text-white p-1.5 -m-1"><SkipForward className="w-4 h-4" /></button>
             )}
           </>
         )}
-        {prep && (
+        {miniMode && (
+          <button onClick={togglePlay} aria-label={paused ? '재생' : '일시정지'} className="p-2.5">
+            {paused ? <Play className="w-5 h-5" fill="currentColor" /> : <Pause className="w-5 h-5" fill="currentColor" />}
+          </button>
+        )}
+        {!miniMode && prep && (
           <button onClick={() => setShowNames(s => !s)} aria-label="선수 이름표" aria-pressed={showNames}
-            className={showNames ? 'text-volt' : 'hover:text-white'}>
+            className={`p-1.5 -m-1 ${showNames ? 'text-volt' : 'hover:text-white'}`}>
             <Tag className="w-4 h-4" />
           </button>
         )}
-        <button onClick={() => setBig(b => !b)} aria-label="크기 전환" className="hover:text-white">
-          {big ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-        </button>
-        <button onClick={() => { video.current?.pause(); queue.current = []; setQInfo(null); setEnded(false); clipEnd.current = null; setOpen(false) }} aria-label="닫기" className="hover:text-white p-1 -m-1">
-          <X className="w-4 h-4" />
+        {mobile ? (
+          !miniMode && (
+            <button onClick={() => setMini(true)} aria-label="작게 접기" className="hover:text-white p-1.5 -m-1">
+              <ChevronDown className="w-5 h-5" />
+            </button>
+          )
+        ) : (
+          <button onClick={() => setBig(b => !b)} aria-label="크기 전환" className="hover:text-white">
+            {big ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
+        )}
+        <button onClick={close} aria-label="닫기" className={miniMode ? 'p-2.5' : 'hover:text-white p-1.5 -m-1'}>
+          <X className={miniMode ? 'w-5 h-5' : 'w-4 h-4'} />
         </button>
       </div>
       {error ? (
-        <p className="text-xs text-ink-300 p-4">영상을 불러올 수 없습니다. 저장소 주소나 권한을 확인하세요.</p>
+        <p className={`order-1 text-xs text-ink-300 ${miniMode ? 'w-32 p-2' : 'p-4'}`}>영상을 불러올 수 없습니다. 저장소 주소나 권한을 확인하세요.</p>
       ) : (
-        <div className="relative">
-          <video ref={video} src={src} controls playsInline preload="auto" className="w-full aspect-video bg-black block"
+        <div className={`relative ${miniMode ? 'order-1 w-32 shrink-0' : mobile ? 'order-1' : 'order-2'}`}>
+          <video ref={video} src={src} controls={!miniMode} playsInline preload="auto" className="w-full aspect-video bg-black block"
             onError={() => setError(true)}
+            onPlay={() => setPaused(false)} onPause={() => setPaused(true)}
             onLoadedMetadata={e => {
               const v = e.currentTarget
               if (pendingSeek.current !== null) {
@@ -209,7 +275,8 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
               if (ended) e.currentTarget.pause()
               else playIndex(qInfo.i + 1)
             }} />
-          {ended && qInfo && (
+          {miniMode && <button type="button" className="absolute inset-0" onClick={() => setMini(false)} aria-label="영상 크게 보기" />}
+          {!miniMode && ended && qInfo && (
             <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex justify-center gap-2 z-10">
               <button type="button" onClick={() => playIndex(0)} className="btn-primary !py-1.5 shadow-lg">
                 <RotateCcw className="w-4 h-4" />{qInfo.n > 1 ? '처음부터 다시 보기' : '다시 보기'}
@@ -217,9 +284,9 @@ const VideoDock = forwardRef<VideoDockHandle, { src: string; offset?: number; ma
             </div>
           )}
           {/* 선수 머리 위 이름표 — 클릭은 영상 조작 막대로 그대로 통과한다 */}
-          <canvas ref={canvas} className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden />
+          <canvas ref={canvas} className={`absolute inset-0 w-full h-full pointer-events-none ${miniMode ? 'hidden' : ''}`} aria-hidden />
           {/* 선수 위치를 모르는 순간(오버레이 없음)에만 오른쪽 위에 누구의 장면인지 적는다 */}
-          {clip && (!prep || !star) && (
+          {!miniMode && clip && (!prep || !star) && (
             <div className="absolute right-2 top-2 max-w-[70%] pointer-events-none flex items-center gap-1.5 rounded-md bg-black/70 px-2 py-1 text-white">
               {starTeam && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: starTeam.color }} />}
               <span className="text-[13px] font-semibold truncate">{star ? playerName(star) : clip.label}</span>

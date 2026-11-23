@@ -60,12 +60,15 @@ export function prepare(ov: Overlay): Prepared {
     })
     tracks.push({ tid, ks, bx })
   }
-  const balls = cleanBall(isSorted(ov.ball ?? []) ? (ov.ball ?? []) : [...ov.ball].sort((a, b) => a[0] - b[0]), ov)
+  // 공 표시: 1 직접 검출 · 0 짧은 공백 이음 · 2 긴 공백 대략 위치. 정리(cleanBall)는 직접 검출(1)만 기준으로 한다
+  const raw = isSorted(ov.ball ?? []) ? (ov.ball ?? []) : [...ov.ball].sort((a, b) => a[0] - b[0])
+  const rough = new Set(raw.filter(b => b[3] === 2).map(b => b[0]))
+  const balls = cleanBall(raw.map(b => (b[3] === 2 ? [b[0], b[1], b[2], 0] : b) as Overlay['ball'][number]), ov)
   const ballK = new Int32Array(balls.length)
   const ballXY = new Float32Array(balls.length * 2)
   const ballDet = new Uint8Array(balls.length)
   balls.forEach((b, i) => {
-    ballK[i] = b[0]; ballXY[i * 2] = b[1]; ballXY[i * 2 + 1] = b[2]; ballDet[i] = b[3] ? 1 : 0
+    ballK[i] = b[0]; ballXY[i * 2] = b[1]; ballXY[i * 2 + 1] = b[2]; ballDet[i] = b[3] ? 1 : rough.has(b[0]) ? 2 : 0
   })
   return { w: ov.w, h: ov.h, start: ov.start_s, step: ov.step, tracks, ballK, ballXY, ballDet }
 }
@@ -418,7 +421,8 @@ export function drawFrame(cv: HTMLCanvasElement, v: HTMLVideoElement, dpr: numbe
       const xy = p.ballXY
       const x = area.l + (xy[i * 2] + (xy[j * 2] - xy[i * 2]) * a) * sx
       const y = area.t + (xy[i * 2 + 1] + (xy[j * 2 + 1] - xy[i * 2 + 1]) * a) * sy
-      const detected = p.ballDet[a < 0.5 ? i : j] === 1
+      const kind = p.ballDet[a < 0.5 ? i : j]
+      const detected = kind === 1
       ctx.beginPath()
       ctx.arc(x, y, 4.5, 0, Math.PI * 2)
       if (detected) {
@@ -428,13 +432,13 @@ export function drawFrame(cv: HTMLCanvasElement, v: HTMLVideoElement, dpr: numbe
         ctx.strokeStyle = 'rgba(7,11,20,0.85)'
         ctx.stroke()
       } else {
-        // 검출되지 않고 앞뒤로 이어 붙인 위치
+        // 검출되지 않고 앞뒤로 이어 붙인 위치 (긴 공백의 대략 위치는 더 흐리게)
         ctx.lineWidth = 3
-        ctx.strokeStyle = 'rgba(7,11,20,0.6)'
+        ctx.strokeStyle = kind === 2 ? 'rgba(7,11,20,0.35)' : 'rgba(7,11,20,0.6)'
         ctx.stroke()
-        ctx.setLineDash([2.5, 2.5])
+        ctx.setLineDash(kind === 2 ? [1.5, 3.5] : [2.5, 2.5])
         ctx.lineWidth = 1.5
-        ctx.strokeStyle = '#ffffff'
+        ctx.strokeStyle = kind === 2 ? 'rgba(255,255,255,0.55)' : '#ffffff'
         ctx.stroke()
         ctx.setLineDash([])
       }

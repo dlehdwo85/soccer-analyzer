@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { Clapperboard, Home, Plus, Shirt, Users } from 'lucide-react'
 import { API_BASE } from '@/lib/api'
 import { loginUrl, logout, useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
@@ -28,22 +29,24 @@ export function Logo({ className = 'w-7 h-7' }: { className?: string }) {
 }
 
 const LINKS = [
-  { href: '/', label: '경기', match: (p: string) => p === '/' || p.startsWith('/matches/') && !p.startsWith('/matches/new') },
-  { href: '/videos', label: '영상', match: (p: string) => p.startsWith('/videos') },
-  { href: '/teams', label: '팀', match: (p: string) => p.startsWith('/teams') },
-  { href: '/players', label: '선수', match: (p: string) => p.startsWith('/players') },
+  { href: '/', label: '경기', icon: Home, match: (p: string) => p === '/' || p.startsWith('/matches/') && !p.startsWith('/matches/new') },
+  { href: '/videos', label: '영상', icon: Clapperboard, match: (p: string) => p.startsWith('/videos') },
+  { href: '/teams', label: '팀', icon: Users, match: (p: string) => p.startsWith('/teams') },
+  { href: '/players', label: '선수', icon: Shirt, match: (p: string) => p.startsWith('/players') },
 ]
 
 export default function Navbar() {
   const path = usePathname()
   return (
-    <header className="sticky top-0 z-50 bg-ink-950 border-b border-ink-800">
+    <header className="app-bar sticky top-0 z-50 bg-ink-950 sm:border-b border-ink-800">
       <div className="max-w-6xl mx-auto px-4 h-14 flex items-center gap-2 sm:gap-4">
         <Link href="/" className="flex items-center gap-2 font-semibold text-ink-100 whitespace-nowrap">
           <Logo />
-          <span className="hidden sm:inline tracking-tight">팬텀</span>
+          <span className="tracking-tight text-lg sm:text-base">팬텀</span>
         </Link>
-        <nav className="flex items-center gap-1 flex-1 h-full" aria-label="주요 메뉴">
+        {/* 휴대폰에서는 메뉴가 아래 막대(MobileTabBar)로 내려간다 */}
+        <span className="flex-1 sm:hidden" aria-hidden />
+        <nav className="hidden sm:flex items-center gap-1 flex-1 h-full" aria-label="주요 메뉴">
           {LINKS.map(({ href, label, match }) => {
             const on = match(path)
             return (
@@ -55,12 +58,42 @@ export default function Navbar() {
             )
           })}
         </nav>
-        <Link href="/matches/new" className="btn-secondary !px-3 !py-1.5 whitespace-nowrap">
-          <span className="sm:hidden">새 경기</span><span className="hidden sm:inline">새 경기 등록</span>
-        </Link>
+        <Link href="/matches/new" className="hidden sm:inline-flex btn-secondary !px-3 !py-1.5 whitespace-nowrap">새 경기 등록</Link>
         <Account />
       </div>
     </header>
+  )
+}
+
+/** 휴대폰 아래 메뉴 막대 — 유튜브 앱처럼 아이콘 + 짧은 이름, 가운데는 새 경기 등록 */
+export function MobileTabBar() {
+  const path = usePathname()
+  const item = ({ href, label, icon: Icon, match }: typeof LINKS[number]) => {
+    const on = match(path)
+    return (
+      <Link key={href} href={href} aria-current={on ? 'page' : undefined}
+        className={cn('flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] h-full',
+          on ? 'text-ink-100 font-semibold' : 'text-ink-400')}>
+        <Icon className="w-6 h-6" strokeWidth={on ? 2.4 : 1.6} />
+        {label}
+      </Link>
+    )
+  }
+  return (
+    <nav aria-label="주요 메뉴"
+      className="app-tabbar sm:hidden fixed inset-x-0 bottom-0 z-40 bg-ink-950/95 backdrop-blur border-t border-ink-800"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <div className="h-14 flex items-stretch">
+        {LINKS.slice(0, 2).map(item)}
+        <Link href="/matches/new" aria-label="새 경기 등록" className="flex-1 flex items-center justify-center">
+          <span className={cn('w-10 h-10 rounded-full flex items-center justify-center border',
+            path.startsWith('/matches/new') ? 'bg-ink-100 text-ink-950 border-ink-100' : 'border-ink-500 text-ink-100')}>
+            <Plus className="w-6 h-6" strokeWidth={1.8} />
+          </span>
+        </Link>
+        {LINKS.slice(2).map(item)}
+      </div>
+    </nav>
   )
 }
 
