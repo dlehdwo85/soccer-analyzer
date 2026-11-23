@@ -154,17 +154,22 @@ def test_api_max_quality_requires_gpu(monkeypatch):
         assert r.status_code in (400, 503), r.text
 
 
-def test_max_quality_ball_tiles_apply_when_image_default_is_zero(monkeypatch):
-    """워커 이미지는 YOLO_BALL_TILES=0을 깔아 둔다. '0'을 지정으로 보면 고정밀 공 분할이 꺼진 채로 돈다."""
-    import os
+def test_ball_tiles_only_add_to_full_frame_when_frame_is_downscaled():
+    """공 분할은 전체 화면 검출을 대신하지 않고, 화면이 공 모델 입력보다 클 때만 더해서 본다.
+    (v2.6.1: 1920 화면을 1920 모델에 9분할로 넣어 조각이 2.7배 확대 → 공 직접 검출 50% → 15%)"""
+    import numpy as np
     from app.vision import pipeline as P
 
-    def fake_init(self, model=None, imgsz=None, **kw):
-        self.ball_tiles = int(os.environ.get("YOLO_BALL_TILES", "0"))
-        self.BALL_FULL_EVERY = 3
-    monkeypatch.setattr(P.YoloDetector, "__init__", fake_init)
-    monkeypatch.setenv("YOLO_BALL_TILES", "0")
-    assert P.YoloDetector.for_quality("max").ball_tiles == P.QUALITY_PRESETS["max"]["ball_tiles"] == 3
-    assert P.YoloDetector.for_quality("standard").ball_tiles == 0
-    monkeypatch.setenv("YOLO_BALL_TILES", "2")      # 운영자가 직접 정한 값은 그대로
-    assert P.YoloDetector.for_quality("max").ball_tiles == 2
+    assert "ball_tiles" not in P.QUALITY_PRESETS["max"]
+    calls = []
+    det = P.YoloDetector.__new__(P.YoloDetector)
+    det.model = type("M", (), {"predict": lambda self, *a, **k: [type("R", (), {"boxes": None})()]})()
+    det.ball_model, det.ball_roi, det.device, det.imgsz = object(), False, None, 1280
+    det.ball_imgsz, det.ball_tiles, det.BALL_FULL_EVERY = 1920, 3, 1
+    det._focus, det._focus_age, det._frame_no = None, 0, 0
+    det._ball_predict = lambda img, x0=0, y0=0: calls.append(img.shape[:2]) or []
+    det.detect(np.zeros((1080, 1920, 3), np.uint8))
+    assert calls == [(1080, 1920)]                 # 원본 해상도 그대로면 전체 화면 한 번만
+    calls.clear()
+    det.detect(np.zeros((2160, 3840, 3), np.uint8))
+    assert calls[0] == (2160, 3840) and len(calls) == 1 + 9   # 4K는 전체 화면 + 9조각
