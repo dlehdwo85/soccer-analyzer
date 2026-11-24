@@ -393,6 +393,9 @@ def test_shot_found_when_ball_crossed_line_before_possession_ended():
     cfg_moving = EventConfig()
     cfg_moving.trust_bounds = False
     assert _shot_check(spell, index(base + after), cfg_moving, 1) is None
+    # 카메라가 움직여도 경기장 선 인식으로 위치(m)를 알면 판정한다 (바모스전 2쿼터: 정밀 판정 전·카메라 이동)
+    cfg_moving.metric_positions = True
+    assert _shot_check(spell, index(base + after), cfg_moving, 1) is not None
 
 
 def test_wide_kick_is_cross_not_shot():
