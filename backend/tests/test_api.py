@@ -403,6 +403,29 @@ def test_name_on_fragment_detaches_and_overlap_blocks(client):
     assert after[child]["display_name"] == "이영희" and after[kim["track_id"]]["merged_from"] == []
 
 
+def test_confirming_guessed_piece_with_same_name_rejoins(client):
+    """물음표 붙은 추정 조각(짐작으로 붙은 조각)을 같은 이름으로 '저장'하면 확인된 연결로 다시 합쳐진다 (예전엔 서버 오류)."""
+    m = client.post("/api/matches", json={"title": "추정 확인"}).json()
+    url = f"/api/matches/{m['id']}"
+    client.post(f"{url}/analyze", json={"mode": "sample", "max_seconds": 300})
+    home = [p["track_id"] for p in client.get(f"{url}/result").json()["players"] if p["team"] == "home" and not p["minor"]]
+    h1, g1 = home[:2]
+    _set_span(m["id"], h1, 0, 60)
+    _set_span(m["id"], g1, 100, 160)
+    assert client.patch(f"{url}/players/{h1}", json={"display_name": "민호"}).status_code == 200
+    from app.database import SessionLocal
+    from app.models import MatchPlayer
+    db = SessionLocal()
+    r = db.query(MatchPlayer).filter(MatchPlayer.match_id == m["id"], MatchPlayer.track_id == g1).one()
+    r.merged_into, r.auto_merged = h1, True
+    db.commit(); db.close()
+
+    res = client.patch(f"{url}/players/{g1}", json={"display_name": "민호", "jersey_number": None})
+    assert res.status_code == 200 and res.json()["merged_into"] in (h1, g1)
+    kim = next(p for p in client.get(f"{url}/result").json()["players"] if p["display_name"] == "민호")
+    assert sorted([kim["track_id"], *kim["merged_from"]]) == sorted([h1, g1]) and kim["guessed_from"] == []
+
+
 def test_save_result_restores_stringified_booleans():
     from app.services.result_service import _clean_detail
     assert _clean_detail({"forward": "False", "on_target": "True", "reason": "completed", "n": 3}) == \

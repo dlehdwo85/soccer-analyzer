@@ -422,10 +422,14 @@ def update_player(match_id: int, track_id: str, body: PlayerUpdate, db: Session 
         if same:
             def secs(r: MatchPlayer) -> float:
                 return float(json.loads(r.stats_json or "{}").get("seconds_tracked") or 0)
+            # 위에서 떼어 낸 조각(p.merged_into=None)을 DB에 먼저 반영한다. 세션이 autoflush=False라 그대로 두면
+            # 아래 조회가 DB의 옛 연결로 p를 다시 끌어오고, 메모리의 None으로 members[None]을 찾다 서버 오류가 났다.
+            db.flush()
             members = {r.track_id: [r] for r in [p, *same]}
             for c in db.query(MatchPlayer).filter(MatchPlayer.match_id == match_id,
                                                   MatchPlayer.merged_into.in_(list(members))).all():
-                members[c.merged_into].append(c)
+                if c.merged_into in members:
+                    members[c.merged_into].append(c)
             from app.services.roster_service import drop_conflicting_guesses, name_conflict
             conflict = name_conflict(members)
             if conflict:
