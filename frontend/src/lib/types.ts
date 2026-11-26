@@ -32,12 +32,14 @@ export interface Match {
   /** 등록된 팀(명단·시즌 기록)과 연결돼 있으면 그 팀 번호 */
   home_team_id?: number | null
   away_team_id?: number | null
+  /** 이 경기 명단(팀별 이름) — 선수 정리에서 이름을 직접 치지 않고 고른다. 없으면 이 경기에 넣은 이름 */
+  lineup?: Partial<Record<Team, string[]>>
 }
 
 export type MatchInput = Pick<Match,
   'title' | 'date' | 'field_type' | 'home_team_name' | 'away_team_name' | 'home_team_color' |
   'away_team_color' | 'referee_color' | 'home_gk_color' | 'away_gk_color' | 'home_attacks' | 'halftime_s' |
-  'home_team_id' | 'away_team_id'>
+  'home_team_id' | 'away_team_id' | 'lineup'>
 
 export interface RosterEntry { number: number | null; name: string }
 

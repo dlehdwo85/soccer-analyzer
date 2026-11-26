@@ -84,6 +84,7 @@ class Match(Base):
     free_trial        = Column(Boolean, default=False)                 # 팀의 첫 경기 무료 혜택을 쓴 경기
     notify_phone      = Column(String(20), nullable=True)              # 분석이 끝나면 알림톡 받을 번호 (보내면 지운다)
     away_team_id      = Column(Integer, nullable=True, index=True)
+    lineup_json       = Column(Text, nullable=True)            # 이 경기 명단 {"home": ["강석", ...], "away": [...]} — 선수 정리에서 이름을 고른다
 
     players    = relationship("MatchPlayer", back_populates="match", cascade="all, delete-orphan")
     events     = relationship("MatchEvent", back_populates="match", cascade="all, delete-orphan")

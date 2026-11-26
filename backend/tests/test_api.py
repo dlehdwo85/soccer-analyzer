@@ -581,3 +581,41 @@ def test_named_goalkeeper_collects_other_gk_pieces(client):
     assert client.patch(f"{url}/players/{gk}", json={"display_name": "경민"}).status_code == 200
     kim = next(p for p in client.get(f"{url}/result").json()["players"] if p["display_name"] == "경민")
     assert sorted(kim["merged_from"]) == sorted([g2, g3]) and sorted(kim["guessed_from"]) == sorted([g2, g3])
+
+
+def test_match_lineup_saved_per_side(client):
+    """경기 명단: 팀별 이름 목록을 저장하고, 한쪽만 보내면 다른 쪽은 그대로 둔다."""
+    m = client.post("/api/matches", json={"title": "명단"}).json()
+    url = f"/api/matches/{m['id']}"
+    assert m["lineup"] == {}
+    r = client.patch(url, json={"lineup": {"home": [" 강석 ", "정건", "강석", ""]}})
+    assert r.status_code == 200 and r.json()["lineup"] == {"home": ["강석", "정건"]}
+    r = client.patch(url, json={"lineup": {"away": ["상대1"]}})
+    assert r.json()["lineup"] == {"home": ["강석", "정건"], "away": ["상대1"]}
+
+
+def test_same_name_allowed_when_never_on_screen_together(client):
+    """처음~마지막 시각은 겹쳐도 실제로 같은 장면에 함께 잡힌 적이 없으면 같은 이름으로 합친다.
+    함께 잡힌 적이 있으면 막고, 그 시간을 알려 준다."""
+    from app.models import Match
+    from app.services.result_service import pack_overlay
+    m = client.post("/api/matches", json={"title": "장면 겹침"}).json()
+    url = f"/api/matches/{m['id']}"
+    client.post(f"{url}/analyze", json={"mode": "sample", "max_seconds": 300})
+    home = [p["track_id"] for p in client.get(f"{url}/result").json()["players"] if p["team"] == "home" and not p["minor"]]
+    a, b, c = home[:3]
+    for t in (a, b, c):
+        _set_span(m["id"], t, 0, 100)                 # 시각만 보면 셋 다 겹친다
+    db, rows = _rows(m["id"])
+    for t in (a, b, c):
+        rows[t].merged_into, rows[t].display_name = None, None
+    tracks = {a: [[k, 10, 500, 30, 560] for k in range(0, 100)],
+              b: [[k, 10, 500, 30, 560] for k in range(200, 300)],      # a가 화면 밖으로 나간 뒤에만 보였다
+              c: [[k, 900, 500, 920, 560] for k in range(250, 400)]}    # b와 같은 장면에 함께 보였다
+    db.get(Match, m["id"]).overlay_gz = pack_overlay({"v": 1, "w": 1920, "h": 1080, "start_s": 0, "step": 0.2,
+                                                      "n": 500, "tracks": tracks, "ball": []})
+    db.commit(); db.close()
+    assert client.patch(f"{url}/players/{a}", json={"display_name": "준수"}).status_code == 200
+    assert client.patch(f"{url}/players/{b}", json={"display_name": "준수"}).status_code == 200
+    r = client.patch(f"{url}/players/{c}", json={"display_name": "준수"})
+    assert r.status_code == 409 and "0:50~0:59" in r.json()["detail"]

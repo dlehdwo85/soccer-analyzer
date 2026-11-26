@@ -275,7 +275,7 @@ export default function PlayerIdentify({ matchId, result, player, src, roster, n
               <input className="input !w-20 shrink-0 text-base" placeholder="번호" inputMode="numeric" value={num}
                 onChange={e => setNum(e.target.value.replace(/\D/g, '').slice(0, 3))} aria-label="등번호" />
               <input className="input text-base" placeholder={roster?.length ? '이름 (명단에서 고르기)' : '이름'} value={name} maxLength={100}
-                list={roster?.length ? `roster-${player.team}` : undefined}
+                list={`roster-${player.team}`}
                 onChange={e => onName(e.target.value)} onKeyDown={e => e.key === 'Enter' && dirty && save()} aria-label="이름" />
             </div>
             <div className="flex gap-2 mt-3">

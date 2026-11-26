@@ -218,18 +218,31 @@ def _confirmed(rows: List[MatchPlayer]) -> List[MatchPlayer]:
     return [r for i, r in enumerate(rows) if i == 0 or not r.auto_merged]
 
 
-def name_conflict(groups: Dict[str, List[MatchPlayer]], tol_s: float = OVERLAP_TOL_S) -> Optional[str]:
-    """같은 이름으로 합치려는 선수들(대표 → [대표, 합쳐진 조각...]) 중 확인된 조각끼리 시간이 겹치면 그 시각(m:ss).
-    같은 사람은 같은 시간에 두 곳에 있을 수 없다 — 다른 사람에게 같은 이름을 넣은 것이다."""
+def _clock(t: float) -> str:
+    return f"{int(t // 60)}:{int(t % 60):02d}"
+
+
+def name_conflict(groups: Dict[str, List[MatchPlayer]], tol_s: float = OVERLAP_TOL_S,
+                  overlay: Optional[Dict] = None) -> Optional[str]:
+    """같은 이름으로 합치려는 선수들(대표 → [대표, 합쳐진 조각...]) 중 확인된 조각끼리 같은 시간에 보이면 그 시각(m:ss~m:ss).
+    같은 사람은 같은 시간에 두 곳에 있을 수 없다 — 다른 사람에게 같은 이름을 넣은 것이다.
+    영상 위치 데이터(overlay)가 있으면 실제로 같은 장면에 함께 잡힌 장면만 센다(처음~마지막 시각만 보면 화면 밖 공백도 겹친다)."""
+    tracks = (overlay or {}).get("tracks") or {}
+    step = float((overlay or {}).get("step") or 0)
+    start = float((overlay or {}).get("start_s") or 0)
     heads = list(groups)
     for i, a in enumerate(heads):
         for b in heads[i + 1:]:
             for ra in _confirmed(groups[a]):
                 for rb in _confirmed(groups[b]):
+                    if step and ra.track_id in tracks and rb.track_id in tracks:
+                        co = sorted({x[0] for x in tracks[ra.track_id]} & {x[0] for x in tracks[rb.track_id]})
+                        if len(co) * step > tol_s:
+                            return f"{_clock(start + co[0] * step)}~{_clock(start + co[-1] * step)}"
+                        continue
                     sa, sb = _span(ra), _span(rb)
                     if _overlap_s(sa, sb) > tol_s:
-                        t = max(sa[0], sb[0])
-                        return f"{int(t // 60)}:{int(t % 60):02d}"
+                        return f"{_clock(max(sa[0], sb[0]))}~{_clock(min(sa[1], sb[1]))}"
     return None
 
 

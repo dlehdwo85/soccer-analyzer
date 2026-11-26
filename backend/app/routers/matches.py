@@ -38,6 +38,10 @@ def _get(db: Session, match_id: int) -> Match:
 def _out(m: Match) -> MatchOut:
     o = MatchOut.model_validate(m)
     o.calibrated = bool(m.calibration_json)
+    try:
+        o.lineup = json.loads(m.lineup_json) if m.lineup_json else {}
+    except ValueError:
+        o.lineup = {}
     return o
 
 
@@ -79,6 +83,11 @@ def update_match(match_id: int, body: MatchUpdate, db: Session = Depends(get_db)
     m = _get(db, match_id)
     for k, v in body.model_dump(exclude_unset=True).items():
         if k in ("title", "field_type", "home_team_color", "away_team_color", "home_attacks") and v is None:
+            continue
+        if k == "lineup":
+            cur = json.loads(m.lineup_json) if m.lineup_json else {}
+            cur.update(v or {})
+            m.lineup_json = json.dumps(cur, ensure_ascii=False)
             continue
         setattr(m, k, v)
     db.commit()
@@ -451,10 +460,11 @@ def update_player(match_id: int, track_id: str, body: PlayerUpdate, db: Session 
                 if c.merged_into in members:
                     members[c.merged_into].append(c)
             from app.services.roster_service import drop_conflicting_guesses, name_conflict
-            conflict = name_conflict(members)
+            from app.services.roster_service import _overlay
+            conflict = name_conflict(members, overlay=_overlay(_get(db, match_id)))
             if conflict:
-                raise HTTPException(409, f"'{p.display_name}' 선수가 {conflict}에 다른 자리에도 보입니다. "
-                                         "같은 시간에 두 곳에 있을 수 없으니 이름을 확인하세요.")
+                raise HTTPException(409, f"'{p.display_name}'(으)로 이름 붙은 다른 선수가 {conflict}에 같은 화면 다른 자리에 함께 보입니다. "
+                                         f"한 사람이 두 곳에 있을 수 없으니, 그 장면에서 누가 '{p.display_name}'인지 확인하세요.")
             for r in drop_conflicting_guesses(members):
                 r.merged_into, r.auto_merged = None, False     # 짐작으로 붙었던, 확인된 선수와 시간이 겹치는 조각
             db.flush()   # 세션이 autoflush=False라, 아래 자식 조회가 떼어 낸 조각을 다시 끌어오지 않게

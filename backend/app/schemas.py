@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -54,11 +54,30 @@ class MatchUpdate(BaseModel):
     halftime_s: Optional[float] = Field(default=None, ge=0)
     home_team_id: Optional[int] = None
     away_team_id: Optional[int] = None
+    # 이 경기 명단(팀별 이름 목록) — 선수 정리에서 이름을 직접 치지 않고 고른다
+    lineup: Optional[Dict[Literal["home", "away"], List[str]]] = None
 
     @field_validator("home_team_color", "away_team_color", "referee_color", "home_gk_color", "away_gk_color")
     @classmethod
     def check_colors(cls, v):
         return _hex(v)
+
+    @field_validator("lineup")
+    @classmethod
+    def check_lineup(cls, v):
+        if v is None:
+            return v
+        out = {}
+        for side, names in v.items():
+            seen: List[str] = []
+            for n in names:
+                n = (n or "").strip()[:100]
+                if n and n not in seen:
+                    seen.append(n)
+            if len(seen) > 60:
+                raise ValueError("명단은 팀당 60명까지입니다")
+            out[side] = seen
+        return out
 
 
 class MatchOut(BaseModel):
@@ -89,6 +108,7 @@ class MatchOut(BaseModel):
     created_at: datetime
     home_team_id: Optional[int] = None
     away_team_id: Optional[int] = None
+    lineup: Dict[str, List[str]] = Field(default_factory=dict)
 
 
 class StatusOut(BaseModel):

@@ -8,6 +8,7 @@ import { cn, fmtClock, isGk, ourTeam, playerName, teamInfo } from '@/lib/utils'
 import PlayerAvatar from './PlayerAvatar'
 import PlayerIdentify from './PlayerIdentify'
 import KickoffNaming from './KickoffNaming'
+import LineupPanel, { effectiveLineup } from './LineupPanel'
 
 /** 합치기 전 최종 확인에 올리는 묶음 — target 쪽으로 sources를 합친다 */
 type MergePlan = { target: PlayerRow; sources: PlayerRow[] }
@@ -30,6 +31,11 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
   const us = ourTeam(match)
   const them: Team = us === 'home' ? 'away' : 'home'
   const [side, setSide] = useState<Team>(us)
+  const lineup = effectiveLineup(match, result.players, side)
+  /** 이름 칸에서 직접 친 새 이름은 명단에도 넣어 다음부터 누르기만 하게 한다 */
+  const addToLineup = async (name: string) => {
+    await api.updateMatch(matchId, { lineup: { [side]: [...lineup, name] } })
+  }
   // 경기에 연결된 팀의 명단 — 이름 칸에서 고르면 등번호가 채워지고, 같은 이름끼리는 서버가 자동으로 합친다
   const [rosters, setRosters] = useState<Partial<Record<Team, RosterEntry[]>>>({})
   useEffect(() => {
@@ -147,8 +153,13 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
         ))}
       </div>
 
+      <LineupPanel matchId={matchId} match={match} players={result.players} side={side} roster={rosters[side]} onChanged={onChanged} />
+
       {videoSrc && <KickoffNaming key={side} matchId={matchId} result={result} src={videoSrc} rosters={rosters} team={side}
-        onChanged={onChanged} />}
+        lineup={lineup} onAddName={addToLineup} onChanged={onChanged} />}
+      <datalist id={`roster-${side}`}>
+        {Array.from(new Set([...lineup, ...(rosters[side] ?? []).map(r => r.name)])).map(n => <option key={n} value={n} />)}
+      </datalist>
 
       <div className="sticky top-[var(--top-h)] z-20 card p-3 flex flex-wrap items-center gap-2 shadow-lg shadow-black/30">
         <span className="text-sm text-ink-300">{selected.length ? `${selected.length}개 선택` : '합칠 트랙을 선택하세요'}</span>
@@ -186,9 +197,6 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
                 </span>
               ))}
             </div>
-            <datalist id={`roster-${t}`}>
-              {list.map(r => <option key={r.name} value={r.name}>{r.number != null ? `${r.number}번` : ''}</option>)}
-            </datalist>
           </div>
         )
       })}
@@ -376,7 +384,7 @@ function TrackCard({ matchId, result, p, candidates, roster, selected, onToggle,
               <input className="input !py-1 !px-2 text-xs w-12 shrink-0" placeholder="번호" inputMode="numeric" value={num}
                 onChange={e => setNum(e.target.value.replace(/\D/g, '').slice(0, 3))} aria-label="등번호" />
               <input className="input !py-1 !px-2 text-xs" placeholder={roster?.length ? '이름 (명단에서 고르기)' : '이름'} value={name} maxLength={100}
-                list={roster?.length ? `roster-${p.team}` : undefined}
+                list={`roster-${p.team}`}
                 onChange={e => onName(e.target.value)} onKeyDown={e => e.key === 'Enter' && dirty && save()} aria-label="이름" />
             </div>
           <p className="text-[11px] text-ink-500 truncate">
