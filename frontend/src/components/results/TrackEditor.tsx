@@ -93,8 +93,12 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
   const sections = [side].map(team => {
     const all = result.players.filter(p => p.team === team && !p.excluded)
     const byTime = [...all].filter(p => !p.minor).sort((a, b) => b.stats.seconds_tracked - a.stats.seconds_tracked)
-    const mainIds = new Set(byTime.slice(0, 11).map(p => p.track_id))
-    const main = byTime.slice(0, 11).sort((a, b) =>
+    // 골키퍼는 오래 안 보여도(카메라가 반대편에 있을 때가 많다) 명단에 넣는다: 11명 안에 없으면 가장 오래 보인 GK로 마지막 자리를 바꾼다
+    const top = byTime.slice(0, 11)
+    const gk = byTime.find(isGk)
+    if (gk && !top.some(isGk) && top.length === 11) top[10] = gk
+    const mainIds = new Set(top.map(p => p.track_id))
+    const main = [...top].sort((a, b) =>
       Number(isGk(b)) - Number(isGk(a)) || (a.jersey_number ?? 999) - (b.jersey_number ?? 999) || b.stats.seconds_tracked - a.stats.seconds_tracked)
     const rest = all.filter(p => !mainIds.has(p.track_id) && (showMinor || !p.minor))
       .sort((a, b) => b.stats.seconds_tracked - a.stats.seconds_tracked)
