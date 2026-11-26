@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Match, MatchEvent, MatchPlayer
-from app.schemas import (AIMatchSummaryOut, AIReportOut, AnalyzeRequest, CalibrationIn, EventCreate, EventUpdate, MatchCreate, MatchOut,
+from app.schemas import (AIMatchSummaryOut, AIReportOut, AnalyzeRequest, CalibrationIn, EventCreate, EventUpdate, MatchCreate, MatchOut, SwapRequest,
                          MatchUpdate, MergeRequest, PlayerUpdate, StatusOut, VideoUrlBody)
 from app.services import ai_match_service, ai_report_service, analysis_service
 from app.services.ai_report_service import build_player_context, context_basis
@@ -485,6 +485,18 @@ def update_player(match_id: int, track_id: str, body: PlayerUpdate, db: Session 
         attach_gk_guesses(db, _get(db, match_id), _player(db, match_id, merged_into or p.track_id))
     db.commit()
     return {"ok": True, "merged_into": merged_into}
+
+
+@router.post("/{match_id}/players/swap")
+def swap_players(match_id: int, body: SwapRequest, db: Session = Depends(get_db)):
+    """같은 장면의 두 사람 이름이 서로 바뀌었을 때 맞바꾼다 (다시 부르면 되돌아간다)."""
+    from app.services.roster_service import swap_pieces
+    try:
+        swap_pieces(db, _get(db, match_id), body.a, body.b)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/{match_id}/players/merge")

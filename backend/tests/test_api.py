@@ -619,3 +619,35 @@ def test_same_name_allowed_when_never_on_screen_together(client):
     assert client.patch(f"{url}/players/{b}", json={"display_name": "준수"}).status_code == 200
     r = client.patch(f"{url}/players/{c}", json={"display_name": "준수"})
     assert r.status_code == 409 and "0:50~0:59" in r.json()["detail"]
+
+
+def test_swap_two_pieces_in_same_scene(client):
+    """같은 장면의 두 사람 이름이 서로 바뀌었으면 맞바꾼다. 대표 조각을 옮기면 남은 조각이 이름을 이어받고,
+    다시 맞바꾸면 되돌아간다."""
+    m = client.post("/api/matches", json={"title": "맞바꾸기"}).json()
+    url = f"/api/matches/{m['id']}"
+    client.post(f"{url}/analyze", json={"mode": "sample", "max_seconds": 300})
+    home = [p["track_id"] for p in client.get(f"{url}/result").json()["players"] if p["team"] == "home" and not p["minor"]]
+    a, a2, b, b2 = home[:4]
+    for t, (t0, t1) in zip((a, a2, b, b2), ((0, 50), (60, 100), (0, 50), (60, 100))):
+        _set_span(m["id"], t, t0, t1)
+    assert client.patch(f"{url}/players/{a}", json={"display_name": "동재"}).status_code == 200
+    assert client.patch(f"{url}/players/{a2}", json={"display_name": "동재"}).status_code == 200
+    assert client.patch(f"{url}/players/{b}", json={"display_name": "동주"}).status_code == 200
+    assert client.patch(f"{url}/players/{b2}", json={"display_name": "동주"}).status_code == 200
+
+    def groups():
+        out = {}
+        for p in client.get(f"{url}/result").json()["players"]:
+            if p["display_name"]:
+                out[p["display_name"]] = sorted([p["track_id"], *p["merged_from"]])
+        return out
+    before = groups()
+    # a2(동재)와 b2(동주)가 바뀌었다
+    assert client.post(f"{url}/players/swap", json={"a": a2, "b": b2}).status_code == 200
+    g = groups()
+    assert g["동재"] == sorted([a, b2]) and g["동주"] == sorted([b, a2])
+    # 대표 조각끼리도 바꿀 수 있고, 같은 두 조각을 다시 바꾸면 되돌아간다
+    assert client.post(f"{url}/players/swap", json={"a": a2, "b": b2}).status_code == 200
+    assert groups() == before
+    assert client.post(f"{url}/players/swap", json={"a": a, "b": a2}).status_code == 400   # 같은 선수끼리

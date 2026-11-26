@@ -161,6 +161,11 @@ class PlayerUpdate(BaseModel):
     excluded: Optional[bool] = None
 
 
+class SwapRequest(BaseModel):
+    a: str
+    b: str
+
+
 class MergeRequest(BaseModel):
     target: str
     sources: List[str] = Field(min_length=1)

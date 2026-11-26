@@ -255,3 +255,72 @@ def drop_conflicting_guesses(groups: Dict[str, List[MatchPlayer]], tol_s: float 
             if r.auto_merged and any(_overlap_s(_span(r), _span(o)) > tol_s for o in others):
                 out.append(r)
     return out
+
+
+# ── 같은 장면의 두 사람 이름 맞바꾸기 ─────────────────────────────────────────
+
+def _detach_piece(db: Session, match_id: int, r: MatchPlayer, rows: List[MatchPlayer]) -> Optional[MatchPlayer]:
+    """조각 r을 그 선수 묶음에서 떼어 낸다. 남은 묶음의 대표(없으면 None)를 돌려준다.
+    r이 대표였으면 가장 오래 보인 조각(사람이 확인한 조각 우선)이 이름·번호를 이어받아 새 대표가 된다."""
+    if r.merged_into:
+        head = next((x for x in rows if x.track_id == r.merged_into), None)
+        r.merged_into, r.auto_merged = None, False
+        return head
+    kids = [x for x in rows if x.merged_into == r.track_id]
+    if not kids:
+        return None
+    secs = lambda x: float((_loads(x.stats_json, {}) or {}).get("seconds_tracked") or 0)  # noqa: E731
+    lead = max(kids, key=lambda x: (not x.auto_merged, secs(x)))
+    lead.merged_into, lead.auto_merged = None, False
+    lead.display_name, lead.jersey_number = r.display_name, r.jersey_number
+    if (r.label or "").endswith("_gk") and not (lead.label or "").endswith("_gk"):
+        lead.label = r.label
+    for x in kids:
+        if x is not lead:
+            x.merged_into = lead.track_id
+    return lead
+
+
+def _join(piece: MatchPlayer, head: Optional[MatchPlayer], name: Optional[str], jersey: Optional[int]) -> None:
+    if head is not None:
+        piece.merged_into, piece.auto_merged = head.track_id, False
+    else:
+        piece.merged_into, piece.auto_merged = None, False
+    piece.display_name, piece.jersey_number = name, jersey
+
+
+def swap_pieces(db: Session, match: Match, a_id: str, b_id: str) -> None:
+    """같은 장면에 함께 보인 두 조각 a, b가 서로 바뀌어 이름이 붙었을 때 맞바꾼다:
+    a는 b가 속했던 선수로, b는 a가 속했던 선수로 들어간다(사람이 확인한 연결). 그 뒤 옮겨 간 조각과
+    같은 장면에 함께 보인 추정(물음표) 조각은 그 선수일 수 없으니 떼어 낸다."""
+    rows = db.query(MatchPlayer).filter(MatchPlayer.match_id == match.id).all()
+    by_id = {r.track_id: r for r in rows}
+    a, b = by_id.get(a_id), by_id.get(b_id)
+    if a is None or b is None or a is b:
+        raise ValueError("바꿀 두 선수를 찾을 수 없습니다")
+    if a.team != b.team or a.excluded or b.excluded:
+        raise ValueError("같은 팀의 두 선수만 이름을 바꿀 수 있습니다")
+    heads = _heads(rows)
+    ha, hb = by_id[heads[a_id]], by_id[heads[b_id]]
+    if ha is hb:
+        raise ValueError("두 조각이 이미 같은 선수로 묶여 있습니다")
+    name_a, num_a, name_b, num_b = ha.display_name, ha.jersey_number, hb.display_name, hb.jersey_number
+    rest_a = _detach_piece(db, match.id, a, rows)     # a가 빠진 뒤 A 선수의 대표
+    rest_b = _detach_piece(db, match.id, b, rows)
+    db.flush()
+    _join(a, rest_b, name_b, num_b)
+    _join(b, rest_a, name_a, num_a)
+    db.flush()
+    overlay = _overlay(match)
+    tracks = (overlay or {}).get("tracks") or {}
+    if not tracks:
+        return
+    rows = db.query(MatchPlayer).filter(MatchPlayer.match_id == match.id).all()
+    for piece in (a, b):
+        if not piece.merged_into:
+            continue
+        mine = {x[0] for x in tracks.get(piece.track_id, [])}
+        for g in rows:
+            if g.merged_into == piece.merged_into and g.auto_merged and g is not piece:
+                if len(mine & {x[0] for x in tracks.get(g.track_id, [])}) > GK_OVERLAP_FRAMES:
+                    g.merged_into, g.auto_merged = None, False

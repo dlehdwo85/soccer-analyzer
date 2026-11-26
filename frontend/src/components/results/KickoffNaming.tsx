@@ -281,6 +281,7 @@ export default function KickoffNaming({ matchId, result, src, rosters, team, lin
         다른 팀 선수가 {usName}(으)로 잘못 잡혀 있으면 오른쪽 칸에서 &lsquo;{teamInfo(result.match, us === 'home' ? 'away' : 'home').name} 선수&rsquo;를 눌러 옮기세요.
         상자를 누르고 오른쪽 칸에서 <b>명단의 이름을 누르면</b> 바로 저장됩니다. 이름은 <b>이 장면의 그 사람</b>에게 붙습니다.
         이름 뒤에 물음표가 붙은 상자는 카메라가 끊긴 뒤 자동으로 이어 붙여 본 추정이라, 맞으면 &lsquo;맞음&rsquo;, 틀리면 다른 이름을 누르세요.
+        두 사람 이름이 서로 바뀌었으면 한쪽 칸에서 &lsquo;⇄ 이름&rsquo;(이 장면에 이미 있는 이름)을 누르면 맞바뀝니다.
         &lsquo;이름 없는 조각&rsquo; 버튼은 오래 보인 조각부터 하나씩 보여 줍니다.
       </p>
 
@@ -352,7 +353,7 @@ export default function KickoffNaming({ matchId, result, src, rosters, team, lin
             <NameRow key={`${x.tid}:${x.p.track_id}:${x.p.display_name ?? ''}:${x.p.jersey_number ?? ''}:${x.guessed}:${x.dup}`}
               matchId={matchId} result={result} s={x} span={spans.get(x.tid)}
               video={video} frameTick={frameTick} W={W} H={H} roster={rosters[x.p.team]}
-              lineup={lineup} takenHere={new Set(seen.filter(o => o.tid !== x.tid && isNamed(o)).map(o => o.p.display_name!))}
+              lineup={lineup} takenHere={new Map(seen.filter(o => o.tid !== x.tid && isNamed(o)).map(o => [o.p.display_name!, o.tid]))}
               active={active === x.tid} onFocus={() => setActive(x.tid)}
               cardRef={el => { if (el) cards.current.set(x.tid, el); else cards.current.delete(x.tid) }}
               onSeekTime={seekTime} onAddName={onAddName} onChanged={onChanged} />
@@ -368,7 +369,7 @@ function NameRow({ matchId, result, s, span, video, frameTick, W, H, roster, lin
   onSeekTime, onAddName, onChanged }: {
   matchId: number; result: MatchResult; s: Seen; span?: [number, number]
   video: RefObject<HTMLVideoElement>; frameTick: number; W: number; H: number
-  roster?: RosterEntry[]; lineup: string[]; takenHere: Set<string>; active: boolean; onFocus: () => void
+  roster?: RosterEntry[]; lineup: string[]; takenHere: Map<string, string>; active: boolean; onFocus: () => void
   cardRef: (el: HTMLElement | null) => void; onSeekTime: (t: number) => void
   onAddName: (name: string) => Promise<void>; onChanged: () => Promise<void>
 }) {
@@ -423,6 +424,25 @@ function NameRow({ matchId, result, s, span, video, frameTick, W, H, roster, lin
     return call({ display_name: n, jersey_number: jersey ?? null },
       merged => (merged ? `같은 이름의 선수와 합쳤습니다 (${n})` : `${n}(으)로 저장했습니다`))
   }
+  /** 이 장면에 이미 그 이름이 붙은 다른 상자와 이름을 맞바꾼다 — 두 사람 이름이 서로 바뀌었을 때 */
+  const swap = async (n: string, otherTid: string) => {
+    setBusy(true)
+    try {
+      await api.swapPlayers(matchId, tid, otherTid)
+      await onChanged()
+      toast.success(`${n}와(과) 이름을 맞바꿨습니다`, {
+        duration: 12000,
+        action: {
+          label: '되돌리기',
+          onClick: () => { api.swapPlayers(matchId, tid, otherTid).then(onChanged).then(() => toast.success('되돌렸습니다'))
+            .catch(e => toast.error((e as Error).message)) },
+        },
+      })
+    } catch (e) {
+      toast.error((e as Error).message)
+      setBusy(false)
+    }
+  }
   const saveTyped = async () => {
     const n = name.trim()
     if (!n) return
@@ -455,15 +475,17 @@ function NameRow({ matchId, result, s, span, video, frameTick, W, H, roster, lin
         <div className="flex flex-wrap gap-1" role="group" aria-label="명단에서 이름 고르기">
           {names.map(n => {
             const on = n === current && !s.guessed
-            const taken = takenHere.has(n) && !on
+            const other = on ? undefined : takenHere.get(n)
             return (
-              <button key={n} type="button" disabled={busy || taken || on} onClick={() => pick(n)}
-                title={taken ? `이 장면에 이미 ${n}이(가) 있습니다` : on ? '지금 이름' : `${n}(으)로 저장`}
+              <button key={n} type="button" disabled={busy || on}
+                onClick={() => (other ? swap(n, other) : pick(n))}
+                title={other ? `이 장면에 ${n} 상자가 따로 있습니다. 누르면 그 상자와 이름을 맞바꿉니다 (서로 바뀌었을 때)`
+                  : on ? '지금 이름' : `${n}(으)로 저장`}
                 className={cn('rounded-full border px-2 py-0.5 text-xs',
                   on ? 'border-volt bg-volt/15 text-volt'
-                    : taken ? 'border-ink-800 text-ink-600 line-through'
+                    : other ? 'border-dashed border-ink-600 text-ink-400 hover:border-amber-300 hover:text-amber-300'
                       : 'border-ink-700 text-ink-200 hover:border-volt hover:text-volt')}>
-                {n}
+                {other && '⇄ '}{n}
               </button>
             )
           })}

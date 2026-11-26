@@ -144,6 +144,9 @@ export const api = {
     req<{ ok: boolean }>(`/api/balllabel/${encodeURIComponent(setId)}/${encodeURIComponent(image)}`, json('DELETE')),
   mergePlayers: (id: number, target: string, sources: string[]) =>
     req<{ ok: boolean }>(`/api/matches/${id}/players/merge`, json('POST', { target, sources })),
+  /** 같은 장면의 두 사람 이름이 서로 바뀌었을 때 맞바꾼다 (같은 두 조각으로 다시 부르면 되돌아간다) */
+  swapPlayers: (id: number, a: string, b: string) =>
+    req<{ ok: boolean }>(`/api/matches/${id}/players/swap`, json('POST', { a, b })),
   unmergePlayer: (id: number, trackId: string) =>
     req<{ ok: boolean }>(`/api/matches/${id}/players/${encodeURIComponent(trackId)}/unmerge`, json('POST')),
 
