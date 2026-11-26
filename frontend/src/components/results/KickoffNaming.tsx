@@ -3,8 +3,8 @@ import { RefObject, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Pause, Play, SkipForward } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
-import { MatchResult, Overlay, PlayerRow, RosterEntry } from '@/lib/types'
-import { cn, fmtClock, isGk, mainRoster, ourTeam, playerName, teamInfo } from '@/lib/utils'
+import { MatchResult, Overlay, PlayerRow, RosterEntry, Team } from '@/lib/types'
+import { cn, fmtClock, isGk, mainRoster, playerName, teamInfo } from '@/lib/utils'
 
 type Box = [number, number, number, number]
 /** 한 장면의 한 사람 = 트랙 조각 하나. p는 그 조각이 지금 속한 선수, guessed는 자동 정리가 짐작으로 붙인 조각,
@@ -27,6 +27,8 @@ interface Props {
   result: MatchResult
   src: string
   rosters: Partial<Record<'home' | 'away', RosterEntry[]>>
+  /** 이름을 넣을 팀 — 기본 우리 팀, 사용자가 고르면 상대 팀 */
+  team: Team
   onChanged: () => Promise<void>
 }
 
@@ -35,7 +37,7 @@ interface Props {
  * 그 화면에 잡힌 선수마다 상자를 그린다. 상자나 아래 확대 사진 옆 칸에 번호·이름을 넣는다.
  * 같은 이름을 넣은 트랙은 서버가 한 선수로 합친다.
  */
-export default function KickoffNaming({ matchId, result, src, rosters, onChanged }: Props) {
+export default function KickoffNaming({ matchId, result, src, rosters, team, onChanged }: Props) {
   const [overlay, setOverlay] = useState<Overlay | null | undefined>(undefined)
   useEffect(() => { loadOverlay(matchId).then(setOverlay) }, [matchId])
 
@@ -50,8 +52,8 @@ export default function KickoffNaming({ matchId, result, src, rosters, onChanged
     return m
   }, [result.players])
   const main = useMemo(() => mainRoster(result.players), [result.players])
-  // 상대 선수 이름은 모르므로 우리 팀 선수에만 상자를 그린다
-  const us = ourTeam(result.match)
+  // 고른 팀(기본 우리 팀) 선수에만 상자를 그린다
+  const us = team
   const usName = teamInfo(result.match, us).name
 
   // 프레임 번호 → 그 프레임에 잡힌 [트랙, 박스]
@@ -103,7 +105,23 @@ export default function KickoffNaming({ matchId, result, src, rosters, onChanged
   /** 사람이 확인한 이름이 붙은 상자 */
   const isNamed = (x: Seen) => !!x.p.display_name && !x.guessed && !x.dup
 
-  /** from~to 사이에서 (점수가 가장 높은) 장면 — 주전 선수가 많이, 이름 없는 선수가 많이 보일수록 높다 */
+  /** 이 팀 선수가 화면에 보인 시간 중 이름 확인 / 추정(물음표) / 이름 없음 비율 — 얼마나 남았는지 */
+  const progress = useMemo(() => {
+    let named = 0, guessed = 0, none = 0
+    for (const k of Array.from(byK.keys())) {
+      for (const x of seenAt(k)) {
+        if (isNamed(x)) named++
+        else if (x.guessed && x.p.display_name) guessed++
+        else none++
+      }
+    }
+    const t = named + guessed + none
+    return t ? { named: Math.round((100 * named) / t), guessed: Math.round((100 * guessed) / t), none: Math.round((100 * none) / t) } : null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [byK, head])
+
+  /** from~to 사이에서 (점수가 가장 높은) 장면 — 주전 선수가 많이, 이름 없는 선수가 많이 보일수록 높다.
+   *  이름 없는 장면을 찾을 때는 3초도 안 보인 아주 짧은 조각은 세지 않는다 */
   const bestFrame = (from: number, to: number, unnamedOnly: boolean): number | null => {
     let best: number | null = null, bestScore = 0
     for (let k = Math.max(0, from); k <= to; k++) {
@@ -111,7 +129,7 @@ export default function KickoffNaming({ matchId, result, src, rosters, onChanged
       if (!s.length) continue
       let score = 0
       for (const x of s) {
-        if (unnamedOnly && isNamed(x)) continue
+        if (unnamedOnly && (isNamed(x) || (x.guessed && x.p.display_name) || x.p.stats.seconds_tracked < 3)) continue
         score += main.has(x.p.track_id) ? 1 : 0.2
       }
       if (score > bestScore + 0.01) { best = k; bestScore = score }
@@ -193,7 +211,16 @@ export default function KickoffNaming({ matchId, result, src, rosters, onChanged
       const hit = bestFrame(from, Math.min(last, from + win), true)
       if (hit != null) return seekK(hit)
     }
-    toast.message('뒤쪽에는 이름 없는 선수가 보이는 장면이 없습니다')
+    // 끝까지 없으면 처음부터 다시 찾는다
+    const first = Math.min(...byK.keys())
+    for (let from = first; from < k; from += win) {
+      const hit = bestFrame(from, Math.min(k - 1, from + win), true)
+      if (hit != null) {
+        toast.message('끝까지 찾아 처음부터 다시 찾았습니다')
+        return seekK(hit)
+      }
+    }
+    toast.message(`이름 없는 ${usName} 선수가 보이는 장면이 더 없습니다`)
   }
 
   if (overlay === null || videoError) {
@@ -214,8 +241,17 @@ export default function KickoffNaming({ matchId, result, src, rosters, onChanged
           · 주전 중 이름 없는 선수 <span className="num text-ink-200">{unnamedMain}</span>명
         </p>
       </div>
+      {progress && (
+        <p className="text-xs text-ink-400">
+          {usName} 선수가 화면에 보인 시간 중 이름 확인 <span className="num text-volt">{progress.named}%</span>
+          {' '}· 추정(물음표) <span className="num text-amber-300">{progress.guessed}%</span>
+          {' '}· 이름 없음 <span className="num text-ink-200">{progress.none}%</span>
+          <span className="text-ink-500"> — 이름 없는 조각에 이름을 넣으면, 자동 정리가 같은 사람으로 묶어 둔 다른 장면에도 물음표로 따라 붙습니다.</span>
+        </p>
+      )}
       <p className="text-xs text-ink-500">
-        경기 시작 무렵 선수가 가장 많이 보이는 장면입니다. 우리 팀({usName}) 선수에만 상자가 그려지고, 상대 팀은 이름을 넣지 않습니다.
+        경기 시작 무렵 선수가 가장 많이 보이는 장면입니다. {usName} 선수에만 상자가 그려집니다.
+        다른 팀 선수가 {usName}(으)로 잘못 잡혀 있으면 오른쪽 칸에서 &lsquo;{teamInfo(result.match, us === 'home' ? 'away' : 'home').name} 선수&rsquo;를 눌러 옮기세요.
         상자를 누르거나 아래 확대 사진 옆에 번호·이름을 넣으세요. 이름은 <b>이 장면의 그 사람</b>에게 붙습니다.
         이름 뒤에 물음표가 붙은 상자는 카메라가 끊긴 뒤 자동으로 이어 붙여 본 추정이라, 맞으면 저장, 틀리면 이름을 고치세요.
         같은 이름을 넣은 선수는 자동으로 한 사람으로 합쳐집니다. 안 보이는 선수는 &lsquo;이름 없는 선수 장면&rsquo;으로 넘어가 찾으세요.
@@ -328,6 +364,8 @@ function NameRow({ matchId, result, s, span, video, frameTick, W, H, roster, act
   // 추정 이름은 그대로 저장해도 '확인'이 된다
   const dirty = (s.guessed && !!name.trim()) || name !== (p.display_name ?? '') || num !== (p.jersey_number?.toString() ?? '')
   const team = teamInfo(result.match, p.team)
+  const otherTeam: Team = p.team === 'home' ? 'away' : 'home'
+  const other = teamInfo(result.match, otherTeam)
   const off = result.meta.start_s ?? 0
 
   const onName = (v: string) => {
@@ -375,6 +413,12 @@ function NameRow({ matchId, result, s, span, video, frameTick, W, H, roster, act
         </div>
         <div className="flex gap-1.5">
           <button type="button" className="btn-primary !py-1 !px-2 text-xs" disabled={busy || !dirty} onClick={save}>저장</button>
+          <button type="button" className="btn-ghost !py-1 !px-2 text-xs" disabled={busy}
+            title={`${other.name} 선수가 ${team.name}(으)로 잘못 잡혔으면 ${other.name} 쪽으로 옮깁니다`}
+            onClick={() => call({ team: otherTeam }, () => `${other.name} 선수로 옮겼습니다`)}>
+            <span className="inline-block w-2 h-2 rounded-full mr-1 ring-1 ring-white/20" style={{ background: other.color }} />
+            {other.name} 선수
+          </button>
           <button type="button" className="btn-ghost !py-1 !px-2 text-xs" disabled={busy}
             title="심판·관중·벤치처럼 선수가 아니면 기록에서 뺍니다"
             onClick={() => call({ excluded: true }, () => '선수가 아니어서 뺐습니다')}>선수 아님</button>

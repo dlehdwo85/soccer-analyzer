@@ -123,11 +123,69 @@ def auto_roster(db: Session, match: Match) -> Dict:
             r = by_id[head]
             r.merged_into, r.auto_merged = lead, True
             merged += 1
+    db.flush()
+    # 이름 붙은 골키퍼에게 남은 골키퍼 조각을 붙인다 (칸 배정은 이름 붙은 선수를 건드리지 않아 따로 한다)
+    for r in rows:
+        if r.display_name and not r.merged_into and not r.excluded:
+            merged += attach_gk_guesses(db, match, r, overlay)
+            db.flush()
     db.commit()
     teams: Dict[str, int] = {}
     for lead in set(slots.values()):
         teams[by_id[lead].team] = teams.get(by_id[lead].team, 0) + 1
     return {"merged": merged, "players": teams, "over_capacity": len(extra)}
+
+
+GK_SAME_GOAL_X = 0.15      # 같은 골문 쪽: 경기장 길이 방향 평균 위치(0~1) 차이
+GK_OVERLAP_FRAMES = 15     # 이만큼(약 1초) 넘게 같은 장면에 함께 보이면 다른 사람
+
+
+def attach_gk_guesses(db: Session, match: Match, head: MatchPlayer, overlay: Optional[Dict] = None) -> int:
+    """골키퍼는 팀에 한 명이다. 이름이 붙은 골키퍼가 있으면, 같은 팀·같은 골문 쪽에서 잡힌 이름 없는 골키퍼 조각 중
+    그 선수와 같은 장면에 함께 보인 적이 없는 것을 그 선수의 추정 조각(물음표)으로 붙인다.
+    카메라가 돌 때마다 골키퍼가 새 조각으로 끊겨 이름 없는 '?' 상자가 계속 남던 문제(3경기 2쿼터: 8조각 약 3분).
+    반환: 붙인 조각 수."""
+    if not head.display_name or head.excluded or head.merged_into:
+        return 0
+    rows = db.query(MatchPlayer).filter(MatchPlayer.match_id == match.id).all()
+    heads = _heads(rows)
+    groups: Dict[str, List[MatchPlayer]] = {}
+    for r in rows:
+        groups.setdefault(heads[r.track_id], []).append(r)
+    mine = groups.get(head.track_id, [head])
+    if not any((r.label or "").endswith("_gk") for r in _confirmed(sorted(mine, key=lambda r: r is not head))):
+        return 0
+    overlay = overlay if overlay is not None else _overlay(match)
+    if overlay is None:
+        return 0
+    tracks = overlay.get("tracks") or {}
+
+    def frames(rs: List[MatchPlayer]) -> set:
+        return {b[0] for r in rs for b in tracks.get(r.track_id, [])}
+
+    def avg_x(r: MatchPlayer) -> Optional[float]:
+        v = (_loads(r.stats_json, {}) or {}).get("avg_x")
+        return float(v) if v is not None else None
+
+    gx = avg_x(head)
+    taken = frames(mine)
+    cands = [r for r in rows if r.track_id != head.track_id and not r.merged_into and not r.excluded
+             and not r.display_name and r.team == head.team and (r.label or "").endswith("_gk")]
+    cands.sort(key=lambda r: -float((_loads(r.stats_json, {}) or {}).get("seconds_tracked") or 0))
+    n = 0
+    for c in cands:
+        cx = avg_x(c)
+        if gx is not None and cx is not None and abs(cx - gx) > GK_SAME_GOAL_X:
+            continue   # 반대편 골문 쪽 — 상대 골키퍼가 우리 팀으로 잘못 잡혔을 수 있다
+        mem = groups.get(c.track_id, [c])
+        fr = frames(mem)
+        if not fr or len(fr & taken) > GK_OVERLAP_FRAMES:
+            continue
+        for r in mem:
+            r.merged_into, r.auto_merged = head.track_id, True
+        taken |= fr
+        n += len(mem)
+    return n
 
 
 def undo_auto_roster(db: Session, match: Match) -> int:

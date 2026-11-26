@@ -501,3 +501,83 @@ def test_ball_label_set_flow(client):
     assert d["labels"]["m3_000001"] == {"visible": True, "x": 960.5, "y": 500}
     client.put("/api/balllabel/testset123/m3_000001", json={"visible": False})
     assert client.get("/api/balllabel/testset123").json()["labels"]["m3_000001"]["visible"] is False
+
+
+def _rows(match_id):
+    from app.database import SessionLocal
+    from app.models import MatchPlayer
+    db = SessionLocal()
+    return db, {r.track_id: r for r in db.query(MatchPlayer).filter(MatchPlayer.match_id == match_id).all()}
+
+
+def test_naming_piece_of_unnamed_group_names_whole_group_as_guess(client):
+    """이름 없는 묶음의 한 조각에 이름을 넣으면 나머지 조각도 그 이름의 추정(물음표)으로 따라온다."""
+    m = client.post("/api/matches", json={"title": "묶음 이름"}).json()
+    url = f"/api/matches/{m['id']}"
+    client.post(f"{url}/analyze", json={"mode": "sample", "max_seconds": 300})
+    home = [p["track_id"] for p in client.get(f"{url}/result").json()["players"] if p["team"] == "home" and not p["minor"]]
+    h, k1, k2 = home[:3]
+    db, rows = _rows(m["id"])
+    for k in (k1, k2):
+        rows[k].merged_into, rows[k].auto_merged = h, True
+    db.commit(); db.close()
+
+    res = client.patch(f"{url}/players/{k1}", json={"display_name": "지훈"})
+    assert res.status_code == 200, res.text
+    ji = next(p for p in client.get(f"{url}/result").json()["players"] if p["display_name"] == "지훈")
+    assert ji["track_id"] == k1 and sorted(ji["merged_from"]) == sorted([h, k2])
+    assert sorted(ji["guessed_from"]) == sorted([h, k2])          # 넣은 조각만 확인, 나머지는 추정
+
+
+def test_move_piece_to_other_team(client):
+    """우리 팀으로 잘못 잡힌 상대 선수 조각을 상대 팀으로 옮긴다. 붙어 있던 다른 조각은 원래 팀에 남는다."""
+    m = client.post("/api/matches", json={"title": "팀 옮기기"}).json()
+    url = f"/api/matches/{m['id']}"
+    client.post(f"{url}/analyze", json={"mode": "sample", "max_seconds": 300})
+    home = [p["track_id"] for p in client.get(f"{url}/result").json()["players"] if p["team"] == "home" and not p["minor"]]
+    h, k1, k2 = home[:3]
+    db, rows = _rows(m["id"])
+    for k in (k1, k2):
+        rows[k].merged_into, rows[k].auto_merged = h, True
+    db.commit(); db.close()
+
+    # 묶음 안의 조각 하나만 옮긴다
+    assert client.patch(f"{url}/players/{k1}", json={"team": "away"}).status_code == 200
+    after = {p["track_id"]: p for p in client.get(f"{url}/result").json()["players"]}
+    assert after[k1]["team"] == "away" and after[h]["merged_from"] == [k2]
+    # 대표 조각을 옮기면 붙어 있던 조각(k2)은 홈 팀에 따로 남는다
+    assert client.patch(f"{url}/players/{h}", json={"team": "away"}).status_code == 200
+    after = {p["track_id"]: p for p in client.get(f"{url}/result").json()["players"]}
+    assert after[h]["team"] == "away" and after[h]["merged_from"] == []
+    assert after[k2]["team"] == "home"
+
+
+def test_named_goalkeeper_collects_other_gk_pieces(client):
+    """이름 붙은 골키퍼에게, 같은 골문 쪽에서 따로 잡힌 이름 없는 골키퍼 조각이 추정으로 붙는다.
+    같은 장면에 함께 보인 조각, 반대편 골문 쪽 조각은 붙지 않는다."""
+    import json
+    from app.models import Match
+    from app.services.result_service import pack_overlay
+    m = client.post("/api/matches", json={"title": "골키퍼 조각"}).json()
+    url = f"/api/matches/{m['id']}"
+    client.post(f"{url}/analyze", json={"mode": "sample", "max_seconds": 300})
+    home = [p["track_id"] for p in client.get(f"{url}/result").json()["players"] if p["team"] == "home" and not p["minor"]]
+    gk, g2, g3, both, far = home[:5]
+    db, rows = _rows(m["id"])
+    for t in (gk, g2, g3, both, far):
+        rows[t].label, rows[t].merged_into, rows[t].display_name = "home_gk", None, None
+        st = json.loads(rows[t].stats_json or "{}")
+        st["avg_x"] = 0.95 if t == far else 0.05
+        rows[t].stats_json = json.dumps(st)
+    tracks = {gk: [[k, 10, 500, 30, 560] for k in range(0, 100)],
+              g2: [[k, 10, 500, 30, 560] for k in range(110, 200)],
+              g3: [[k, 10, 500, 30, 560] for k in range(210, 300)],
+              both: [[k, 40, 500, 60, 560] for k in range(50, 90)],      # gk와 같은 장면에 함께 보였다
+              far: [[k, 1800, 500, 1820, 560] for k in range(300, 350)]}
+    db.get(Match, m["id"]).overlay_gz = pack_overlay({"v": 1, "w": 1920, "h": 1080, "start_s": 0, "step": 0.2,
+                                                      "n": 400, "tracks": tracks, "ball": []})
+    db.commit(); db.close()
+
+    assert client.patch(f"{url}/players/{gk}", json={"display_name": "경민"}).status_code == 200
+    kim = next(p for p in client.get(f"{url}/result").json()["players"] if p["display_name"] == "경민")
+    assert sorted(kim["merged_from"]) == sorted([g2, g3]) and sorted(kim["guessed_from"]) == sorted([g2, g3])

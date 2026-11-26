@@ -29,6 +29,8 @@ interface Props {
   /** 경기 영상 주소 — 없으면 작은 사진만 크게 보여 준다 */
   src?: string | null
   roster?: RosterEntry[]
+  /** 이름·번호를 넣을 수 있는지 — 선수 정리에서 고른 팀이면 true. 없으면 우리 팀만 */
+  nameable?: boolean
   onClose: () => void
   /** 이름·번호를 저장한 뒤 (결과 다시 불러오기) */
   onSaved: () => Promise<void>
@@ -38,7 +40,7 @@ interface Props {
  * '이 선수가 누구인지' 확인하는 창: 경기 영상에서 그 선수만 크게 따라가며 보여 주고, 바로 아래에서 번호·이름을 넣는다.
  * 선수가 화면에 가장 크게 잡힌 장면 몇 개를 골라 짧게 되풀이한다.
  */
-export default function PlayerIdentify({ matchId, result, player, src, roster, onClose, onSaved }: Props) {
+export default function PlayerIdentify({ matchId, result, player, src, roster, nameable, onClose, onSaved }: Props) {
   const [overlay, setOverlay] = useState<Overlay | null | undefined>(undefined)
   useEffect(() => { loadOverlay(matchId).then(setOverlay) }, [matchId])
 
@@ -261,7 +263,7 @@ export default function PlayerIdentify({ matchId, result, player, src, roster, o
             </div>
           )}
 
-          {player.team !== ourTeam(result.match) ? (
+          {!(nameable ?? player.team === ourTeam(result.match)) ? (
             <div className="border-t border-ink-800 pt-3 flex items-center gap-2">
               <p className="flex-1 text-xs text-ink-500">상대 팀 선수는 이름을 넣지 않습니다.</p>
               <button type="button" className="btn-secondary" onClick={onClose}>닫기</button>

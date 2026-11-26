@@ -26,6 +26,10 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
   const [busy, setBusy] = useState(false)
   const [showMinor, setShowMinor] = useState(false)
   const { match } = result
+  // 정리할 팀: 기본은 우리 팀. 상대 팀 정리는 사용자가 고를 때만
+  const us = ourTeam(match)
+  const them: Team = us === 'home' ? 'away' : 'home'
+  const [side, setSide] = useState<Team>(us)
   // 경기에 연결된 팀의 명단 — 이름 칸에서 고르면 등번호가 채워지고, 같은 이름끼리는 서버가 자동으로 합친다
   const [rosters, setRosters] = useState<Partial<Record<Team, RosterEntry[]>>>({})
   useEffect(() => {
@@ -86,7 +90,7 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
   const suggestions = sameplayerSuggestions(result)
 
   // 팀마다 가장 오래 뛴 11명을 '명단'으로 먼저 보여 주고, 나머지 짧은 조각은 접어 둔다
-  const sections = (['home', 'away'] as Team[]).map(team => {
+  const sections = [side].map(team => {
     const all = result.players.filter(p => p.team === team && !p.excluded)
     const byTime = [...all].filter(p => !p.minor).sort((a, b) => b.stats.seconds_tracked - a.stats.seconds_tracked)
     const mainIds = new Set(byTime.slice(0, 11).map(p => p.track_id))
@@ -96,7 +100,7 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
       .sort((a, b) => b.stats.seconds_tracked - a.stats.seconds_tracked)
     return { team, title: teamInfo(match, team).name, main, rest, restAll: all.length - main.length, hasGk: main.some(isGk) }
   })
-  const excluded = result.players.filter(p => p.excluded)
+  const excluded = result.players.filter(p => p.excluded && p.team === side)
 
   return (
     <div className="space-y-4">
@@ -105,7 +109,7 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
         <p>영상 추적은 한 선수를 여러 트랙으로 나누거나 벤치·관중을 잡을 수 있습니다. 이름과 등번호를 붙이고,
           같은 선수의 트랙을 선택해 <b>합치기</b>, 선수가 아닌 트랙은 <b>제외</b>하세요.
           카드 아래 <b>같은 선수 후보</b>는 카메라가 돌아간 사이 화면 밖에 있다 돌아와 따로 잡혔을 수 있는 선수입니다. 모든 수치에 바로 반영되고 언제든 되돌릴 수 있습니다.</p>
-        <p>이름과 등번호는 우리 팀(<b>{teamInfo(match, ourTeam(match)).name}</b>) 선수만 넣습니다. 상대 선수는 합치기·제외만 하면 됩니다.
+        <p>기본으로 우리 팀(<b>{teamInfo(match, us).name}</b>) 선수만 정리합니다. 상대 팀은 아래에서 &lsquo;상대 팀&rsquo;을 고를 때만 보입니다.
           이름은 바로 아래 <b>경기 화면</b>에서 넣는 것이 가장 쉽습니다. 아래 카드의 사진이나 <b>확대·영상</b>을 누르면 그 선수만 따라가는 영상도 볼 수 있습니다.
           합치기는 사진을 나란히 보여 주는 <b>확인 창</b>에서 한 번 더 눌러야 실행됩니다.</p>
         <p className="text-xs text-ink-500">이름을 붙인 선수는 &lsquo;선수 프로필&rsquo;에서 여러 경기 기록이 합산됩니다.</p>
@@ -126,7 +130,21 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
         </div>
       </div>
 
-      {videoSrc && <KickoffNaming matchId={matchId} result={result} src={videoSrc} rosters={rosters} onChanged={onChanged} />}
+      <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="정리할 팀">
+        <span className="text-xs text-ink-400">정리할 팀</span>
+        {[us, them].map(t => (
+          <button key={t} type="button" role="radio" aria-checked={side === t}
+            onClick={() => { setSide(t); setSelected([]) }}
+            className={cn('flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs',
+              side === t ? 'border-volt bg-volt/10 text-volt' : 'border-ink-700 text-ink-300 hover:border-ink-500')}>
+            <span className="w-2.5 h-2.5 rounded-full ring-1 ring-white/20" style={{ background: teamInfo(match, t).color }} />
+            {teamInfo(match, t).name} {t === us ? '(우리 팀)' : '(상대 팀 · 필요할 때만)'}
+          </button>
+        ))}
+      </div>
+
+      {videoSrc && <KickoffNaming key={side} matchId={matchId} result={result} src={videoSrc} rosters={rosters} team={side}
+        onChanged={onChanged} />}
 
       <div className="sticky top-[var(--top-h)] z-20 card p-3 flex flex-wrap items-center gap-2 shadow-lg shadow-black/30">
         <span className="text-sm text-ink-300">{selected.length ? `${selected.length}개 선택` : '합칠 트랙을 선택하세요'}</span>
@@ -147,7 +165,7 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
         </div>
       </div>
 
-      {(['home', 'away'] as Team[]).filter(t => rosters[t]?.length).map(t => {
+      {[side].filter(t => rosters[t]?.length).map(t => {
         const named = new Set(result.players.filter(p => p.team === t && !p.excluded && p.display_name).map(p => p.display_name!.trim()))
         const list = rosters[t]!
         return (
@@ -227,6 +245,7 @@ export default function TrackEditor({ matchId, result, onChanged, videoSrc }:
       )}
       {identifyRow && (
         <PlayerIdentify matchId={matchId} result={result} player={identifyRow} src={videoSrc} roster={rosters[identifyRow.team]}
+          nameable={identifyRow.team === side}
           onClose={() => setIdentify(null)} onSaved={onChanged} />
       )}
     </div>
@@ -318,7 +337,6 @@ function TrackCard({ matchId, result, p, candidates, roster, selected, onToggle,
   const [num, setNum] = useState(p.jersey_number?.toString() ?? '')
   const dirty = name !== (p.display_name ?? '') || num !== (p.jersey_number?.toString() ?? '')
   const other: Team = p.team === 'home' ? 'away' : 'home'
-  const ours = p.team === ourTeam(result.match)   // 상대 선수 이름은 모르므로 우리 팀만 이름·번호를 넣는다
   const s = p.stats
 
   const save = async () => {
@@ -349,7 +367,7 @@ function TrackCard({ matchId, result, p, candidates, roster, selected, onToggle,
           </span>
         </button>
         <div className="flex-1 min-w-0 space-y-1.5">
-          {ours ? (
+          {/* 카드는 고른 팀만 보이므로(기본 우리 팀) 이름·번호를 넣을 수 있다 */}
             <div className="flex gap-1.5">
               <input className="input !py-1 !px-2 text-xs w-12 shrink-0" placeholder="번호" inputMode="numeric" value={num}
                 onChange={e => setNum(e.target.value.replace(/\D/g, '').slice(0, 3))} aria-label="등번호" />
@@ -357,9 +375,6 @@ function TrackCard({ matchId, result, p, candidates, roster, selected, onToggle,
                 list={roster?.length ? `roster-${p.team}` : undefined}
                 onChange={e => onName(e.target.value)} onKeyDown={e => e.key === 'Enter' && dirty && save()} aria-label="이름" />
             </div>
-          ) : (
-            <p className="text-sm text-ink-200 truncate">{playerName(p)} <span className="text-[11px] text-ink-500">· 상대 선수(이름 없음)</span></p>
-          )}
           <p className="text-[11px] text-ink-500 truncate">
             {p.track_id}{isGk(p) && ' · GK'} · {fmtClock(s.first_seen_s ?? 0)}~{fmtClock(s.last_seen_s ?? 0)} · {s.minutes_tracked.toFixed(0)}분 · 터치 {s.touches}
             {p.minor && ' · 짧은 트랙'}
@@ -372,7 +387,7 @@ function TrackCard({ matchId, result, p, candidates, roster, selected, onToggle,
         </button>
       </div>
       <div className="flex flex-wrap gap-1.5 mt-2">
-        {ours && dirty && <button className="btn-primary !py-1 !px-2 text-xs" disabled={busy} onClick={save}>저장</button>}
+        {dirty && <button className="btn-primary !py-1 !px-2 text-xs" disabled={busy} onClick={save}>저장</button>}
         <button type="button" className="btn-secondary !py-1 !px-2 text-xs" onClick={onIdentify}>
           <ScanSearch className="w-3 h-3" />확대·영상
         </button>

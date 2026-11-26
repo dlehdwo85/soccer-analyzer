@@ -392,9 +392,29 @@ def update_player(match_id: int, track_id: str, body: PlayerUpdate, db: Session 
     if p.merged_into:
         # 경기 화면에서 '이 장면의 이 사람'(합쳐진 조각)에 이름을 넣었다 → 그 조각을 떼어 따로 이름을 붙인다.
         # 같은 이름이면 아래에서 다시 합쳐지고, 이제는 사람이 확인한 연결이 된다.
-        if p.excluded or not ({"display_name", "jersey_number", "excluded"} & set(data)):
+        if p.excluded or not ({"display_name", "jersey_number", "excluded", "team"} & set(data)):
             raise HTTPException(400, "다른 선수에 병합된 트랙입니다. 병합을 먼저 해제하세요.")
+        parent = _player(db, match_id, p.merged_into)
         p.merged_into, p.auto_merged = None, False
+        if ((data.get("display_name") or "").strip() and not data.get("excluded") and not data.get("team")
+                and not parent.display_name and not parent.excluded and not parent.merged_into):
+            # 이름 없는 묶음(자동 정리가 한 사람으로 짐작한 조각들)의 한 조각에 이름을 넣었다 → 나머지 조각도
+            # 그 이름의 추정(물음표)으로 붙인다. 예전엔 넣은 조각만 이름을 받아, 같은 사람의 다른 장면이 계속 '?'로 남았다.
+            db.flush()
+            for r in [parent, *db.query(MatchPlayer).filter(MatchPlayer.match_id == match_id,
+                                                            MatchPlayer.merged_into == parent.track_id).all()]:
+                r.merged_into, r.auto_merged = p.track_id, True
+    elif data.get("team") and data["team"] != p.team:
+        # 다른 팀으로 옮기는 대표 조각에 붙어 있던 조각은 원래 팀에 남긴다 (가장 오래 보인 조각이 새 대표)
+        db.flush()
+        kids = db.query(MatchPlayer).filter(MatchPlayer.match_id == match_id,
+                                            MatchPlayer.merged_into == p.track_id).all()
+        if kids:
+            lead = max(kids, key=lambda r: float(json.loads(r.stats_json or "{}").get("seconds_tracked") or 0))
+            lead.merged_into, lead.auto_merged = None, False
+            for r in kids:
+                if r is not lead:
+                    r.merged_into = lead.track_id
     if "display_name" in data:
         p.display_name = (data["display_name"] or "").strip() or None
     if "jersey_number" in data:
@@ -450,6 +470,9 @@ def update_player(match_id: int, track_id: str, body: PlayerUpdate, db: Session 
             if target.jersey_number is None:
                 target.jersey_number = next((g.jersey_number for g in group if g.jersey_number is not None), None)
             merged_into = target.track_id
+        db.flush()
+        from app.services.roster_service import attach_gk_guesses
+        attach_gk_guesses(db, _get(db, match_id), _player(db, match_id, merged_into or p.track_id))
     db.commit()
     return {"ok": True, "merged_into": merged_into}
 
