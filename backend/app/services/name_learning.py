@@ -50,6 +50,9 @@ class Player:
     head: str
     pieces: List[Piece] = field(default_factory=list)
     frames: set = field(default_factory=set)
+    # 교체: 들어온 선수는 나간 선수가 마지막으로 보인 뒤에만, 나간 선수는 들어온 선수가 처음 보이기 전에만 뛰었다
+    not_before: Optional[float] = None
+    not_after: Optional[float] = None
 
 
 def _piece(r: MatchPlayer, tracks: Dict, step: float, start: float, app_cache: Dict) -> Optional[Piece]:
@@ -94,6 +97,15 @@ def _model(db: Session, match: Match, team: str):
             pl.frames |= pc.frames
         elif pc.secs >= MIN_PIECE_S:
             unknown.append((r, pc))
+    try:
+        subs = (json.loads(match.lineup_json or "{}").get("subs") or {}).get(team) or []
+    except ValueError:
+        subs = []
+    for pair in subs:
+        out, inn = players.get(pair[0]), players.get(pair[1])
+        if out and inn and out.pieces and inn.pieces:
+            inn.not_before = max(q.t1 for q in out.pieces) - CO_VISIBLE_TOL_S
+            out.not_after = min(q.t0 for q in inn.pieces) + CO_VISIBLE_TOL_S
     return players, unknown, step
 
 
@@ -108,6 +120,8 @@ def _scores(pc: Piece, players: Dict[str, Player], step: float, skip: Optional[P
         frames = pl.frames if skip is None or skip not in pl.pieces else set().union(*(q.frames for q in own))
         if len(pc.frames & frames) * step > CO_VISIBLE_TOL_S:
             continue
+        if (pl.not_before is not None and pc.t0 < pl.not_before) or (pl.not_after is not None and pc.t1 > pl.not_after):
+            continue          # 교체로 그때는 경기장에 없었다
         before = [q for q in own if q.t1 <= pc.t0 + CO_VISIBLE_TOL_S]
         after = [q for q in own if q.t0 >= pc.t1 - CO_VISIBLE_TOL_S]
         gb = pc.t0 - max(q.t1 for q in before) if before else None

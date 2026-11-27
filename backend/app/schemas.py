@@ -56,6 +56,8 @@ class MatchUpdate(BaseModel):
     away_team_id: Optional[int] = None
     # 이 경기 명단(팀별 이름 목록) — 선수 정리에서 이름을 직접 치지 않고 고른다
     lineup: Optional[Dict[Literal["home", "away"], List[str]]] = None
+    # 경기 중 교체 [[나간 선수, 들어온 선수], ...] — 이름 배우기가 들어오기 전·나간 뒤에는 그 이름을 붙이지 않는다
+    subs: Optional[Dict[Literal["home", "away"], List[List[str]]]] = None
 
     @field_validator("home_team_color", "away_team_color", "referee_color", "home_gk_color", "away_gk_color")
     @classmethod
@@ -109,6 +111,7 @@ class MatchOut(BaseModel):
     home_team_id: Optional[int] = None
     away_team_id: Optional[int] = None
     lineup: Dict[str, List[str]] = Field(default_factory=dict)
+    subs: Dict[str, List[List[str]]] = Field(default_factory=dict)
 
 
 class StatusOut(BaseModel):

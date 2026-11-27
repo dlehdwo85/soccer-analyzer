@@ -691,3 +691,13 @@ def test_learn_names_suggests_from_confirmed_pieces(client):
     r = client.post(f"{url}/players/learn-names?team=home&apply=true&min_margin=0").json()
     ei = next(p for p in client.get(f"{url}/result").json()["players"] if p["display_name"] == "에이")
     assert u in ei["guessed_from"]
+
+
+def test_subs_saved_with_lineup(client):
+    """교체 저장: [나간, 들어온]. 같은 이름끼리는 버리고, 명단을 고쳐도 교체는 남는다."""
+    m = client.post("/api/matches", json={"title": "교체"}).json()
+    url = f"/api/matches/{m['id']}"
+    r = client.patch(url, json={"subs": {"home": [["성현", "진원랑"], ["같음", "같음"]]}})
+    assert r.status_code == 200 and r.json()["subs"] == {"home": [["성현", "진원랑"]]} and r.json()["lineup"] == {}
+    r = client.patch(url, json={"lineup": {"home": ["성현", "진원랑"]}})
+    assert r.json()["subs"] == {"home": [["성현", "진원랑"]]} and r.json()["lineup"] == {"home": ["성현", "진원랑"]}

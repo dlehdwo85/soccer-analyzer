@@ -27,6 +27,21 @@ export default function LineupPanel({ matchId, match, players, side, roster, onC
   roster?: RosterEntry[]; onChanged: () => Promise<void>
 }) {
   const lineup = effectiveLineup(match, players, side)
+  const subs = match.subs?.[side] ?? []
+  const [subOut, setSubOut] = useState('')
+  const [subIn, setSubIn] = useState('')
+  const saveSubs = async (next: [string, string][], ok: string) => {
+    setBusy(true)
+    try {
+      await api.updateMatch(matchId, { subs: { [side]: next } })
+      await onChanged()
+      toast.success(ok)
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(false)
@@ -86,6 +101,39 @@ export default function LineupPanel({ matchId, match, players, side, roster, onC
           </span>
         ))}
       </div>
+      {(subs.length > 0 || open) && (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-ink-400">교체</span>
+          {subs.length === 0 && <span className="text-ink-500">없음</span>}
+          {subs.map(([a, b]) => (
+            <span key={`${a}>${b}`} className="inline-flex items-center gap-1 rounded-full bg-ink-800 px-2 py-0.5 text-ink-200">
+              {a} → {b}
+              {open && (
+                <button type="button" disabled={busy} aria-label={`${a} → ${b} 교체 지우기`} className="rounded-full hover:bg-black/30"
+                  onClick={() => saveSubs(subs.filter(s => !(s[0] === a && s[1] === b)), '교체를 지웠습니다')}><X className="w-3 h-3" /></button>
+              )}
+            </span>
+          ))}
+          {open && (
+            <span className="inline-flex items-center gap-1">
+              <select className="input !py-0.5 !w-auto text-xs" value={subOut} onChange={e => setSubOut(e.target.value)} aria-label="나간 선수">
+                <option value="">나간 선수</option>
+                {lineup.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+              →
+              <select className="input !py-0.5 !w-auto text-xs" value={subIn} onChange={e => setSubIn(e.target.value)} aria-label="들어온 선수">
+                <option value="">들어온 선수</option>
+                {lineup.filter(n => n !== subOut).map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+              <button type="button" className="btn-secondary !py-0.5 !px-2 text-xs" disabled={busy || !subOut || !subIn}
+                onClick={() => { void saveSubs([...subs, [subOut, subIn]], `교체 ${subOut} → ${subIn}을(를) 넣었습니다`); setSubOut(''); setSubIn('') }}>
+                <Plus className="w-3 h-3" />교체 넣기
+              </button>
+            </span>
+          )}
+          <span className="text-[11px] text-ink-500">이름 추정은 들어오기 전·나간 뒤에는 그 선수 이름을 붙이지 않습니다.</span>
+        </div>
+      )}
       {open && (
         <div className="space-y-2 border-t border-ink-800 pt-2">
           {!roster?.length && clubs.length > 0 && (

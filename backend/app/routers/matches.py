@@ -39,7 +39,9 @@ def _out(m: Match) -> MatchOut:
     o = MatchOut.model_validate(m)
     o.calibrated = bool(m.calibration_json)
     try:
-        o.lineup = json.loads(m.lineup_json) if m.lineup_json else {}
+        lj = json.loads(m.lineup_json) if m.lineup_json else {}
+        o.lineup = {k: v for k, v in lj.items() if k in ("home", "away")}
+        o.subs = lj.get("subs") or {}
     except ValueError:
         o.lineup = {}
     return o
@@ -83,6 +85,15 @@ def update_match(match_id: int, body: MatchUpdate, db: Session = Depends(get_db)
     m = _get(db, match_id)
     for k, v in body.model_dump(exclude_unset=True).items():
         if k in ("title", "field_type", "home_team_color", "away_team_color", "home_attacks") and v is None:
+            continue
+        if k == "subs":
+            cur = json.loads(m.lineup_json) if m.lineup_json else {}
+            subs = cur.get("subs") or {}
+            for side, pairs in (v or {}).items():
+                subs[side] = [[a.strip(), b.strip()] for a, b in (p[:2] for p in pairs if len(p) >= 2)
+                              if a.strip() and b.strip() and a.strip() != b.strip()]
+            cur["subs"] = subs
+            m.lineup_json = json.dumps(cur, ensure_ascii=False)
             continue
         if k == "lineup":
             cur = json.loads(m.lineup_json) if m.lineup_json else {}

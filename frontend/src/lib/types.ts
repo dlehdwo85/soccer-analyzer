@@ -34,12 +34,14 @@ export interface Match {
   away_team_id?: number | null
   /** 이 경기 명단(팀별 이름) — 선수 정리에서 이름을 직접 치지 않고 고른다. 없으면 이 경기에 넣은 이름 */
   lineup?: Partial<Record<Team, string[]>>
+  /** 경기 중 교체 [나간 선수, 들어온 선수] — 이름 추정이 들어오기 전·나간 뒤에는 그 이름을 붙이지 않는다 */
+  subs?: Partial<Record<Team, [string, string][]>>
 }
 
 export type MatchInput = Pick<Match,
   'title' | 'date' | 'field_type' | 'home_team_name' | 'away_team_name' | 'home_team_color' |
   'away_team_color' | 'referee_color' | 'home_gk_color' | 'away_gk_color' | 'home_attacks' | 'halftime_s' |
-  'home_team_id' | 'away_team_id' | 'lineup'>
+  'home_team_id' | 'away_team_id' | 'lineup' | 'subs'>
 
 export interface RosterEntry { number: number | null; name: string }
 
