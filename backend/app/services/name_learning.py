@@ -55,6 +55,10 @@ def _piece(r: MatchPlayer, tracks: Dict, step: float, start: float, app_cache: D
         return None
     st = _loads(r.stats_json, {}) or {}
     ax, ay = st.get("avg_x"), st.get("avg_y")
+    if (ax is None or ay is None) and st.get("pos_weight"):
+        # 조각별 기록에는 평균 대신 합계(pos_sum)와 가중치가 저장돼 있다 (평균은 결과를 볼 때 계산)
+        w = float(st["pos_weight"])
+        ax, ay = float(st.get("pos_sum_x") or 0) / w, float(st.get("pos_sum_y") or 0) / w
     if r.track_id not in app_cache:
         app_cache[r.track_id] = _thumb_appearance(r.thumbnail)
     return Piece(r.track_id, {x[0] for x in rows}, start + rows[0][0] * step, start + rows[-1][0] * step,
