@@ -102,12 +102,18 @@ def _model(db: Session, match: Match, team: str):
         subs = (json.loads(match.lineup_json or "{}").get("subs") or {}).get(team) or []
     except ValueError:
         subs = []
+    _apply_subs(players, subs)
+    return players, unknown, step, subs
+
+
+def _apply_subs(players: Dict[str, Player], subs: List) -> None:
+    """교체 [나간, 들어온]: 들어온 선수는 나간 선수가 마지막으로 보인 뒤에만, 나간 선수는 들어온 선수가 처음 보이기 전에만.
+    추정으로 조각을 붙일 때마다 다시 계산한다(나간 선수 조각이 늘면 들어온 선수의 시작도 늦춰진다)."""
     for pair in subs:
         out, inn = players.get(pair[0]), players.get(pair[1])
         if out and inn and out.pieces and inn.pieces:
             inn.not_before = max(q.t1 for q in out.pieces) - CO_VISIBLE_TOL_S
             out.not_after = min(q.t0 for q in inn.pieces) + CO_VISIBLE_TOL_S
-    return players, unknown, step
 
 
 def _scores(pc: Piece, players: Dict[str, Player], step: float, skip: Optional[Piece] = None
@@ -157,7 +163,7 @@ def _scores(pc: Piece, players: Dict[str, Player], step: float, skip: Optional[P
 
 def evaluate(db: Session, match: Match, team: str, detail: bool = False) -> Dict:
     """확인된 조각을 하나씩 가리고 나머지로 맞혀 본다. 여유(margin)별 정답률."""
-    players, _, step = _model(db, match, team)
+    players, _, step, _subs = _model(db, match, team)
     rows = []
     for name, pl in players.items():
         if len(pl.pieces) < 2:
@@ -188,7 +194,7 @@ def evaluate(db: Session, match: Match, team: str, detail: bool = False) -> Dict
 def learn(db: Session, match: Match, team: str, apply: bool, min_margin: float) -> Dict:
     """이름 없는 조각에 추정 이름을 붙인다(apply면 저장). 가장 자신 있는 조각부터 하나씩 붙이고,
     붙인 조각도 그 선수의 자리로 쳐서 다음 조각과 같은 장면에 겹치지 않게 한다."""
-    players, unknown, step = _model(db, match, team)
+    players, unknown, step, subs = _model(db, match, team)
     done: List[Dict] = []
     assigned: set = set()
     left = list(unknown)
@@ -208,6 +214,7 @@ def learn(db: Session, match: Match, team: str, apply: bool, min_margin: float) 
         pl = players[name]
         pl.frames |= pc.frames
         pl.pieces.append(pc)          # 다음 조각의 시간·자리 판단에 쓴다
+        _apply_subs(players, subs)
         done.append({"track_id": r.track_id, "name": name, "margin": round(margin, 2),
                      "from_s": round(pc.t0, 1), "to_s": round(pc.t1, 1)})
         if apply:
