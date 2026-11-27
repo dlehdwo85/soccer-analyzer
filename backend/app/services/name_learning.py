@@ -42,6 +42,7 @@ class Piece:
     secs: float
     pos: Optional[Tuple[float, float]]
     app: Optional[np.ndarray]
+    gk: bool = False
 
 
 @dataclass
@@ -69,7 +70,7 @@ def _piece(r: MatchPlayer, tracks: Dict, step: float, start: float, app_cache: D
         app_cache[r.track_id] = _thumb_appearance(r.thumbnail)
     return Piece(r.track_id, {x[0] for x in rows}, start + rows[0][0] * step, start + rows[-1][0] * step,
                  len(rows) * step, (float(ax), float(ay)) if ax is not None and ay is not None else None,
-                 app_cache[r.track_id])
+                 app_cache[r.track_id], (r.label or "").endswith("_gk"))
 
 
 def _model(db: Session, match: Match, team: str):
@@ -122,6 +123,9 @@ def _scores(pc: Piece, players: Dict[str, Player], step: float, skip: Optional[P
             continue
         if (pl.not_before is not None and pc.t0 < pl.not_before) or (pl.not_after is not None and pc.t1 > pl.not_after):
             continue          # 교체로 그때는 경기장에 없었다
+        # 골키퍼(다른 색 옷)와 필드 선수는 섞지 않는다: 확인된 조각 대부분이 골키퍼면 골키퍼 조각만 받는다
+        if pc.gk != (sum(q.gk for q in own) * 2 > len(own)):
+            continue
         before = [q for q in own if q.t1 <= pc.t0 + CO_VISIBLE_TOL_S]
         after = [q for q in own if q.t0 >= pc.t1 - CO_VISIBLE_TOL_S]
         gb = pc.t0 - max(q.t1 for q in before) if before else None
