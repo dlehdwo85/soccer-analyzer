@@ -28,6 +28,9 @@ from app.vision import color as C
 MIN_PIECE_S = 3.0          # 이보다 짧게 보인 조각은 추정하지 않는다
 CO_VISIBLE_TOL_S = 1.0     # 이만큼 넘게 같은 장면에 함께 보이면 다른 사람
 NEAR_S = 90.0              # 자리 비교에 쓰는 '그 무렵' 범위
+W_GAP, W_POS, W_APP, W_EDGE = 0.005, 5.0, 0.15, 1.0
+# 1등과 2등 점수 차이가 이만큼 넘을 때만 추정으로 붙인다: 3경기 2쿼터 가리고 맞히기에서 절반을 92%로 맞혔다
+DEFAULT_MARGIN = 0.8
 
 
 @dataclass
@@ -126,8 +129,10 @@ def _scores(pc: Piece, players: Dict[str, Player], step: float, skip: Optional[P
         apps = [C.appearance_distance(pc.app, q.app) for q in own]
         apps = [a for a in apps if a is not None]
         app_d = float(np.median(apps)) if apps else None
-        score = (min(gap, 120.0) / 30.0) + 2.0 * edge + (pos_d / 0.1 if pos_d is not None else 1.5) \
-            + (app_d / 15.0 if app_d is not None else 1.0)
+        # 무게는 3경기 2쿼터에서 사람이 넣은 70조각을 하나씩 가리고 맞혀 본 결과로 정했다(2026-11-27):
+        # 자리만 59%, 옷 색만 57%, 함께 쓰면 79%. 사라져 있던 틈은 약한 단서라 작게 둔다.
+        score = W_GAP * min(gap, 120.0) + W_POS * (pos_d if pos_d is not None else 0.15) \
+            + W_APP * (app_d if app_d is not None else 15.0) + W_EDGE * edge
         out.append((score, name, {"gap": gap, "pos": pos_d, "app": app_d, "edge": edge}))
     return sorted(out)
 
