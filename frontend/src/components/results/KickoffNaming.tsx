@@ -205,6 +205,49 @@ export default function KickoffNaming({ matchId, result, src, rosters, team, lin
     [k, byK, head])
   const [active, setActive] = useState<string | null>(null)
   const cards = useRef(new Map<string, HTMLElement>())
+  // 상자가 안 보이는 사람: 상대 팀으로 잘못 잡혔거나 제외된 조각일 수 있다 → 숨긴 상자도 흐리게 보여 주고 우리 팀으로 옮긴다
+  const [showOthers, setShowOthers] = useState(false)
+  const [otherPick, setOtherPick] = useState<string | null>(null)
+  const others = useMemo(() => {
+    if (k == null || !showOthers) return [] as { tid: string; p: PlayerRow; box: Box }[]
+    const out: { tid: string; p: PlayerRow; box: Box }[] = []
+    for (const [tid, box] of byK.get(k) ?? []) {
+      const h = head.get(tid)
+      if (h && (h.p.excluded || h.p.team !== us)) out.push({ tid, p: h.p, box })
+    }
+    return out
+  }, [k, byK, head, showOthers, us])
+  const [busyOther, setBusyOther] = useState(false)
+  const claimOther = async (tid: string, p: PlayerRow) => {
+    setBusyOther(true)
+    try {
+      await api.updatePlayer(matchId, tid, p.excluded
+        ? { team: us, excluded: false, ...(p.label === 'referee' ? { role: 'player' as const } : {}) }
+        : { team: us })
+      await onChanged()
+      setOtherPick(null)
+      toast.success(`${usName} 선수로 옮겼습니다. 이제 상자를 눌러 이름을 넣으세요`)
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setBusyOther(false)
+    }
+  }
+  // 이름 배우기: 넣은 이름으로 나머지 조각의 이름을 추정(물음표)으로 붙인다
+  const [learning, setLearning] = useState(false)
+  const learn = async () => {
+    setLearning(true)
+    try {
+      const r = await api.learnNames(matchId, us, true)
+      await onChanged()
+      toast.success(`이름 없는 조각 ${r.unknown}개 중 ${r.suggested}개에 추정 이름(물음표)을 붙였습니다. `
+        + `넣으신 이름 ${r.eval.tested}개를 가리고 맞혀 본 정확도 ${Math.round(r.eval.top1 * 100)}%. 맞으면 '맞음'을 눌러 주세요`, { duration: 12000 })
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setLearning(false)
+    }
+  }
 
   const pickBox = (id: string) => {
     setActive(id)
@@ -282,7 +325,8 @@ export default function KickoffNaming({ matchId, result, src, rosters, team, lin
         상자를 누르고 오른쪽 칸에서 <b>명단의 이름을 누르면</b> 바로 저장됩니다. 이름은 <b>이 장면의 그 사람</b>에게 붙습니다.
         이름 뒤에 물음표가 붙은 상자는 카메라가 끊긴 뒤 자동으로 이어 붙여 본 추정이라, 맞으면 &lsquo;맞음&rsquo;, 틀리면 다른 이름을 누르세요.
         두 사람 이름이 서로 바뀌었으면 한쪽 칸에서 &lsquo;⇄ 이름&rsquo;(이 장면에 이미 있는 이름)을 누르면 맞바뀝니다.
-        &lsquo;이름 없는 조각&rsquo; 버튼은 오래 보인 조각부터 하나씩 보여 줍니다.
+        &lsquo;이름 없는 조각&rsquo; 버튼은 오래 보인 조각부터 하나씩 보여 줍니다. 우리 선수인데 상자가 없으면 &lsquo;상자 없는 사람 찾기&rsquo;를 켜고 점선 상자를 눌러 옮기세요.
+        이름을 어느 정도 넣었으면 &lsquo;넣은 이름으로 나머지 추정&rsquo;을 누르면 남은 조각에 이름이 물음표로 붙습니다.
       </p>
 
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-3 space-y-3 lg:space-y-0">
@@ -320,10 +364,38 @@ export default function KickoffNaming({ matchId, result, src, rosters, team, lin
             </button>
           )
         })}
+        {!playing && others.map(o => (
+          <button key={`o-${o.tid}`} type="button" onClick={() => setOtherPick(o.tid)}
+            aria-label={`${o.p.excluded ? '제외된' : teamInfo(result.match, o.p.team).name} 상자 고르기`}
+            className="absolute"
+            style={{
+              left: `${(o.box[0] / W) * 100}%`, top: `${(o.box[1] / H) * 100}%`,
+              width: `${((o.box[2] - o.box[0]) / W) * 100}%`, height: `${((o.box[3] - o.box[1]) / H) * 100}%`,
+              minWidth: 14, minHeight: 22,
+            }}>
+            <span className={cn('absolute inset-0 rounded-sm border border-dashed', otherPick === o.tid ? 'border-volt border-2' : 'border-white/60')} />
+            <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-0.5 whitespace-nowrap rounded px-1 text-[10px] leading-[14px] bg-black/60 text-ink-300">
+              {o.p.excluded ? (o.p.label === 'referee' ? '심판' : '제외') : teamInfo(result.match, o.p.team).name}
+            </span>
+          </button>
+        ))}
         {(overlay === undefined || k == null) && (
           <p className="absolute inset-0 flex items-center justify-center text-sm text-ink-300">경기 장면을 불러오는 중…</p>
         )}
       </div>
+      {otherPick && (() => {
+        const o = others.find(x => x.tid === otherPick)
+        if (!o) return null
+        return (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-volt/50 bg-volt/5 p-2 text-xs">
+            <span className="text-ink-300">이 사람은 {o.p.excluded ? (o.p.label === 'referee' ? '심판으로 빠져' : '기록에서 빠져') : `${teamInfo(result.match, o.p.team).name}(으)로 잡혀`} 있습니다.</span>
+            <button type="button" className="btn-primary !py-1 !px-2 text-xs" disabled={busyOther} onClick={() => claimOther(o.tid, o.p)}>
+              {usName} 선수로 옮기기
+            </button>
+            <button type="button" className="btn-ghost !py-1 !px-2 text-xs" onClick={() => setOtherPick(null)}>닫기</button>
+          </div>
+        )
+      })()}
 
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className="btn-secondary !px-2.5 !py-1.5 text-xs" onClick={() => step(-5)} disabled={k == null}>
@@ -340,6 +412,14 @@ export default function KickoffNaming({ matchId, result, src, rosters, team, lin
           title="이름 없는 조각을 오래 보인 것부터 하나씩 보여 줍니다">
           <SkipForward className="w-4 h-4" />{todo.length ? `이름 없는 조각 ${todo.length}개 · 다음` : '이름 없는 조각 없음'}
         </button>
+        <button type="button" className="btn-secondary !px-2.5 !py-1.5 text-xs" onClick={learn} disabled={learning}
+          title="넣으신 이름을 바탕으로, 같은 시간에 다른 자리에 없던 선수·그 무렵 있던 자리·옷 색으로 이름 없는 조각의 이름을 추정합니다">
+          {learning ? '배우는 중…' : '넣은 이름으로 나머지 추정'}
+        </button>
+        <label className="flex items-center gap-1.5 text-xs text-ink-400 cursor-pointer">
+          <input type="checkbox" checked={showOthers} onChange={e => { setShowOthers(e.target.checked); setOtherPick(null) }} />
+          상자 없는 사람 찾기(상대 팀·제외 상자도 보기)
+        </label>
         {startK != null && k !== startK && (
           <button type="button" className="btn-ghost !px-2.5 !py-1.5 text-xs" onClick={() => seekK(startK)}>시작 장면으로</button>
         )}

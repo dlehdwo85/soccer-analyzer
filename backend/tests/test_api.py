@@ -658,3 +658,36 @@ def test_swap_two_pieces_in_same_scene(client):
     assert client.post(f"{url}/players/swap", json={"a": a2, "b": b2}).status_code == 200
     assert groups() == before
     assert client.post(f"{url}/players/swap", json={"a": a, "b": a2}).status_code == 400   # 같은 선수끼리
+
+
+def test_learn_names_suggests_from_confirmed_pieces(client):
+    """이름 배우기: 확인된 조각을 바탕으로, 그 시간에 화면에서 사라져 있던 선수의 이름을 이름 없는 조각에 추정으로 붙인다.
+    같은 장면에 함께 보인 선수의 이름은 붙이지 않는다."""
+    import json
+    from app.models import Match
+    from app.services.result_service import pack_overlay
+    m = client.post("/api/matches", json={"title": "이름 배우기"}).json()
+    url = f"/api/matches/{m['id']}"
+    client.post(f"{url}/analyze", json={"mode": "sample", "max_seconds": 300})
+    home = [p["track_id"] for p in client.get(f"{url}/result").json()["players"] if p["team"] == "home" and not p["minor"]]
+    a1, a2, b1, b2, u = home[:5]
+    db, rows = _rows(m["id"])
+    pos = {a1: (0.2, 0.3), a2: (0.2, 0.3), u: (0.21, 0.31), b1: (0.7, 0.7), b2: (0.7, 0.7)}
+    for t in (a1, a2, b1, b2, u):
+        rows[t].merged_into, rows[t].auto_merged, rows[t].display_name = None, False, None
+        st = json.loads(rows[t].stats_json or "{}")
+        st["avg_x"], st["avg_y"] = pos[t]
+        rows[t].stats_json = json.dumps(st)
+    fr = lambda a, b, x: [[k, x, 500, x + 20, 560] for k in range(a, b)]   # noqa: E731
+    tracks = {a1: fr(0, 100, 100), u: fr(110, 200, 100), a2: fr(210, 300, 100),     # A가 사라진 틈에 u가 보였다
+              b1: fr(0, 150, 900), b2: fr(160, 300, 900)}                          # B는 u와 같은 장면에 보였다
+    db.get(Match, m["id"]).overlay_gz = pack_overlay({"v": 1, "w": 1920, "h": 1080, "start_s": 0, "step": 0.2,
+                                                      "n": 300, "tracks": tracks, "ball": []})
+    db.commit(); db.close()
+    for t, n in ((a1, "에이"), (a2, "에이"), (b1, "비"), (b2, "비")):
+        assert client.patch(f"{url}/players/{t}", json={"display_name": n}).status_code == 200
+    r = client.post(f"{url}/players/learn-names?team=home&apply=false&min_margin=0").json()
+    assert {(x["track_id"], x["name"]) for x in r["items"]} >= {(u, "에이")} and r["applied"] is False
+    r = client.post(f"{url}/players/learn-names?team=home&apply=true&min_margin=0").json()
+    ei = next(p for p in client.get(f"{url}/result").json()["players"] if p["display_name"] == "에이")
+    assert u in ei["guessed_from"]

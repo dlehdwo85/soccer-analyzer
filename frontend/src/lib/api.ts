@@ -144,6 +144,10 @@ export const api = {
     req<{ ok: boolean }>(`/api/balllabel/${encodeURIComponent(setId)}/${encodeURIComponent(image)}`, json('DELETE')),
   mergePlayers: (id: number, target: string, sources: string[]) =>
     req<{ ok: boolean }>(`/api/matches/${id}/players/merge`, json('POST', { target, sources })),
+  /** 사람이 넣은 이름으로 이름 없는 조각의 이름을 추정(물음표)한다. eval은 확인된 조각을 가리고 맞혀 본 정확도 */
+  learnNames: (id: number, team: Team, apply: boolean) =>
+    req<{ suggested: number; unknown: number; applied: boolean; eval: { tested: number; top1: number } & Record<string, unknown> }>(
+      `/api/matches/${id}/players/learn-names?team=${team}&apply=${apply}`, json('POST')),
   /** 같은 장면의 두 사람 이름이 서로 바뀌었을 때 맞바꾼다 (같은 두 조각으로 다시 부르면 되돌아간다) */
   swapPlayers: (id: number, a: string, b: string) =>
     req<{ ok: boolean }>(`/api/matches/${id}/players/swap`, json('POST', { a, b })),

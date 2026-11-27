@@ -497,6 +497,21 @@ def update_player(match_id: int, track_id: str, body: PlayerUpdate, db: Session 
     return {"ok": True, "merged_into": merged_into}
 
 
+@router.post("/{match_id}/players/learn-names")
+def learn_names(match_id: int, team: str = Query(default="home", pattern="^(home|away)$"), apply: bool = Query(default=False),
+                min_margin: float = Query(default=1.5, ge=0), db: Session = Depends(get_db)):
+    """사람이 넣은 이름으로 이름 없는 조각의 이름을 추정한다. apply=false면 저장하지 않고 정확도(확인된 조각 가리고 맞히기)와
+    추정 목록만 돌려준다. apply=true면 추정(물음표)으로 붙인다 — '자동 정리 되돌리기'로 한 번에 풀 수 있다."""
+    from app.services import name_learning
+    m = _get(db, match_id)
+    try:
+        ev = name_learning.evaluate(db, m, team)
+        res = name_learning.learn(db, m, team, apply=apply, min_margin=min_margin)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"eval": ev, **res, "applied": apply}
+
+
 @router.post("/{match_id}/players/swap")
 def swap_players(match_id: int, body: SwapRequest, db: Session = Depends(get_db)):
     """같은 장면의 두 사람 이름이 서로 바뀌었을 때 맞바꾼다 (다시 부르면 되돌아간다)."""
