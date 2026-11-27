@@ -444,13 +444,16 @@ def update_player(match_id: int, track_id: str, body: PlayerUpdate, db: Session 
     merged_into = None
     if p.display_name and not p.excluded:
         # 같은 경기·같은 팀에 같은 이름의 선수가 이미 있으면 같은 사람이다 → 출전 시간이 긴 쪽으로 합친다
-        same = [o for o in db.query(MatchPlayer).filter(
-                    MatchPlayer.match_id == match_id, MatchPlayer.team == p.team, MatchPlayer.merged_into.is_(None),
-                    MatchPlayer.excluded.isnot(True), MatchPlayer.display_name == p.display_name,
-                    MatchPlayer.track_id != p.track_id).all()]
-        if same:
-            def secs(r: MatchPlayer) -> float:
-                return float(json.loads(r.stats_json or "{}").get("seconds_tracked") or 0)
+        from app.services.roster_service import (_overlay, drop_conflicting_guesses, name_conflict,
+                                                 release_conflicting_pieces)
+        overlay = None
+        for _ in range(6):
+            same = [o for o in db.query(MatchPlayer).filter(
+                        MatchPlayer.match_id == match_id, MatchPlayer.team == p.team, MatchPlayer.merged_into.is_(None),
+                        MatchPlayer.excluded.isnot(True), MatchPlayer.display_name == p.display_name,
+                        MatchPlayer.track_id != p.track_id).all()]
+            if not same:
+                break
             # 위에서 떼어 낸 조각(p.merged_into=None)을 DB에 먼저 반영한다. 세션이 autoflush=False라 그대로 두면
             # 아래 조회가 DB의 옛 연결로 p를 다시 끌어오고, 메모리의 None으로 members[None]을 찾다 서버 오류가 났다.
             db.flush()
@@ -459,12 +462,19 @@ def update_player(match_id: int, track_id: str, body: PlayerUpdate, db: Session 
                                                   MatchPlayer.merged_into.in_(list(members))).all():
                 if c.merged_into in members:
                     members[c.merged_into].append(c)
-            from app.services.roster_service import drop_conflicting_guesses, name_conflict
-            from app.services.roster_service import _overlay
-            conflict = name_conflict(members, overlay=_overlay(_get(db, match_id)))
-            if conflict:
+            overlay = overlay if overlay is not None else (_overlay(_get(db, match_id)) or {})
+            conflict = name_conflict(members, overlay=overlay)
+            if not conflict:
+                break
+            if not data.get("force"):
                 raise HTTPException(409, f"'{p.display_name}'(으)로 이름 붙은 다른 선수가 {conflict}에 같은 화면 다른 자리에 함께 보입니다. "
                                          f"한 사람이 두 곳에 있을 수 없으니, 그 장면에서 누가 '{p.display_name}'인지 확인하세요.")
+            # 사용자가 이 사람이 맞다고 정했다 → 이 사람과 같은 장면에 함께 보인, 같은 이름의 다른 조각은 이름을 뺀다
+            release_conflicting_pieces(db, match_id, p, members, overlay)
+            db.flush()
+        if same:
+            def secs(r: MatchPlayer) -> float:
+                return float(json.loads(r.stats_json or "{}").get("seconds_tracked") or 0)
             for r in drop_conflicting_guesses(members):
                 r.merged_into, r.auto_merged = None, False     # 짐작으로 붙었던, 확인된 선수와 시간이 겹치는 조각
             db.flush()   # 세션이 autoflush=False라, 아래 자식 조회가 떼어 낸 조각을 다시 끌어오지 않게

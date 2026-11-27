@@ -159,6 +159,8 @@ class PlayerUpdate(BaseModel):
     # 역할: 필드 선수 / 골키퍼 / 심판(심판은 기록에서 빠진다)
     role: Optional[Literal["player", "gk", "referee"]] = None
     excluded: Optional[bool] = None
+    # 같은 이름이 같은 장면 다른 자리에 있다는 충돌을 사용자가 '이 사람이 맞다'로 정함 → 겹친 쪽 조각의 이름을 뺀다
+    force: Optional[bool] = None
 
 
 class SwapRequest(BaseModel):

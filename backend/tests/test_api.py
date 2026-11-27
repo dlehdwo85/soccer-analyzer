@@ -619,6 +619,13 @@ def test_same_name_allowed_when_never_on_screen_together(client):
     assert client.patch(f"{url}/players/{b}", json={"display_name": "준수"}).status_code == 200
     r = client.patch(f"{url}/players/{c}", json={"display_name": "준수"})
     assert r.status_code == 409 and "0:50~0:59" in r.json()["detail"]
+    # 사용자가 c가 준수가 맞다고 정하면, c와 같은 장면에 함께 보인 b에서 이름을 빼고 c를 준수로 합친다
+    r = client.patch(f"{url}/players/{c}", json={"display_name": "준수", "force": True})
+    assert r.status_code == 200, r.text
+    after = {p["track_id"]: p for p in client.get(f"{url}/result").json()["players"]}
+    js = next(p for p in after.values() if p["display_name"] == "준수")
+    assert sorted([js["track_id"], *js["merged_from"]]) == sorted([a, c])
+    assert after[b]["display_name"] is None and after[b]["merged_from"] == []
 
 
 def test_swap_two_pieces_in_same_scene(client):

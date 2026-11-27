@@ -257,6 +257,35 @@ def drop_conflicting_guesses(groups: Dict[str, List[MatchPlayer]], tol_s: float 
     return out
 
 
+def release_conflicting_pieces(db: Session, match_id: int, p: MatchPlayer, groups: Dict[str, List[MatchPlayer]],
+                               overlay: Optional[Dict], tol_s: float = OVERLAP_TOL_S) -> int:
+    """p에 이름을 넣는데 같은 이름의 다른 선수 조각이 같은 장면 다른 자리에 함께 보였다. 사용자가 p가 맞다고 정했으니
+    그 겹친 조각(사람이 확인했던 조각)에서 이름을 빼고 따로 떼어 낸다(이름 없는 조각이 되어 다시 이름을 넣을 수 있다).
+    떼어 낸 조각이 그 선수의 대표였으면 남은 조각 중 하나가 이름을 이어받는다. 반환: 떼어 낸 조각 수."""
+    tracks = (overlay or {}).get("tracks") or {}
+    step = float((overlay or {}).get("step") or 0) or 1.0
+    mine = set()
+    for r in _confirmed(groups.get(p.track_id, [p])):
+        mine |= {x[0] for x in tracks.get(r.track_id, [])}
+    mine_span = _span(p)
+    rows = db.query(MatchPlayer).filter(MatchPlayer.match_id == match_id).all()
+    n = 0
+    for h, mem in groups.items():
+        if h == p.track_id:
+            continue
+        for r in _confirmed(mem):
+            if r.track_id in tracks and mine:
+                hit = len(mine & {x[0] for x in tracks[r.track_id]}) * step > tol_s
+            else:
+                hit = _overlap_s(mine_span, _span(r)) > tol_s
+            if not hit:
+                continue
+            _detach_piece(db, match_id, r, rows)
+            r.display_name, r.jersey_number = None, None
+            n += 1
+    return n
+
+
 # ── 같은 장면의 두 사람 이름 맞바꾸기 ─────────────────────────────────────────
 
 def _detach_piece(db: Session, match_id: int, r: MatchPlayer, rows: List[MatchPlayer]) -> Optional[MatchPlayer]:

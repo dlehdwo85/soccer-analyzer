@@ -392,6 +392,8 @@ function NameRow({ matchId, result, s, span, video, frameTick, W, H, roster, lin
 
   const [typing, setTyping] = useState(false)
   const [name, setName] = useState('')
+  // 같은 이름이 같은 장면 다른 자리에 이미 있다는 충돌: 이 칸에서 바로 '이 사람이 맞음'으로 정하거나 그 장면을 본다
+  const [clash, setClash] = useState<{ name: string; when: string; t: number | null } | null>(null)
   const [busy, setBusy] = useState(false)
   const team = teamInfo(result.match, p.team)
   const otherTeam: Team = p.team === 'home' ? 'away' : 'home'
@@ -409,20 +411,23 @@ function NameRow({ matchId, result, s, span, video, frameTick, W, H, roster, lin
       toast.success(ok(r.merged_into))
     } catch (e) {
       const msg = (e as Error).message
-      // 같은 이름이 같은 장면 다른 자리에 있다는 오류: 그 장면으로 가서 둘을 같이 볼 수 있게
-      const m = e instanceof ApiError && e.status === 409 ? msg.match(/(\d+):(\d{2})/) : null
-      toast.error(msg, m ? {
-        duration: 15000,
-        action: { label: '그 장면 보기', onClick: () => onSeekTime(Number(m[1]) * 60 + Number(m[2]) + off + 0.5) },
-      } : undefined)
+      // 같은 이름이 같은 장면 다른 자리에 있다는 오류: 이 칸에 '이 사람이 맞음'·'그 장면 보기'를 띄운다
+      if (e instanceof ApiError && e.status === 409 && body.display_name) {
+        const m = msg.match(/(\d+):(\d{2})(?:~(\d+):(\d{2}))?/)
+        setClash({ name: body.display_name, when: m ? m[0] : '', t: m ? Number(m[1]) * 60 + Number(m[2]) + off + 0.5 : null })
+      } else {
+        toast.error(msg)
+      }
       setBusy(false)
     }
   }
-  const pick = (n: string) => {
+  const pick = (n: string, force = false) => {
+    setClash(null)
     const hit = roster?.find(r => r.name === n)
     const jersey = hit?.number ?? (p.display_name === n ? p.jersey_number : null)
-    return call({ display_name: n, jersey_number: jersey ?? null },
-      merged => (merged ? `같은 이름의 선수와 합쳤습니다 (${n})` : `${n}(으)로 저장했습니다`))
+    return call({ display_name: n, jersey_number: jersey ?? null, ...(force ? { force: true } : {}) },
+      merged => (force ? `${n}(으)로 정하고, 같은 시간 다른 자리의 ${n} 조각은 이름을 뺐습니다`
+        : merged ? `같은 이름의 선수와 합쳤습니다 (${n})` : `${n}(으)로 저장했습니다`))
   }
   /** 이 장면에 이미 그 이름이 붙은 다른 상자와 이름을 맞바꾼다 — 두 사람 이름이 서로 바뀌었을 때 */
   const swap = async (n: string, otherTid: string) => {
@@ -467,6 +472,23 @@ function NameRow({ matchId, result, s, span, video, frameTick, W, H, roster, lin
               맞음
             </button>
             <span className="text-[11px] text-ink-500">아니면 다른 이름을 누르세요</span>
+          </div>
+        )}
+        {clash && (
+          <div className="rounded border border-red-500/40 bg-red-500/10 p-1.5 space-y-1.5" role="alert">
+            <p className="text-[11px] text-red-200">
+              &lsquo;{clash.name}&rsquo; 이름이 {clash.when ? `${clash.when}에 ` : ''}같은 화면 다른 자리의 사람에게도 붙어 있습니다.
+              이 사람이 {clash.name}이(가) 맞으면 아래를 누르세요. 그 다른 자리 사람은 이름이 빠져 다시 넣을 수 있습니다.
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              <button type="button" className="btn-primary !py-0.5 !px-2 text-xs" disabled={busy} onClick={() => pick(clash.name, true)}>
+                이 사람이 {clash.name} 맞음
+              </button>
+              {clash.t != null && (
+                <button type="button" className="btn-secondary !py-0.5 !px-2 text-xs" onClick={() => onSeekTime(clash.t!)}>그 장면 보기</button>
+              )}
+              <button type="button" className="btn-ghost !py-0.5 !px-2 text-xs" onClick={() => setClash(null)}>취소</button>
+            </div>
           </div>
         )}
         {s.dup && (
