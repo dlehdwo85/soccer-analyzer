@@ -128,7 +128,7 @@ def _scores(pc: Piece, players: Dict[str, Player], step: float, skip: Optional[P
     return sorted(out)
 
 
-def evaluate(db: Session, match: Match, team: str) -> Dict:
+def evaluate(db: Session, match: Match, team: str, detail: bool = False) -> Dict:
     """확인된 조각을 하나씩 가리고 나머지로 맞혀 본다. 여유(margin)별 정답률."""
     players, _, step = _model(db, match, team)
     rows = []
@@ -143,8 +143,11 @@ def evaluate(db: Session, match: Match, team: str) -> Dict:
                 continue
             margin = sc[1][0] - sc[0][0] if len(sc) > 1 else 99.0
             rows.append({"name": name, "pred": sc[0][1], "margin": margin, "n_feasible": len(sc),
-                         "ok": sc[0][1] == name, "secs": q.secs})
+                         "ok": sc[0][1] == name, "secs": q.secs, "tid": q.tid, "t0": q.t0, "t1": q.t1,
+                         "cands": [{"name": n, **f} for _, n, f in sc] if detail else None})
     out = {"tested": len(rows), "top1": sum(r["ok"] for r in rows) / max(len(rows), 1)}
+    if detail:
+        out["rows"] = rows
     for th in (0.5, 1.0, 1.5, 2.0, 3.0):
         sel = [r for r in rows if r["margin"] >= th]
         out[f"margin>={th}"] = {"coverage": len(sel) / max(len(rows), 1),
